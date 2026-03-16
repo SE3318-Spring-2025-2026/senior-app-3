@@ -1,0 +1,203 @@
+<mxfile host="65bd71144e">
+    <diagram id="context-level-dfd" name="Context Level DFD">
+        <mxGraphModel dx="2465" dy="965" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title" value="Senior Project Management System&#xa;Context-Level DFD" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontStyle=1;fontSize=22;fontColor=#1F2937;" parent="1" vertex="1">
+                    <mxGeometry x="510" y="30" width="580" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="system" value="0. Senior Project Management System" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=20;fontStyle=1;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="562" y="772" width="460" height="180" as="geometry"/>
+                </mxCell>
+                <mxCell id="student" value="Student / Team" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=16;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="292" y="352" width="220" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="coordinator" value="Coordinator" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=16;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="20" y="862" width="220" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="admin" value="Admin" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F8CECC;strokeColor=#B85450;fontSize=16;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="322" y="1292" width="220" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="professor" value="Professor" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;fontSize=16;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="630" y="212" width="280" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="github" value="GitHub Services" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontSize=16;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="1230" y="530" width="240" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="jira" value="JIRA API" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontSize=16;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="1222" y="1100" width="240" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="notify" value="Email / Notification Service" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=16;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="722" y="1402" width="440" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="edge-student-in" value="Registration data, group actions,&amp;nbsp;&lt;div&gt;advisor requests, deliverable submissions&lt;/div&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4A78C2;fontSize=13;labelBackgroundColor=#FFFFFF;noEdgeStyle=1;exitX=1;exitY=0.75;exitDx=0;exitDy=0;" parent="1" source="student" edge="1">
+                    <mxGeometry x="-0.2227" y="-10" relative="1" as="geometry">
+                        <mxPoint y="-1" as="offset"/>
+                        <mxPoint x="620" y="770" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="620" y="420"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-student-out" value="Account status, invitations, feedback,&amp;nbsp;&lt;div&gt;sprint contribution, final grades, disband status&lt;/div&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#4A78C2;fontSize=13;labelBackgroundColor=#FFFFFF;endArrow=classic;startArrow=classic;noEdgeStyle=1;exitX=0.053;exitY=-0.008;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.31;entryY=0.968;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" source="system" target="student" edge="1">
+                    <mxGeometry x="0.07" y="-11" relative="1" as="geometry">
+                        <mxPoint x="629.9961290322581" y="771.9999999999998" as="sourcePoint"/>
+                        <mxPoint x="353.22193548387077" y="442" as="targetPoint"/>
+                        <mxPoint as="offset"/>
+                        <Array as="points">
+                            <mxPoint x="360" y="771"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-coordinator-in" value="Valid student IDs, schedules, rubrics,&amp;nbsp;&lt;div&gt;sprint targets, committee assignments&lt;/div&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#5B9B4C;fontSize=13;labelBackgroundColor=#FFFFFF;noEdgeStyle=1;exitX=1;exitY=0;exitDx=0;exitDy=0;" parent="1" source="coordinator" target="system" edge="1">
+                    <mxGeometry x="-0.0683" y="32" relative="1" as="geometry">
+                        <mxPoint as="offset"/>
+                        <Array as="points"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-coordinator-out" value="Configuration status, evaluation summaries,&amp;nbsp;&lt;div&gt;audit/report outputs&lt;/div&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#5B9B4C;fontSize=13;labelBackgroundColor=#FFFFFF;endArrow=classic;startArrow=classic;noEdgeStyle=1;entryX=0.99;entryY=0.635;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" target="coordinator" edge="1">
+                    <mxGeometry x="0.0636" y="20" relative="1" as="geometry">
+                        <mxPoint x="563" y="920.0044410876131" as="sourcePoint"/>
+                        <mxPoint x="241" y="941.8926586102717" as="targetPoint"/>
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-admin-in" value="One-time reset link requests,&lt;div&gt;&amp;nbsp;account administration&lt;/div&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#C0504D;fontSize=13;labelBackgroundColor=#FFFFFF;noEdgeStyle=1;" parent="1" source="admin" edge="1">
+                    <mxGeometry x="-0.312" relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="432" y="1030"/>
+                            <mxPoint x="600" y="1030"/>
+                        </Array>
+                        <mxPoint y="-1" as="offset"/>
+                        <mxPoint x="600" y="960" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-admin-out" value="Reset tokens, user security status" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#C0504D;fontSize=13;labelBackgroundColor=#FFFFFF;endArrow=classic;startArrow=classic;noEdgeStyle=1;exitX=0.349;exitY=1.008;exitDx=0;exitDy=0;exitPerimeter=0;" parent="1" source="system" edge="1">
+                    <mxGeometry x="-0.1905" y="1" relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="720" y="1120"/>
+                            <mxPoint x="640" y="1120"/>
+                            <mxPoint x="640" y="1320"/>
+                        </Array>
+                        <mxPoint as="offset"/>
+                        <mxPoint x="540" y="1320" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-professor-in" value="Advisor approvals, release actions,&amp;nbsp;&lt;div&gt;review comments, rubric scores&lt;/div&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8E63A8;fontSize=13;labelBackgroundColor=#FFFFFF;noEdgeStyle=1;exitX=0.289;exitY=1.003;exitDx=0;exitDy=0;exitPerimeter=0;" parent="1" source="professor" edge="1">
+                    <mxGeometry x="-0.6605" y="-1" relative="1" as="geometry">
+                        <mxPoint x="746.1414141414139" y="312" as="sourcePoint"/>
+                        <mxPoint x="710" y="770" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="710" y="490"/>
+                        </Array>
+                        <mxPoint y="1" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-professor-out" value="Advisee requests, deliverables for review,&amp;nbsp;&lt;div&gt;clarification items, committee worklists&lt;/div&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8E63A8;fontSize=13;labelBackgroundColor=#FFFFFF;endArrow=classic;startArrow=classic;" parent="1" edge="1">
+                    <mxGeometry x="0.6" y="-148" relative="1" as="geometry">
+                        <mxPoint x="756.9988235294122" y="779.9999999999998" as="sourcePoint"/>
+                        <mxPoint x="826.9988235294122" y="320" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="757" y="550"/>
+                            <mxPoint x="827" y="550"/>
+                        </Array>
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-github-oauth-in" value="OAuth identity, GitHub username" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#666666;fontSize=13;labelBackgroundColor=#FFFFFF;noEdgeStyle=1;entryX=0.575;entryY=0.024;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" target="system" edge="1">
+                    <mxGeometry x="-0.3168" y="23" relative="1" as="geometry">
+                        <mxPoint x="1230" y="610" as="sourcePoint"/>
+                        <mxPoint x="829.997272727273" y="761.9999999999998" as="targetPoint"/>
+                        <mxPoint y="-1" as="offset"/>
+                        <Array as="points">
+                            <mxPoint x="830" y="610"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-github-oauth-out" value="OAuth sign-in requests" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#666666;fontSize=13;labelBackgroundColor=#FFFFFF;endArrow=classic;startArrow=classic;" parent="1" source="system" target="github" edge="1">
+                    <mxGeometry x="0.4175" y="2" relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="792" y="592"/>
+                        </Array>
+                        <mxPoint x="-1" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-github-pat-in" value="PR, merge-status, org repository data" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#666666;fontSize=13;labelBackgroundColor=#FFFFFF;noEdgeStyle=1;exitX=0.099;exitY=1.022;exitDx=0;exitDy=0;exitPerimeter=0;" parent="1" source="github" edge="1">
+                    <mxGeometry x="-0.1056" y="20" relative="1" as="geometry">
+                        <mxPoint x="1290" y="470" as="sourcePoint"/>
+                        <mxPoint x="1015" y="790" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="1254" y="680"/>
+                            <mxPoint x="1015" y="680"/>
+                        </Array>
+                        <mxPoint x="-1" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-github-pat-out" value="PAT-backed PR tracking queries" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#666666;fontSize=13;labelBackgroundColor=#FFFFFF;endArrow=classic;startArrow=classic;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" parent="1" target="github" edge="1">
+                    <mxGeometry x="0.5088" relative="1" as="geometry">
+                        <mxPoint x="1022" y="862" as="sourcePoint"/>
+                        <mxPoint x="1330" y="632" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="1350" y="862"/>
+                        </Array>
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-jira-in" value="Active sprint issues, story points, assignees" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#666666;fontSize=13;labelBackgroundColor=#FFFFFF;noEdgeStyle=1;entryX=1;entryY=0.9;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" source="jira" target="system" edge="1">
+                    <mxGeometry x="-0.655" y="10" relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1220" y="1100"/>
+                            <mxPoint x="1220" y="960"/>
+                            <mxPoint x="1220" y="934"/>
+                        </Array>
+                        <mxPoint y="-1" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-jira-out" value="Scheduled synchronization requests" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#666666;fontSize=13;labelBackgroundColor=#FFFFFF;endArrow=classic;startArrow=classic;" parent="1" edge="1">
+                    <mxGeometry x="0.4526" y="20" relative="1" as="geometry">
+                        <mxPoint x="1022.0000000000005" y="890.0000000000002" as="sourcePoint"/>
+                        <mxPoint x="1360.0588235294122" y="1099.9999999999998" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="1360" y="890"/>
+                        </Array>
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-notify-out" value="Verification emails, invitations,&lt;div&gt;&amp;nbsp;alerts, clarification notices, disband notices&lt;/div&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#B58A00;fontSize=13;labelBackgroundColor=#FFFFFF;noEdgeStyle=1;" parent="1" target="notify" edge="1">
+                    <mxGeometry x="-0.0073" y="8" relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="942" y="954"/>
+                            <mxPoint x="942" y="1060"/>
+                        </Array>
+                        <mxPoint as="offset"/>
+                        <mxPoint x="942" y="954" as="sourcePoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-notify-in" value="Delivery status / notification results" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#B58A00;fontSize=13;labelBackgroundColor=#FFFFFF;endArrow=classic;startArrow=classic;" parent="1" edge="1">
+                    <mxGeometry x="-0.3506" relative="1" as="geometry">
+                        <mxPoint x="809.1188235294117" y="1402" as="sourcePoint"/>
+                        <mxPoint x="791.0011764705882" y="951.9999999999998" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="809" y="952"/>
+                        </Array>
+                        <mxPoint y="-1" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="edge-notify-student" value="Disband notification, invitations,&amp;nbsp;&lt;div&gt;account verification notices&lt;/div&gt;" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#B58A00;fontSize=13;labelBackgroundColor=#FFFFFF;endArrow=classic;startArrow=classic;exitX=0;exitY=0.5;exitDx=0;exitDy=0;" parent="1" source="notify" edge="1">
+                    <mxGeometry x="-0.11" y="58" relative="1" as="geometry">
+                        <mxPoint x="622" y="1440" as="sourcePoint"/>
+                        <mxPoint x="320" y="442" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="722" y="1440"/>
+                            <mxPoint y="1440"/>
+                            <mxPoint y="600"/>
+                            <mxPoint x="320" y="600"/>
+                        </Array>
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
