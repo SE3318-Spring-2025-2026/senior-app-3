@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram id="L2-1Y6bJC3Unu1EE_OWwz7-" name="Level 2 DFD - 1.0 User Registration">
-        <mxGraphModel dx="1281" dy="803" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1650" pageHeight="1100" math="0" shadow="0">
+        <mxGraphModel dx="1824" dy="804" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1650" pageHeight="1100" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -9,9 +9,6 @@
                 </mxCell>
                 <mxCell id="ext_student" value="Student" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" parent="1" vertex="1">
                     <mxGeometry x="50" y="410" width="140" height="60" as="geometry"/>
-                </mxCell>
-                <mxCell id="ext_coordinator" value="Coordinator" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" parent="1" vertex="1">
-                    <mxGeometry x="80" y="100" width="140" height="60" as="geometry"/>
                 </mxCell>
                 <mxCell id="ext_admin" value="Admin" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" parent="1" vertex="1">
                     <mxGeometry x="60" y="760" width="140" height="60" as="geometry"/>
@@ -24,9 +21,6 @@
                 </mxCell>
                 <mxCell id="ext_email" value="Email / Notification Service" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;" parent="1" vertex="1">
                     <mxGeometry x="730" y="940" width="180" height="60" as="geometry"/>
-                </mxCell>
-                <mxCell id="ds_vid" value="D_VID  Valid Student IDs" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;" parent="1" vertex="1">
-                    <mxGeometry x="310" y="100" width="220" height="60" as="geometry"/>
                 </mxCell>
                 <mxCell id="ds_d1" value="D1  User Accounts" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;" parent="1" vertex="1">
                     <mxGeometry x="1100" y="760" width="200" height="60" as="geometry"/>
@@ -48,12 +42,6 @@
                 </mxCell>
                 <mxCell id="p16" value="1.6 Onboard User &amp; Store Account" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" parent="1" vertex="1">
                     <mxGeometry x="1060" y="560" width="210" height="70" as="geometry"/>
-                </mxCell>
-                <mxCell id="f01" value="valid student IDs" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="ext_coordinator" target="ds_vid" edge="1">
-                    <mxGeometry relative="1" as="geometry"/>
-                </mxCell>
-                <mxCell id="f02" value="ID lookup" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="ds_vid" target="p11" edge="1">
-                    <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="f03" value="registration data" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" target="p11" edge="1">
                     <mxGeometry x="-0.0025" relative="1" as="geometry">
