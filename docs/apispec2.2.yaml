@@ -1,0 +1,575 @@
+openapi: 3.0.0
+info:
+  title: Senior Project Management System - Process 2.0 API
+  description: API specifications for Group Formation & Integration Setup (Level 2 DFD Process 2.0)
+  version: 2.2.0
+  contact:
+    name: Development Team
+    email: support@senior-project.dev
+  license:
+    name: MIT
+
+servers:
+  - url: https://api.senior-project.dev/v1
+    description: Production server
+  - url: http://localhost:3000/api/v1
+    description: Development server
+
+paths:
+  /groups:
+    post:
+      summary: Create Group & Appoint Leader (Process 2.1)
+      description: Team Leader creates a new group and appoints themselves as the leader. Includes validation and storage (Processes 2.1 and 2.2).
+      operationId: createGroup
+      tags:
+        - Group Management
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - groupName
+                - leaderId
+              properties:
+                groupName:
+                  type: string
+                  description: Name of the project group
+                  example: AI Chat Classifier
+                leaderId:
+                  type: string
+                  description: User ID of the team leader
+                  example: user_12345
+      responses:
+        201:
+          description: Group created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupResponse'
+        400:
+          description: Invalid input - group name or leader ID missing/invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        401:
+          description: Unauthorized - user must be authenticated
+        409:
+          description: Conflict - group name already exists
+
+  /groups/{groupId}:
+    get:
+      summary: Get Group Details
+      description: Retrieve details of a specific group
+      operationId: getGroup
+      tags:
+        - Group Management
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Unique group identifier
+      responses:
+        200:
+          description: Group details retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupResponse'
+        404:
+          description: Group not found
+
+  /groups/{groupId}/members:
+    post:
+      summary: Add Team Members (Process 2.3)
+      description: Team Leader adds student members to the group. Sends membership requests to students.
+      operationId: addTeamMembers
+      tags:
+        - Group Membership
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - studentIds
+              properties:
+                studentIds:
+                  type: array
+                  description: List of student IDs to add to the group
+                  items:
+                    type: string
+                  example:
+                    - student_001
+                    - student_002
+                    - student_003
+      responses:
+        201:
+          description: Members added successfully, approval requests sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groupId:
+                    type: string
+                  addedMembers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MemberRequest'
+        400:
+          description: Invalid student IDs or group ID
+        403:
+          description: Forbidden - only group leader can add members
+        404:
+          description: Group not found
+
+    get:
+      summary: List Group Members
+      description: Get all members of a group with their approval status
+      operationId: getGroupMembers
+      tags:
+        - Group Membership
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: List of group members
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groupId:
+                    type: string
+                  members:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/GroupMember'
+
+  /groups/{groupId}/approval-requests:
+    post:
+      summary: Notify & Collect Approvals (Process 2.4)
+      description: Send membership approval requests to students and collect their decisions
+      operationId: sendApprovalRequests
+      tags:
+        - Membership Approval
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - memberIds
+              properties:
+                memberIds:
+                  type: array
+                  items:
+                    type: string
+                  description: Student IDs to notify
+      responses:
+        200:
+          description: Approval requests sent successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sentCount:
+                    type: integer
+                  pendingApprovals:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApprovalRequest'
+
+  /groups/{groupId}/members/{memberId}/approval:
+    patch:
+      summary: Member Approval Decision (Process 2.5)
+      description: Student responds to membership request (accept/reject)
+      operationId: respondToApprovalRequest
+      tags:
+        - Membership Approval
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - decision
+              properties:
+                decision:
+                  type: string
+                  enum: [accept, reject]
+                  description: Student's membership decision
+                reason:
+                  type: string
+                  description: Optional reason for rejection
+      responses:
+        200:
+          description: Decision recorded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalResponse'
+        400:
+          description: Invalid decision value
+        404:
+          description: Approval request not found
+
+  /groups/{groupId}/github-setup:
+    post:
+      summary: Setup GitHub Integration (Process 2.6)
+      description: Configure GitHub organization and validate Personal Access Token (PAT)
+      operationId: setupGitHubIntegration
+      tags:
+        - Integration Setup
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - githubPat
+                - githubOrgName
+              properties:
+                githubPat:
+                  type: string
+                  description: GitHub Personal Access Token
+                  example: ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+                githubOrgName:
+                  type: string
+                  description: GitHub organization name for the project
+                  example: senior-project-org
+      responses:
+        200:
+          description: GitHub integration setup successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groupId:
+                    type: string
+                  githubOrgName:
+                    type: string
+                  validationStatus:
+                    type: string
+                    enum:
+                      - valid
+                      - invalid
+                  orgData:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      login:
+                        type: string
+                      repositories:
+                        type: integer
+        400:
+          description: Invalid PAT or organization name
+        403:
+          description: GitHub API validation failed
+        404:
+          description: Group not found
+
+  /groups/{groupId}/jira-setup:
+    post:
+      summary: Setup JIRA Integration (Process 2.7)
+      description: Bind group to JIRA project and configure integration
+      operationId: setupJiraIntegration
+      tags:
+        - Integration Setup
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - jiraProjectKey
+                - jiraCredentials
+              properties:
+                jiraProjectKey:
+                  type: string
+                  description: JIRA project key (e.g., PROJ, SP2024)
+                  example: SP2024
+                jiraCredentials:
+                  type: object
+                  description: JIRA authentication credentials
+                  properties:
+                    username:
+                      type: string
+                    apiToken:
+                      type: string
+      responses:
+        200:
+          description: JIRA integration setup successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groupId:
+                    type: string
+                  jiraProjectKey:
+                    type: string
+                  bindingStatus:
+                    type: string
+                    enum:
+                      - bound
+                      - pending
+                      - failed
+                  projectDetails:
+                    type: object
+                    properties:
+                      key:
+                        type: string
+                      name:
+                        type: string
+                      projectType:
+                        type: string
+        400:
+          description: Invalid project key or credentials
+        403:
+          description: JIRA authentication failed
+        404:
+          description: Group not found
+
+  /groups/{groupId}/members/{memberId}:
+    patch:
+      summary: Coordinator Override (Process 2.8)
+      description: Coordinator can add or remove students from a group, bypassing approval process
+      operationId: coordinatorOverride
+      tags:
+        - Group Membership
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - action
+              properties:
+                action:
+                  type: string
+                  enum: [add, remove]
+                  description: Add or remove member from group
+                reason:
+                  type: string
+                  description: Reason for override action
+      responses:
+        200:
+          description: Override action completed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groupId:
+                    type: string
+                  memberId:
+                    type: string
+                  action:
+                    type: string
+                  timestamp:
+                    type: string
+                    format: date-time
+        403:
+          description: Forbidden - only coordinators can perform this action
+        404:
+          description: Group or member not found
+
+components:
+  schemas:
+    GroupResponse:
+      type: object
+      properties:
+        groupId:
+          type: string
+          description: Unique group identifier
+        groupName:
+          type: string
+          description: Name of the group/project
+        leaderId:
+          type: string
+          description: User ID of the group leader
+        createdAt:
+          type: string
+          format: date-time
+        memberCount:
+          type: integer
+          description: Total number of members in group
+        status:
+          type: string
+          enum:
+            - active
+            - inactive
+            - archived
+        integrations:
+          type: object
+          properties:
+            github:
+              type: boolean
+              description: GitHub integration enabled
+            jira:
+              type: boolean
+              description: JIRA integration enabled
+
+    MemberRequest:
+      type: object
+      properties:
+        memberId:
+          type: string
+        studentId:
+          type: string
+        status:
+          type: string
+          enum:
+            - pending
+            - approved
+            - rejected
+        requestedAt:
+          type: string
+          format: date-time
+
+    GroupMember:
+      type: object
+      properties:
+        memberId:
+          type: string
+        studentId:
+          type: string
+        studentName:
+          type: string
+        joinedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum:
+            - active
+            - pending
+            - rejected
+        role:
+          type: string
+          enum:
+            - leader
+            - member
+
+    ApprovalRequest:
+      type: object
+      properties:
+        requestId:
+          type: string
+        groupId:
+          type: string
+        studentId:
+          type: string
+        groupName:
+          type: string
+        leaderName:
+          type: string
+        status:
+          type: string
+          enum:
+            - pending
+            - approved
+            - rejected
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+
+    ApprovalResponse:
+      type: object
+      properties:
+        requestId:
+          type: string
+        decision:
+          type: string
+          enum:
+            - accept
+            - reject
+        processedAt:
+          type: string
+          format: date-time
+        memberStatus:
+          type: string
+          enum:
+            - approved
+            - rejected
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error code or message
+        message:
+          type: string
+          description: Detailed error description
+        timestamp:
+          type: string
+          format: date-time
