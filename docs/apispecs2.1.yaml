@@ -1,0 +1,785 @@
+openapi: 3.0.0
+info:
+  title: Senior Project Management System — User Registration & Onboarding API
+  description: >
+    API specification derived from DFD Level 2 — Process 1.0: User Registration & Onboarding.
+
+    External entities:
+      - Student
+      - Admin
+      - Professor / Advisor
+      - GitHub API  (external service)
+      - Email / Notification Service  (external service)
+
+    Data store:
+      - D1  User Accounts
+
+    Sub-processes:
+      1.1  Validate Student ID
+      1.2  Create / Verify Account
+      1.3  GitHub OAuth Authentication
+      1.4  Send Verification Email
+      1.5  Set / Reset Password
+      1.6  Onboard User & Store Account
+
+    NOTE: The Coordinator entity and the D_VID Valid Student IDs data store that
+    appeared in the previous revision have been removed. Registration data now
+    flows directly from the Student into process 1.1 for validation.
+  version: 2.0.0
+  contact: {}
+
+servers:
+  - url: /api/v1
+
+# ---------------------------------------------------------------------------
+# Security
+# ---------------------------------------------------------------------------
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  # ── Schemas ────────────────────────────────────────────────────────────────
+  schemas:
+
+    # D1 — User Accounts (data store record)
+    UserAccount:
+      type: object
+      description: >
+        Persisted record in the D1 User Accounts data store.
+        Written by process 1.6 after successful onboarding.
+      properties:
+        userId:
+          type: string
+          description: System-generated unique identifier.
+          example: "usr_8f3d2a"
+        email:
+          type: string
+          format: email
+          example: "alice@university.edu"
+        role:
+          type: string
+          enum: [student, professor, admin, committee_member]
+        githubUsername:
+          type: string
+          description: Linked GitHub username; present after process 1.3 completes.
+          example: "alice-gh"
+        emailVerified:
+          type: boolean
+          default: false
+        accountStatus:
+          type: string
+          enum: [pending, active, suspended]
+          default: pending
+        createdAt:
+          type: string
+          format: date-time
+
+    # Shared lightweight schemas
+    EmailNotification:
+      type: object
+      description: Delivery receipt returned by the Email / Notification Service.
+      properties:
+        messageId:
+          type: string
+        recipient:
+          type: string
+          format: email
+        status:
+          type: string
+          enum: [queued, sent, failed]
+
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+
+  # ── Reusable responses ─────────────────────────────────────────────────────
+  responses:
+    Unauthorized:
+      description: Missing or invalid JWT token.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Caller does not have the required role.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Requested resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Resource already exists.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+security:
+  - bearerAuth: []
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+paths:
+
+  # ==========================================================================
+  # 1.1  Validate Student ID
+  #
+  # DFD flows:
+  #   f03  registration data  →  p11   (Student → 1.1)
+  #   f04  rejection notice   →  Student  (p11 → Student, on failure)
+  #   f05  validated student ID  →  p12  (p11 → 1.2, on success)
+  # ==========================================================================
+
+  /onboarding/validate-student-id:
+    post:
+      operationId: validateStudentId
+      summary: "1.1 — Validate student registration data"
+      description: >
+        Receives registration data submitted by the Student (flow f03) and
+        validates the student ID.
+
+        - On failure  → returns a rejection notice to the caller (flow f04).
+        - On success  → returns a validated-ID token that the client forwards
+          to process 1.2 / POST /auth/register (flow f05).
+
+        No coordinator whitelist or D_VID data store is involved in this
+        revision of the diagram.
+      tags: ["1.1 Validate Student ID"]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [studentId, email, password]
+              properties:
+                studentId:
+                  type: string
+                  description: Institutional student identifier supplied by the Student.
+                  example: "STU-2024-00142"
+                email:
+                  type: string
+                  format: email
+                  example: "alice@university.edu"
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+      responses:
+        "200":
+          description: >
+            Student ID is valid. Returns a short-lived validation token to be
+            used in the subsequent Create Account call (flow f05).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                    example: true
+                  validationToken:
+                    type: string
+                    description: >
+                      Short-lived token proving the student ID passed validation.
+                      Must be included in POST /auth/register.
+        "422":
+          description: >
+            Student ID did not pass validation — rejection notice returned to
+            the Student (flow f04).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                    example: false
+                  reason:
+                    type: string
+                    example: "Student ID not recognised."
+
+  # ==========================================================================
+  # 1.2  Create / Verify Account
+  #
+  # DFD flows:
+  #   f05  validated student ID      →  p12  (from 1.1)
+  #   f06  GitHub connect request    →  p12  (Student → 1.2)
+  #   f07  first login / pwd change  →  p12  (Professor → 1.2)
+  #   f08  OAuth trigger             →  p13  (p12 → 1.3)
+  #   f11  verified GitHub identity  →  p12  (p13 → 1.2, return leg)
+  #   f12  unverified account data   →  p14  (p12 → 1.4)
+  # ==========================================================================
+
+  /auth/register:
+    post:
+      operationId: registerStudent
+      summary: "1.2-A — Create a new student account"
+      description: >
+        Student submits registration data together with the validationToken
+        issued by process 1.1 (flow f05). The system creates an unverified
+        account and immediately dispatches a verification email via process
+        1.4 (flow f12).
+
+        If connectGithub is true the response also contains a GitHub OAuth URL
+        so the client can initiate process 1.3 (flow f08 / f06).
+      tags: ["1.2 Create / Verify Account"]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [validationToken, email, password]
+              properties:
+                validationToken:
+                  type: string
+                  description: Token received from POST /onboarding/validate-student-id.
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+                connectGithub:
+                  type: boolean
+                  default: false
+                  description: >
+                    When true, triggers process 1.3. Response includes a
+                    GitHub OAuth authorisation URL (flow f08).
+      responses:
+        "201":
+          description: >
+            Unverified account created. Verification email dispatched (flow f12
+            → process 1.4). If connectGithub was true, githubOauthUrl is
+            present so the client can redirect to GitHub (flow f06 / f08).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userId:
+                    type: string
+                  accountStatus:
+                    type: string
+                    enum: [pending]
+                  githubOauthUrl:
+                    type: string
+                    format: uri
+                    description: Present only when connectGithub is true.
+        "400":
+          description: Invalid or expired validationToken, or malformed input.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "409":
+          $ref: '#/components/responses/Conflict'
+
+  /auth/professor/onboard:
+    post:
+      operationId: professorFirstLogin
+      summary: "1.2-B — Professor first-login / password change"
+      description: >
+        Professor completes first-time login by setting a new password and
+        optionally linking their GitHub account (flows f07, f08). On success
+        the system triggers process 1.6 to finalise the account.
+      tags: ["1.2 Create / Verify Account"]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [newPassword]
+              properties:
+                newPassword:
+                  type: string
+                  format: password
+                  minLength: 8
+                connectGithub:
+                  type: boolean
+                  default: false
+      responses:
+        "200":
+          description: Password set. Account activation triggered (process 1.6).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userId:
+                    type: string
+                  accountStatus:
+                    type: string
+                    enum: [active]
+                  githubOauthUrl:
+                    type: string
+                    format: uri
+                    description: Present only when connectGithub is true.
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  # ==========================================================================
+  # 1.3  GitHub OAuth Authentication
+  #
+  # DFD flows:
+  #   f08  OAuth trigger             →  p13  (p12 → 1.3)
+  #   f09  OAuth sign-in request     →  GitHub API  (p13 → ext_github)
+  #   f10  OAuth identity / username →  p13  (ext_github → 1.3)
+  #   f11  verified GitHub identity  →  p12  (p13 → 1.2)
+  # ==========================================================================
+
+  /auth/github/oauth/initiate:
+    post:
+      operationId: initiateGithubOAuth
+      summary: "1.3-A — Initiate GitHub OAuth sign-in (flow f08 / f09)"
+      description: >
+        Called after process 1.2 triggers an OAuth request (flow f08).
+        Generates a CSRF state token and returns the GitHub authorisation URL.
+        The client redirects the user to GitHub (flow f09 — OAuth sign-in
+        request to the GitHub API).
+      tags: ["1.3 GitHub OAuth Authentication"]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [redirectUri]
+              properties:
+                redirectUri:
+                  type: string
+                  format: uri
+                  description: URI GitHub will redirect back to after authorisation.
+      responses:
+        "200":
+          description: OAuth authorisation URL and state token.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authorizationUrl:
+                    type: string
+                    format: uri
+                    description: GitHub OAuth URL including client_id and state param.
+                  state:
+                    type: string
+                    description: CSRF-protection token; must be verified in the callback.
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/github/oauth/callback:
+    get:
+      operationId: githubOAuthCallback
+      summary: "1.3-B — Handle GitHub OAuth callback (flows f10 / f11)"
+      description: >
+        GitHub redirects here with a temporary code after the user authorises
+        the application (flow f10 — OAuth identity / username returned from
+        GitHub API). The server exchanges the code for an access token,
+        retrieves the GitHub username, and returns the verified GitHub identity
+        to process 1.2 (flow f11).
+      tags: ["1.3 GitHub OAuth Authentication"]
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Temporary authorisation code from GitHub.
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+          description: State token for CSRF validation.
+      responses:
+        "200":
+          description: >
+            GitHub identity verified. Username linked to the user account
+            (flow f11 — verified GitHub identity back to process 1.2).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  githubUsername:
+                    type: string
+                  githubId:
+                    type: string
+                  linkedUserId:
+                    type: string
+                    description: System user ID the GitHub identity was bound to.
+        "400":
+          description: Invalid state token or code exchange failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================================================
+  # 1.4  Send Verification Email
+  #
+  # DFD flows:
+  #   f12  unverified account data         →  p14  (p12 → 1.4)
+  #   f13  verification email              →  Email Service  (p14 → ext_email)
+  #   f14  account verification notice     →  Student  (ext_email → Student)
+  #   f15  email verification confirmation →  p14  (Student → 1.4)
+  #   f16  verified account data           →  p16  (p14 → 1.6)
+  # ==========================================================================
+
+  /onboarding/send-verification-email:
+    post:
+      operationId: sendVerificationEmail
+      summary: "1.4-A — Dispatch verification email to the student (flows f12 / f13)"
+      description: >
+        Triggered internally by process 1.2 when an unverified account is
+        created (flow f12). Sends a one-time verification link through the
+        Email / Notification Service (flow f13). The service then delivers an
+        account verification notice to the Student (flow f14).
+
+        Can also be called explicitly by the Student to resend a lost email.
+      tags: ["1.4 Send Verification Email"]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId:
+                  type: string
+      responses:
+        "200":
+          description: Verification email queued / sent (flow f13).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailNotification'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "404":
+          $ref: '#/components/responses/NotFound'
+
+  /onboarding/verify-email:
+    post:
+      operationId: confirmEmailVerification
+      summary: "1.4-B — Confirm email verification token (flows f15 / f16)"
+      description: >
+        Student submits the token received in the verification email (flow f15
+        — email verification confirmation). On success the account is marked
+        verified and process 1.6 is triggered to finalise onboarding
+        (flow f16 — verified account data → process 1.6).
+      tags: ["1.4 Send Verification Email"]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  description: One-time email verification token from the notification email.
+      responses:
+        "200":
+          description: >
+            Email verified. Onboarding finalised via process 1.6 (flow f16).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userId:
+                    type: string
+                  emailVerified:
+                    type: boolean
+                    example: true
+                  accountStatus:
+                    type: string
+                    enum: [active]
+        "400":
+          description: Invalid or expired verification token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================================================
+  # 1.5  Set / Reset Password
+  #
+  # DFD flows:
+  #   f17  password reset request  →  p15  (Admin → 1.5)
+  #   f18  password reset request  →  p15  (Student → 1.5)
+  #   f19  password reset request  →  p15  (Professor → 1.5)
+  #   f20  reset link email        →  Email Service  (p15 → ext_email)
+  #   f21  new credential data     →  p16  (p15 → 1.6)
+  # ==========================================================================
+
+  /auth/password-reset/request:
+    post:
+      operationId: requestPasswordReset
+      summary: "1.5-A — Request a password reset link (flows f17 / f18 / f19)"
+      description: >
+        Any of the three actor types — Student (flow f18), Admin (flow f17), or
+        Professor (flow f19) — can submit an email address to receive a
+        one-time reset link. Process 1.5 dispatches the reset link email
+        through the Email / Notification Service (flow f20).
+
+        The response is identical regardless of whether the email address
+        exists, preventing user enumeration.
+      tags: ["1.5 Set / Reset Password"]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        "200":
+          description: Reset link dispatched via Email / Notification Service (flow f20).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailNotification'
+
+  /auth/password-reset/confirm:
+    post:
+      operationId: confirmPasswordReset
+      summary: "1.5-B — Set new password using reset token (flow f21)"
+      description: >
+        Validates the one-time reset token from the email link and updates the
+        credential. The new credential data is forwarded to process 1.6 for
+        persistence in D1 (flow f21 — new credential data → process 1.6).
+      tags: ["1.5 Set / Reset Password"]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, newPassword]
+              properties:
+                token:
+                  type: string
+                  description: One-time reset token from the email link.
+                newPassword:
+                  type: string
+                  format: password
+                  minLength: 8
+      responses:
+        "200":
+          description: >
+            Password updated. New credential data forwarded to process 1.6
+            (flow f21).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userId:
+                    type: string
+                  message:
+                    type: string
+                    example: "Password updated successfully."
+        "400":
+          description: Invalid or expired reset token, or password does not meet policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/password-reset/admin-initiate:
+    post:
+      operationId: adminInitiatePasswordReset
+      summary: "1.5-C — Admin-initiated forced password reset (flow f17)"
+      description: >
+        Admin triggers a forced password reset for a specific user account
+        (flow f17 — password reset request from Admin). Dispatches the reset
+        link email on the user's behalf (flow f20).
+      tags: ["1.5 Set / Reset Password"]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId:
+                  type: string
+                  description: The account to reset.
+      responses:
+        "200":
+          description: Reset link sent to the user's registered email (flow f20).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailNotification'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+
+  # ==========================================================================
+  # 1.6  Onboard User & Store Account
+  #
+  # DFD flows:
+  #   f16  verified account data               →  p16  (p14 → 1.6)
+  #   f21  new credential data                 →  p16  (p15 → 1.6)
+  #   f22  user account record                 →  D1   (p16 → ds_d1)
+  #   f23  account ready / onboarding complete →  Student    (p16 → ext_student)
+  #   f24  account ready                       →  Professor  (p16 → ext_professor)
+  # ==========================================================================
+
+  /onboarding/complete:
+    post:
+      operationId: completeOnboarding
+      summary: "1.6-A — Finalise onboarding and persist account record to D1 (flows f16 / f21 / f22)"
+      description: >
+        Called internally once either:
+          - verified account data arrives from process 1.4 (flow f16), or
+          - new credential data arrives from process 1.5 (flow f21).
+
+        Writes the complete user record to the D1 User Accounts data store
+        (flow f22) and notifies the user that their account is ready:
+          - Student receives "account ready / onboarding complete" (flow f23).
+          - Professor receives "account ready" (flow f24).
+      tags: ["1.6 Onboard User & Store Account"]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId:
+                  type: string
+      responses:
+        "200":
+          description: >
+            Account persisted to D1 (flow f22). Notification dispatched to
+            Student (flow f23) or Professor (flow f24).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAccount'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "404":
+          $ref: '#/components/responses/NotFound'
+
+  /onboarding/accounts/{userId}:
+    get:
+      operationId: getAccountRecord
+      summary: "1.6-B — Retrieve user account from D1"
+      description: >
+        Returns the persisted record from the D1 User Accounts data store.
+        Accessible by the account owner and Admin.
+      tags: ["1.6 Onboard User & Store Account"]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User account record from D1.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAccount'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      operationId: updateAccountRecord
+      summary: "1.6-C — Update user account in D1"
+      description: >
+        Partial update to an existing D1 record — used to link a GitHub
+        username after process 1.3 completes, update the emailVerified flag
+        after process 1.4, or change account status.
+      tags: ["1.6 Onboard User & Store Account"]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                githubUsername:
+                  type: string
+                emailVerified:
+                  type: boolean
+                accountStatus:
+                  type: string
+                  enum: [pending, active, suspended]
+      responses:
+        "200":
+          description: Account record updated in D1.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAccount'
+        "401":
+          $ref: '#/components/responses/Unauthorized'
+        "403":
+          $ref: '#/components/responses/Forbidden'
+        "404":
+          $ref: '#/components/responses/NotFound'
