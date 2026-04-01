@@ -1,0 +1,404 @@
+const User = require('../models/User');
+const RefreshToken = require('../models/RefreshToken');
+const { hashPassword, comparePassword } = require('../utils/password');
+const { generateTokenPair, verifyRefreshToken } = require('../utils/jwt');
+const axios = require('axios');
+const crypto = require('crypto');
+
+/**
+ * Login with email and password
+ */
+const loginWithPassword = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Validation
+    if (!email || !password) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'Email and password are required',
+      });
+    }
+
+    // Find user
+    const user = await User.findOne({ email: email.toLowerCase() });
+
+    if (!user) {
+      return res.status(401).json({
+        code: 'INVALID_CREDENTIALS',
+        message: 'Invalid email or password',
+      });
+    }
+
+    // Check if account is locked
+    if (user.lockedUntil && user.lockedUntil > new Date()) {
+      return res.status(401).json({
+        code: 'ACCOUNT_LOCKED',
+        message: 'Account is temporarily locked. Try again later.',
+      });
+    }
+
+    // Check if account is suspended
+    if (user.accountStatus === 'suspended') {
+      return res.status(403).json({
+        code: 'ACCOUNT_SUSPENDED',
+        message: 'Your account has been suspended',
+      });
+    }
+
+    // Verify password
+    const passwordMatch = await comparePassword(password, user.hashedPassword);
+
+    if (!passwordMatch) {
+      // Increment failed attempts
+      user.loginAttempts = (user.loginAttempts || 0) + 1;
+      if (user.loginAttempts >= 5) {
+        user.lockedUntil = new Date(Date.now() + 30 * 60 * 1000); // Lock for 30 minutes
+      }
+      await user.save();
+
+      return res.status(401).json({
+        code: 'INVALID_CREDENTIALS',
+        message: 'Invalid email or password',
+      });
+    }
+
+    // Reset failed attempts on successful login
+    user.loginAttempts = 0;
+    user.lockedUntil = null;
+    user.lastLogin = new Date();
+    await user.save();
+
+    // Generate tokens
+    const tokens = generateTokenPair(user.userId, user.role);
+
+    // Save refresh token to database
+    const refreshTokenDoc = new RefreshToken({
+      userId: user.userId,
+      token: tokens.refreshToken,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      userAgent: req.headers['user-agent'],
+      ipAddress: req.ip,
+      lastUsedAt: new Date(),
+    });
+    await refreshTokenDoc.save();
+
+    return res.status(200).json({
+      userId: user.userId,
+      email: user.email,
+      role: user.role,
+      emailVerified: user.emailVerified,
+      accountStatus: user.accountStatus,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      expiresIn: 900, // 15 minutes in seconds
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Login failed',
+    });
+  }
+};
+
+/**
+ * Register new student account
+ */
+const registerStudent = async (req, res) => {
+  try {
+    const { validationToken, email, password, connectGithub } = req.body;
+
+    // Validation
+    if (!email || !password || !validationToken) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'Email, password, and validationToken are required',
+      });
+    }
+
+    // TODO: Verify validation token (from student ID validation process)
+    // For now, we'll accept it as valid
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    if (existingUser) {
+      return res.status(409).json({
+        code: 'CONFLICT',
+        message: 'User with this email already exists',
+      });
+    }
+
+    // Hash password
+    const hashedPassword = await hashPassword(password);
+
+    // Create new user
+    const user = new User({
+      email: email.toLowerCase(),
+      hashedPassword,
+      role: 'student',
+      accountStatus: 'pending',
+    });
+
+    await user.save();
+
+    // Generate tokens
+    const tokens = generateTokenPair(user.userId, user.role);
+
+    // Save refresh token
+    const refreshTokenDoc = new RefreshToken({
+      userId: user.userId,
+      token: tokens.refreshToken,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      userAgent: req.headers['user-agent'],
+      ipAddress: req.ip,
+      lastUsedAt: new Date(),
+    });
+    await refreshTokenDoc.save();
+
+    const response = {
+      userId: user.userId,
+      email: user.email,
+      accountStatus: user.accountStatus,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    };
+
+    // Add GitHub OAuth URL if requested
+    if (connectGithub) {
+      const state = crypto.randomBytes(16).toString('hex');
+      // Store state in session or cache (TODO: implement)
+      response.githubOauthUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&redirect_uri=${process.env.GITHUB_REDIRECT_URI}&state=${state}&scope=user`;
+    }
+
+    return res.status(201).json(response);
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Registration failed',
+    });
+  }
+};
+
+/**
+ * Refresh access token using refresh token
+ * Implements token rotation: old refresh token is invalidated, new pair is issued
+ */
+const refreshAccessToken = async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'Refresh token is required',
+      });
+    }
+
+    try {
+      // Verify refresh token
+      const decoded = verifyRefreshToken(refreshToken);
+
+      // Check if token exists and is not revoked
+      const tokenDoc = await RefreshToken.findOne({
+        token: refreshToken,
+        isRevoked: false,
+      });
+
+      if (!tokenDoc) {
+        return res.status(401).json({
+          code: 'INVALID_TOKEN',
+          message: 'Refresh token is invalid or has been revoked',
+        });
+      }
+
+      // Check if token is expired
+      if (tokenDoc.expiresAt < new Date()) {
+        return res.status(401).json({
+          code: 'TOKEN_EXPIRED',
+          message: 'Refresh token has expired',
+        });
+      }
+
+      // Get user
+      const user = await User.findOne({ userId: decoded.userId });
+
+      if (!user || user.accountStatus === 'suspended') {
+        return res.status(401).json({
+          code: 'INVALID_USER',
+          message: 'User not found or account is suspended',
+        });
+      }
+
+      // Generate new token pair
+      const newTokens = generateTokenPair(user.userId, user.role);
+
+      // Rotate refresh token: revoke old, save new
+      tokenDoc.isRevoked = true;
+      await tokenDoc.save();
+
+      const newRefreshTokenDoc = new RefreshToken({
+        userId: user.userId,
+        token: newTokens.refreshToken,
+        rotatedFrom: tokenDoc.tokenId,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        userAgent: req.headers['user-agent'],
+        ipAddress: req.ip,
+        lastUsedAt: new Date(),
+      });
+      await newRefreshTokenDoc.save();
+
+      return res.status(200).json({
+        accessToken: newTokens.accessToken,
+        refreshToken: newTokens.refreshToken,
+        expiresIn: 900, // 15 minutes in seconds
+      });
+    } catch (tokenError) {
+      return res.status(401).json({
+        code: 'INVALID_TOKEN',
+        message: 'Invalid or expired refresh token',
+      });
+    }
+  } catch (error) {
+    console.error('Token refresh error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Token refresh failed',
+    });
+  }
+};
+
+/**
+ * Logout: revoke refresh token
+ */
+const logout = async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (refreshToken) {
+      await RefreshToken.updateOne(
+        { token: refreshToken },
+        { isRevoked: true }
+      );
+    }
+
+    return res.status(200).json({
+      message: 'Logged out successfully',
+    });
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Logout failed',
+    });
+  }
+};
+
+/**
+ * Initiate GitHub OAuth
+ */
+const initiateGithubOAuth = async (req, res) => {
+  try {
+    const { redirectUri } = req.body;
+
+    if (!redirectUri) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'Redirect URI is required',
+      });
+    }
+
+    // Generate state token for CSRF protection
+    const state = crypto.randomBytes(32).toString('hex');
+
+    // TODO: Store state in Redis or database with expiration
+    // For now, we'll just generate it
+
+    const authorizationUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&redirect_uri=${redirectUri}&state=${state}&scope=user`;
+
+    return res.status(200).json({
+      authorizationUrl,
+      state,
+    });
+  } catch (error) {
+    console.error('GitHub OAuth initiation error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Failed to initiate GitHub OAuth',
+    });
+  }
+};
+
+/**
+ * Handle GitHub OAuth callback
+ */
+const githubOAuthCallback = async (req, res) => {
+  try {
+    const { code, state } = req.query;
+
+    if (!code || !state) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'Code and state parameters are required',
+      });
+    }
+
+    // TODO: Verify state token
+    // For now, we'll accept it
+
+    // Exchange code for access token
+    const tokenResponse = await axios.post(
+      'https://github.com/login/oauth/access_token',
+      {
+        client_id: process.env.GITHUB_CLIENT_ID,
+        client_secret: process.env.GITHUB_CLIENT_SECRET,
+        code,
+        redirect_uri: process.env.GITHUB_REDIRECT_URI,
+      },
+      {
+        headers: { Accept: 'application/json' },
+      }
+    );
+
+    const { access_token } = tokenResponse.data;
+
+    if (!access_token) {
+      return res.status(400).json({
+        code: 'OAUTH_FAILED',
+        message: 'Failed to obtain GitHub access token',
+      });
+    }
+
+    // Get GitHub user info
+    const userResponse = await axios.get('https://api.github.com/user', {
+      headers: { Authorization: `Bearer ${access_token}` },
+    });
+
+    const { login: githubUsername, id: githubId } = userResponse.data;
+
+    // TODO: Link GitHub to current user or create new account
+    // For now, just return the GitHub info
+
+    return res.status(200).json({
+      githubUsername,
+      githubId,
+      linkedUserId: req.user?.userId || null,
+    });
+  } catch (error) {
+    console.error('GitHub OAuth callback error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'GitHub OAuth callback failed',
+    });
+  }
+};
+
+module.exports = {
+  loginWithPassword,
+  registerStudent,
+  refreshAccessToken,
+  logout,
+  initiateGithubOAuth,
+  githubOAuthCallback,
+};
