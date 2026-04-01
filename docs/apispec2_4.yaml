@@ -1,0 +1,194 @@
+openapi: 3.0.0
+info:
+  title: Senior Project Management System - Process 4.0 API
+  description: API specifications for Committee Assignment (Level 2 DFD Process 4.0). DFD source: dfdlevel2_4.drawio
+  version: 2.4.0
+  contact:
+    name: Development Team
+    email: support@senior-project.dev
+  license:
+    name: MIT
+
+servers:
+  - url: https://api.senior-project.dev/v1
+    description: Production server
+  - url: http://localhost:3000/api/v1
+    description: Development server
+
+paths:
+  /committees:
+    post:
+      summary: Create Committee (Process 4.1)
+      description: Coordinator creates a committee.
+      operationId: createCommittee
+      tags:
+        - Committee Assignment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - committeeName
+                - coordinatorId
+              properties:
+                committeeName:
+                  type: string
+                coordinatorId:
+                  type: string
+                description:
+                  type: string
+      responses:
+        201:
+          description: Committee created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Committee'
+        400:
+          description: Invalid input
+
+  /committees/{committeeId}/advisors:
+    post:
+      summary: Assign Advisors (Process 4.2)
+      description: Coordinator assigns advisors to a committee.
+      operationId: assignAdvisors
+      tags:
+        - Committee Assignment
+      parameters:
+        - name: committeeId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - advisorIds
+              properties:
+                advisorIds:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        200:
+          description: Advisors assigned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Committee'
+        404:
+          description: Committee not found
+
+  /committees/{committeeId}/jury:
+    post:
+      summary: Add Jury Members (Process 4.3)
+      description: Coordinator adds jury members to the committee.
+      operationId: addJuryMembers
+      tags:
+        - Committee Assignment
+      parameters:
+        - name: committeeId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - juryMemberIds
+              properties:
+                juryMemberIds:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        200:
+          description: Jury members added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Committee'
+        404:
+          description: Committee not found
+
+  /committees/{committeeId}/publish:
+    post:
+      summary: Publish Committee (Process 4.5)
+      description: Validates and publishes the committee configuration.
+      operationId: publishCommittee
+      tags:
+        - Committee Assignment
+      parameters:
+        - name: committeeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Committee published
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommitteePublish'
+        400:
+          description: Committee setup invalid
+        404:
+          description: Committee not found
+
+components:
+  schemas:
+    Committee:
+      type: object
+      required:
+        - committeeId
+        - committeeName
+        - status
+        - createdAt
+      properties:
+        committeeId:
+          type: string
+        committeeName:
+          type: string
+        description:
+          type: string
+        advisorIds:
+          type: array
+          items:
+            type: string
+        juryMemberIds:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [draft, active]
+        createdAt:
+          type: string
+          format: date-time
+
+    CommitteePublish:
+      type: object
+      required:
+        - committeeId
+        - status
+        - publishedAt
+      properties:
+        committeeId:
+          type: string
+        status:
+          type: string
+          enum: [active]
+        publishedAt:
+          type: string
+          format: date-time
