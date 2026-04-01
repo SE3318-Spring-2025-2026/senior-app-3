@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const authRoutes = require('./routes/auth');
+const onboardingRoutes = require('./routes/onboarding');
 const { errorHandler } = require('./middleware/auth');
 
 const app = express();
@@ -47,6 +48,7 @@ connectDB();
 
 // Routes
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/onboarding', onboardingRoutes);
 
 // 404 handler
 app.use((req, res) => {

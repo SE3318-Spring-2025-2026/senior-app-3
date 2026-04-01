@@ -1,9 +1,11 @@
 const User = require('../models/User');
 const RefreshToken = require('../models/RefreshToken');
+const StudentIdRegistry = require('../models/StudentIdRegistry');
 const { hashPassword, comparePassword } = require('../utils/password');
 const { generateTokenPair, verifyRefreshToken } = require('../utils/jwt');
 const axios = require('axios');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 
 /**
  * Login with email and password
@@ -117,8 +119,47 @@ const registerStudent = async (req, res) => {
       });
     }
 
-    // TODO: Verify validation token (from student ID validation process)
-    // For now, we'll accept it as valid
+    // Verify and decode validation token
+    let tokenPayload;
+    try {
+      tokenPayload = jwt.verify(validationToken, process.env.JWT_SECRET || 'your-secret-key');
+    } catch (error) {
+      return res.status(401).json({
+        code: 'INVALID_TOKEN',
+        message: 'Validation token is invalid or expired',
+        details: 'Please re-validate your student ID',
+      });
+    }
+
+    // Check if token is for student ID validation
+    if (tokenPayload.type !== 'student_id_validation') {
+      return res.status(401).json({
+        code: 'INVALID_TOKEN_TYPE',
+        message: 'Token is not valid for registration',
+      });
+    }
+
+    // Verify email in token matches request email
+    if (tokenPayload.email !== email.toLowerCase()) {
+      return res.status(422).json({
+        code: 'EMAIL_MISMATCH',
+        message: 'Email does not match validated student ID',
+      });
+    }
+
+    // Verify student ID is still in registry
+    const registeredStudent = await StudentIdRegistry.findOne({
+      studentId: tokenPayload.studentId,
+      email: tokenPayload.email,
+      status: 'valid',
+    });
+
+    if (!registeredStudent) {
+      return res.status(422).json({
+        code: 'INVALID_STUDENT_ID',
+        message: 'Student ID is no longer valid',
+      });
+    }
 
     // Check if user already exists
     const existingUser = await User.findOne({ email: email.toLowerCase() });
@@ -138,6 +179,7 @@ const registerStudent = async (req, res) => {
       hashedPassword,
       role: 'student',
       accountStatus: 'pending',
+      studentId: tokenPayload.studentId,
     });
 
     await user.save();
@@ -159,6 +201,7 @@ const registerStudent = async (req, res) => {
     const response = {
       userId: user.userId,
       email: user.email,
+      studentId: user.studentId,
       accountStatus: user.accountStatus,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
