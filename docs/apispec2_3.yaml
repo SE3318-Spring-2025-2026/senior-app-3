@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: Senior Project Management System - Process 3.0 API
-  description: API specifications for Advisor Association (Level 2 DFD Process 3.0)
+  description: API specifications for Advisor Association (Level 2 DFD Process 3.0). DFD source: dfdlevel2_3.drawio
   version: 2.3.0
   contact:
     name: Development Team
@@ -117,16 +117,24 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - action
-              properties:
-                action:
-                  type: string
-                  enum: [assign, release]
-                professorId:
-                  type: string
-                  description: Required when action=assign
+              oneOf:
+                - type: object
+                  required:
+                    - action
+                    - professorId
+                  properties:
+                    action:
+                      type: string
+                      enum: [assign]
+                    professorId:
+                      type: string
+                - type: object
+                  required:
+                    - action
+                  properties:
+                    action:
+                      type: string
+                      enum: [release]
       responses:
         200:
           description: Advisor assignment updated
@@ -224,6 +232,13 @@ components:
   schemas:
     AdvisorRequest:
       type: object
+      required:
+        - requestId
+        - groupId
+        - professorId
+        - requesterId
+        - status
+        - createdAt
       properties:
         requestId:
           type: string
@@ -242,6 +257,10 @@ components:
 
     AdvisorDecision:
       type: object
+      required:
+        - requestId
+        - decision
+        - processedAt
       properties:
         requestId:
           type: string
@@ -254,6 +273,11 @@ components:
 
     AdvisorAssignment:
       type: object
+      required:
+        - groupId
+        - professorId
+        - status
+        - updatedAt
       properties:
         groupId:
           type: string

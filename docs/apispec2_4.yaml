@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: Senior Project Management System - Process 4.0 API
-  description: API specifications for Committee Assignment (Level 2 DFD Process 4.0)
+  description: API specifications for Committee Assignment (Level 2 DFD Process 4.0). DFD source: dfdlevel2_4.drawio
   version: 2.4.0
   contact:
     name: Development Team
@@ -150,6 +150,11 @@ components:
   schemas:
     Committee:
       type: object
+      required:
+        - committeeId
+        - committeeName
+        - status
+        - createdAt
       properties:
         committeeId:
           type: string
@@ -174,6 +179,10 @@ components:
 
     CommitteePublish:
       type: object
+      required:
+        - committeeId
+        - status
+        - publishedAt
       properties:
         committeeId:
           type: string
