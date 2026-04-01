@@ -1,14 +1,21 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import './AuthMethodSelection.css';
 
 /**
  * Auth Method Selection Screen
  * Allows user to choose between local login/registration and GitHub OAuth
  */
-const AuthMethodSelection = ({ isRegistration = false }) => {
+const AuthMethodSelection = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const isRegistration = searchParams.get('register') === 'true';
   const [loading, setLoading] = useState(false);
+
+  // Log for debugging
+  useEffect(() => {
+    console.log('isRegistration:', isRegistration, 'URL:', window.location.href);
+  }, [isRegistration]);
 
   const handleLocalAuth = () => {
     if (isRegistration) {
