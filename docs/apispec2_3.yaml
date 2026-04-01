@@ -1,8 +1,11 @@
 openapi: 3.0.0
 info:
   title: Senior Project Management System - Process 3.0 API
-  description: API specifications for Advisor Association (Level 2 DFD Process 3.0). DFD source: dfdlevel2_3.drawio
-  version: 2.3.0
+  description: >
+    API specifications for Group - Advisor Association (Level 2 DFD Process 3.0).
+    This process requires Group Creation to be completed and is bounded by a schedule.
+    DFD source: dfdlevel2_3.drawio
+  version: 2.3.1
   contact:
     name: Development Team
     email: support@senior-project.dev
@@ -15,11 +18,18 @@ servers:
   - url: http://localhost:3000/api/v1
     description: Development server
 
+tags:
+  - name: Advisor Association
+    description: Group - Advisor Association operations
+
 paths:
   /advisor-requests:
     post:
-      summary: Submit Advisee Request (Process 3.1)
-      description: Team leader submits an advisee request for a professor.
+      summary: Submit Advisee Request (Process 3.1 + 3.2 + 3.3)
+      description: >
+        Team leader submits an advisee request to a professor for a specific group.
+        The system validates that the requester is the team leader, verifies the group
+        and professor records, stores the request, and triggers advisor notification.
       operationId: submitAdviseeRequest
       tags:
         - Advisor Association
@@ -28,42 +38,31 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - groupId
-                - professorId
-                - requesterId
-              properties:
-                groupId:
-                  type: string
-                  description: Group identifier
-                professorId:
-                  type: string
-                  description: Requested professor/advisor ID
-                requesterId:
-                  type: string
-                  description: Team leader user ID
-                message:
-                  type: string
-                  description: Optional request message
+              $ref: '#/components/schemas/CreateAdvisorRequestInput'
       responses:
-        201:
-          description: Advisee request submitted
+        '201':
+          description: Advisee request submitted and advisor notification triggered
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AdvisorRequest'
-        400:
+        '400':
           description: Invalid request payload
-        403:
-          description: Forbidden - only team leader can request
-        404:
+        '403':
+          description: Forbidden - only the team leader can submit the request
+        '404':
           description: Group or professor not found
+        '409':
+          description: Request cannot be submitted because the group already has an advisor or has a pending request
+        '422':
+          description: Advisor association schedule is closed
 
   /advisor-requests/{requestId}:
     patch:
       summary: Advisor Decision (Process 3.4)
-      description: Professor approves or rejects an advisee request.
+      description: >
+        Professor approves or rejects an advisee request. If approved, the group is
+        matched with the advisor and advisor assignment records are updated.
       operationId: advisorDecision
       tags:
         - Advisor Association
@@ -71,6 +70,7 @@ paths:
         - name: requestId
           in: path
           required: true
+          description: Advisee request identifier
           schema:
             type: string
       requestBody:
@@ -78,38 +78,39 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - decision
-              properties:
-                decision:
-                  type: string
-                  enum: [approve, reject]
-                reason:
-                  type: string
+              $ref: '#/components/schemas/AdvisorDecisionInput'
       responses:
-        200:
-          description: Decision recorded
+        '200':
+          description: Decision recorded successfully
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AdvisorDecision'
-        400:
-          description: Invalid decision
-        404:
+        '400':
+          description: Invalid decision payload
+        '403':
+          description: Forbidden - only the requested professor/advisor can respond
+        '404':
           description: Request not found
+        '409':
+          description: Request already processed or advisor assignment conflict exists
+        '422':
+          description: Advisor association schedule is closed
 
   /groups/{groupId}/advisor:
-    patch:
-      summary: Assign / Release Advisor (Process 3.5)
-      description: Assigns an advisor to a group or releases the current advisor.
-      operationId: assignReleaseAdvisor
+    delete:
+      summary: Release Advisor (Process 3.5)
+      description: >
+        Releases the current advisor from the group, allowing a new advisee request
+        to be made later if needed.
+      operationId: releaseAdvisor
       tags:
         - Advisor Association
       parameters:
         - name: groupId
           in: path
           required: true
+          description: Group identifier
           schema:
             type: string
       requestBody:
@@ -117,40 +118,30 @@ paths:
         content:
           application/json:
             schema:
-              oneOf:
-                - type: object
-                  required:
-                    - action
-                    - professorId
-                  properties:
-                    action:
-                      type: string
-                      enum: [assign]
-                    professorId:
-                      type: string
-                - type: object
-                  required:
-                    - action
-                  properties:
-                    action:
-                      type: string
-                      enum: [release]
+              $ref: '#/components/schemas/ReleaseAdvisorInput'
       responses:
-        200:
-          description: Advisor assignment updated
+        '200':
+          description: Advisor released successfully
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AdvisorAssignment'
-        400:
-          description: Invalid action
-        404:
-          description: Group or professor not found
+        '400':
+          description: Invalid release payload
+        '403':
+          description: Forbidden - release not permitted for this user
+        '404':
+          description: Group or advisor assignment not found
+        '409':
+          description: Group does not currently have an assigned advisor
+        '422':
+          description: Advisor association schedule is closed
 
   /groups/{groupId}/advisor/transfer:
     post:
       summary: Coordinator Transfer (Process 3.6)
-      description: Coordinator transfers a group to another advisor.
+      description: >
+        Coordinator transfers a group from its current advisor to another advisor.
       operationId: coordinatorTransferAdvisor
       tags:
         - Advisor Association
@@ -158,6 +149,7 @@ paths:
         - name: groupId
           in: path
           required: true
+          description: Group identifier
           schema:
             type: string
       requestBody:
@@ -165,33 +157,31 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - newProfessorId
-                - coordinatorId
-              properties:
-                newProfessorId:
-                  type: string
-                coordinatorId:
-                  type: string
-                reason:
-                  type: string
+              $ref: '#/components/schemas/CoordinatorTransferInput'
       responses:
-        200:
-          description: Transfer completed
+        '200':
+          description: Group transferred to the new advisor
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AdvisorAssignment'
-        403:
+        '400':
+          description: Invalid transfer payload
+        '403':
           description: Forbidden - coordinator only
-        404:
-          description: Group or professor not found
+        '404':
+          description: Group or target professor not found
+        '409':
+          description: Transfer conflict or target professor already assigned
+        '422':
+          description: Advisor association schedule is closed
 
   /groups/advisor-sanitization:
     post:
       summary: Disband Unassigned Groups (Process 3.7)
-      description: Disbands groups without advisors after a deadline.
+      description: >
+        System executes sanitization protocol after the advisor assignment deadline
+        and disbands groups that remain without an advisor.
       operationId: disbandUnassignedGroups
       tags:
         - Advisor Association
@@ -200,36 +190,106 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - deadline
-              properties:
-                deadline:
-                  type: string
-                  format: date-time
-                groupIds:
-                  type: array
-                  items:
-                    type: string
-                  description: Optional subset of groups to sanitize
+              $ref: '#/components/schemas/SanitizationInput'
       responses:
-        200:
-          description: Sanitization executed
+        '200':
+          description: Sanitization executed successfully
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  disbandedGroups:
-                    type: array
-                    items:
-                      type: string
-                  timestamp:
-                    type: string
-                    format: date-time
+                $ref: '#/components/schemas/SanitizationResult'
+        '400':
+          description: Invalid sanitization payload
+        '403':
+          description: Forbidden - system or coordinator only
+        '409':
+          description: Sanitization cannot run before the configured deadline
 
 components:
   schemas:
+    CreateAdvisorRequestInput:
+      type: object
+      required:
+        - groupId
+        - professorId
+        - requesterId
+      properties:
+        groupId:
+          type: string
+          description: Group identifier
+        professorId:
+          type: string
+          description: Requested professor/advisor identifier
+        requesterId:
+          type: string
+          description: Team leader user identifier
+        message:
+          type: string
+          description: Optional request note
+
+    AdvisorDecisionInput:
+      type: object
+      required:
+        - decision
+      properties:
+        decision:
+          type: string
+          enum: [approve, reject]
+        approvalStatus:
+          type: string
+          enum: [approved, rejected]
+          description: Optional explicit approval status for UI consistency
+        reason:
+          type: string
+          description: Optional reason for rejection or extra explanation
+
+    ReleaseAdvisorInput:
+      type: object
+      required:
+        - professorId
+        - requesterId
+      properties:
+        professorId:
+          type: string
+          description: Currently assigned professor/advisor identifier
+        requesterId:
+          type: string
+          description: User performing the release action
+        reason:
+          type: string
+          description: Optional release reason
+
+    CoordinatorTransferInput:
+      type: object
+      required:
+        - newProfessorId
+        - coordinatorId
+      properties:
+        newProfessorId:
+          type: string
+          description: New professor/advisor identifier
+        coordinatorId:
+          type: string
+          description: Coordinator user identifier
+        reason:
+          type: string
+          description: Optional transfer reason
+
+    SanitizationInput:
+      type: object
+      required:
+        - scheduleDeadline
+      properties:
+        scheduleDeadline:
+          type: string
+          format: date-time
+          description: Advisor association deadline used by sanitization
+        groupIds:
+          type: array
+          description: Optional subset of group identifiers to evaluate
+          items:
+            type: string
+
     AdvisorRequest:
       type: object
       required:
@@ -239,6 +299,7 @@ components:
         - requesterId
         - status
         - createdAt
+        - notificationTriggered
       properties:
         requestId:
           type: string
@@ -250,7 +311,11 @@ components:
           type: string
         status:
           type: string
-          enum: [pending, approved, rejected]
+          enum: [pending, approved, rejected, cancelled]
+        message:
+          type: string
+        notificationTriggered:
+          type: boolean
         createdAt:
           type: string
           format: date-time
@@ -260,6 +325,7 @@ components:
       required:
         - requestId
         - decision
+        - approvalStatus
         - processedAt
       properties:
         requestId:
@@ -267,6 +333,15 @@ components:
         decision:
           type: string
           enum: [approve, reject]
+        approvalStatus:
+          type: string
+          enum: [approved, rejected]
+        assignedGroupId:
+          type: string
+          nullable: true
+          description: Group matched to the advisor when approved
+        professorId:
+          type: string
         processedAt:
           type: string
           format: date-time
@@ -275,7 +350,6 @@ components:
       type: object
       required:
         - groupId
-        - professorId
         - status
         - updatedAt
       properties:
@@ -283,9 +357,26 @@ components:
           type: string
         professorId:
           type: string
+          nullable: true
         status:
           type: string
-          enum: [assigned, released]
+          enum: [assigned, released, transferred]
         updatedAt:
           type: string
           format: date-time
+
+    SanitizationResult:
+      type: object
+      required:
+        - disbandedGroups
+        - checkedAt
+      properties:
+        disbandedGroups:
+          type: array
+          items:
+            type: string
+        checkedAt:
+          type: string
+          format: date-time
+        message:
+          type: string
