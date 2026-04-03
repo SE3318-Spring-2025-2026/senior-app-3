@@ -11,7 +11,7 @@
 | 7. The system shall allow coordinators to assign advisors to committees. | **Levels of Security** | |
 | 8. The system shall restrict proposal submissions to only those groups that are assigned to a committee. | • Authentication: Users shall authenticate securely using an OAuth framework. | |
 | 9. The system shall allow committee members to review, leave comments, and grade proposals. | • Access Control: Professors shall be required to request a password change upon their initial login. Admins shall generate one-time-use password reset links that expire after 15 minutes. | |
-| 10. The system shall calculate individual grades based on the ratio of completed story points. | • Auditability: The system shall trace and log all user events to maintain an audit trail. | |
+| 10. The system shall calculate individual grades based on the ratio of completed story points. ||
 | | **Error Detection and Recovery** | |
 | | • Data Sanitization: If a group fails to secure an advisor, the system shall automatically trigger a sanitization protocol to disband the group. | |
 | | • API Fallback: In the event of an external API timeout, the system shall retry the connection up to 3 times before logging a synchronization error. | |
@@ -67,7 +67,6 @@ Below is the atomic breakdown of each isolated process. Each row represents a sp
 | System verifies GitHub username and associates it with student profile | Backend + GitHub API + DB | `github_username`, `student_id` |
 | Professors are required to change password on first login | Frontend + Backend + DB | `professor_id`, `temporary_password_flag` |
 | Admin can generate one-time password-reset links that expire after 15 minutes | Frontend (Admin Panel) + Backend | `admin_id`, `target_user_id`, `one_time_token`, `expiry_timestamp` |
-| Audit log entry created for onboarding events | Backend + Logging Service | `user_id`, `event_type`, `timestamp` |
 
 ### 2. Group Creation
 *This process is bounded by a schedule set by the Coordinator.*
@@ -130,7 +129,6 @@ Below is the atomic breakdown of each isolated process. Each row represents a sp
 | Coordinator-created rubric is referenced for scoring | Frontend (Committee UI) + Backend + DB | `rubric_id`, `rubric_definition` |
 | Committee members assign rubric scores to the deliverable | Frontend + Backend + DB | `deliverable_id`, `rubric_scores`, `committee_member_id` |
 | System aggregates rubric scores and computes final score for that deliverable | Backend + DB | `deliverable_id`, `aggregated_score` |
-| Audit log entry created for each evaluation action | Backend + Logging | `deliverable_id`, `evaluator_id`, `timestamp` |
 
 ### 8. Sprint Tracking (Story Points Retrieval)
 *Responsible for fetching story-point and issue metadata from JIRA on a schedule.*
