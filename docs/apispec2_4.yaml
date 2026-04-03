@@ -1,8 +1,11 @@
 openapi: 3.0.0
 info:
   title: Senior Project Management System - Process 4.0 API
-  description: API specifications for Committee Assignment (Level 2 DFD Process 4.0). DFD source: dfdlevel2_4.drawio
-  version: 2.4.0
+  description: >
+    API specifications for Committee Assignment (Level 2 DFD Process 4.0).
+    This process requires both Group Creation and Group - Advisor Association
+    to be completed first. DFD source: dfdlevel2_4.drawio
+  version: 2.4.1
   contact:
     name: Development Team
     email: support@senior-project.dev
@@ -15,11 +18,17 @@ servers:
   - url: http://localhost:3000/api/v1
     description: Development server
 
+tags:
+  - name: Committee Assignment
+    description: Committee creation, advisor assignment, jury assignment, validation, and publication
+
 paths:
   /committees:
     post:
       summary: Create Committee (Process 4.1)
-      description: Coordinator creates a committee.
+      description: >
+        Coordinator creates a new committee draft. Group creation and advisor association
+        prerequisites must already be completed for the related context.
       operationId: createCommittee
       tags:
         - Committee Assignment
@@ -28,32 +37,27 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - committeeName
-                - coordinatorId
-              properties:
-                committeeName:
-                  type: string
-                coordinatorId:
-                  type: string
-                description:
-                  type: string
+              $ref: '#/components/schemas/CreateCommitteeInput'
       responses:
-        201:
-          description: Committee created
+        '201':
+          description: Committee created successfully
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Committee'
-        400:
+        '400':
           description: Invalid input
+        '403':
+          description: Forbidden - coordinator only
+        '409':
+          description: Committee with the same name already exists
 
   /committees/{committeeId}/advisors:
     post:
-      summary: Assign Advisors (Process 4.2)
-      description: Coordinator assigns advisors to a committee.
-      operationId: assignAdvisors
+      summary: Assign Advisors to Committee (Process 4.2)
+      description: >
+        Coordinator assigns one or more advisors to the specified committee.
+      operationId: assignCommitteeAdvisors
       tags:
         - Committee Assignment
       parameters:
@@ -62,33 +66,34 @@ paths:
           required: true
           schema:
             type: string
+          description: Committee identifier
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - advisorIds
-              properties:
-                advisorIds:
-                  type: array
-                  items:
-                    type: string
+              $ref: '#/components/schemas/AssignAdvisorsInput'
       responses:
-        200:
-          description: Advisors assigned
+        '200':
+          description: Advisors assigned successfully
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Committee'
-        404:
+        '400':
+          description: Invalid advisor list
+        '403':
+          description: Forbidden - coordinator only
+        '404':
           description: Committee not found
+        '409':
+          description: Advisor assignment conflict detected
 
   /committees/{committeeId}/jury:
     post:
       summary: Add Jury Members (Process 4.3)
-      description: Coordinator adds jury members to the committee.
+      description: >
+        Coordinator assigns additional jury members to the specified committee.
       operationId: addJuryMembers
       tags:
         - Committee Assignment
@@ -98,33 +103,63 @@ paths:
           required: true
           schema:
             type: string
+          description: Committee identifier
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - juryMemberIds
-              properties:
-                juryMemberIds:
-                  type: array
-                  items:
-                    type: string
+              $ref: '#/components/schemas/AddJuryMembersInput'
       responses:
-        200:
-          description: Jury members added
+        '200':
+          description: Jury members added successfully
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Committee'
-        404:
+        '400':
+          description: Invalid jury member list
+        '403':
+          description: Forbidden - coordinator only
+        '404':
+          description: Committee not found
+        '409':
+          description: Jury assignment conflict detected
+
+  /committees/{committeeId}/validate:
+    post:
+      summary: Validate Committee Setup (Process 4.4)
+      description: >
+        Validates whether the committee contains the required advisor and jury assignments
+        and whether the setup is ready for publication.
+      operationId: validateCommitteeSetup
+      tags:
+        - Committee Assignment
+      parameters:
+        - name: committeeId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Committee identifier
+      responses:
+        '200':
+          description: Committee validation completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommitteeValidation'
+        '403':
+          description: Forbidden - coordinator only
+        '404':
           description: Committee not found
 
   /committees/{committeeId}/publish:
     post:
       summary: Publish Committee (Process 4.5)
-      description: Validates and publishes the committee configuration.
+      description: >
+        Publishes the validated committee configuration, stores the final committee data,
+        updates related assignments, and triggers committee notifications.
       operationId: publishCommittee
       tags:
         - Committee Assignment
@@ -134,20 +169,65 @@ paths:
           required: true
           schema:
             type: string
+          description: Committee identifier
       responses:
-        200:
-          description: Committee published
+        '200':
+          description: Committee published successfully
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/CommitteePublish'
-        400:
-          description: Committee setup invalid
-        404:
+        '400':
+          description: Committee setup is incomplete or invalid
+        '403':
+          description: Forbidden - coordinator only
+        '404':
           description: Committee not found
+        '409':
+          description: Committee is already published
 
 components:
   schemas:
+    CreateCommitteeInput:
+      type: object
+      required:
+        - committeeName
+        - coordinatorId
+      properties:
+        committeeName:
+          type: string
+          description: Committee name
+        coordinatorId:
+          type: string
+          description: Coordinator user identifier
+        description:
+          type: string
+          description: Optional committee description
+
+    AssignAdvisorsInput:
+      type: object
+      required:
+        - advisorIds
+      properties:
+        advisorIds:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: Advisor identifiers to assign to the committee
+
+    AddJuryMembersInput:
+      type: object
+      required:
+        - juryIds
+      properties:
+        juryIds:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: Additional jury member identifiers
+
     Committee:
       type: object
       required:
@@ -166,14 +246,37 @@ components:
           type: array
           items:
             type: string
-        juryMemberIds:
+        juryIds:
           type: array
           items:
             type: string
         status:
           type: string
-          enum: [draft, active]
+          enum: [draft, validated, published]
         createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    CommitteeValidation:
+      type: object
+      required:
+        - committeeId
+        - valid
+        - checkedAt
+      properties:
+        committeeId:
+          type: string
+        valid:
+          type: boolean
+        missingRequirements:
+          type: array
+          items:
+            type: string
+        checkedAt:
           type: string
           format: date-time
 
@@ -188,7 +291,9 @@ components:
           type: string
         status:
           type: string
-          enum: [active]
+          enum: [published]
         publishedAt:
           type: string
           format: date-time
+        notificationTriggered:
+          type: boolean
