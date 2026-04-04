@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import useOnboardingStore, { STEPS } from '../../store/onboardingStore';
+
+const RESEND_COOLDOWN_SECONDS = 60;
 import useAuthStore from '../../store/authStore';
 import {
   validateStudentId,
@@ -110,7 +112,7 @@ const Step1 = ({ onNext, onBack }) => {
 // Step 2: Create Account
 // ─────────────────────────────────────────────
 const Step2 = ({ onNext, onBack }) => {
-  const { validationToken, email, userId, setUserId, setStepComplete } = useOnboardingStore();
+  const { validationToken, email, userId, setUserId, setStepComplete, setEmailLastSentAt } = useOnboardingStore();
   const { setAuth } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState('');
@@ -142,6 +144,7 @@ const Step2 = ({ onNext, onBack }) => {
       // Trigger verification email
       try {
         await sendVerificationEmail(response.userId);
+        setEmailLastSentAt(Date.now());
       } catch { /* non-critical */ }
       setDone(true);
     } catch (err) {
@@ -193,44 +196,113 @@ const Step2 = ({ onNext, onBack }) => {
 // ─────────────────────────────────────────────
 // Step 3: Verify Email
 // ─────────────────────────────────────────────
-const Step3 = ({ onNext, onBack }) => {
-  const { userId, email, setStepComplete } = useOnboardingStore();
+const Step3 = ({ onNext, onBack, urlToken }) => {
+  const { userId, email, setStepComplete, emailLastSentAt, setEmailLastSentAt } = useOnboardingStore();
   const { setUser } = useAuthStore();
   const [token, setToken] = useState('');
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [apiError, setApiError] = useState('');
   const [tokenError, setTokenError] = useState('');
+  const [alreadyVerified, setAlreadyVerified] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(0);
 
-  const handleVerify = async (e) => {
-    e.preventDefault();
-    if (!token.trim()) { setTokenError('Please enter the verification token'); return; }
+  // Compute initial countdown from emailLastSentAt stored in the onboarding store
+  useEffect(() => {
+    if (!emailLastSentAt) return;
+    const elapsed = Math.floor((Date.now() - emailLastSentAt) / 1000);
+    const remaining = RESEND_COOLDOWN_SECONDS - elapsed;
+    if (remaining > 0) setSecondsLeft(remaining);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Countdown tick
+  useEffect(() => {
+    if (secondsLeft <= 0) return;
+    const timer = setInterval(() => setSecondsLeft((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [secondsLeft]);
+
+  // Auto-verify when token comes from URL deep-link
+  useEffect(() => {
+    if (urlToken) {
+      submitVerify(urlToken);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const submitVerify = async (t) => {
     setLoading(true);
     setApiError('');
     try {
-      const data = await verifyEmail(token.trim());
+      const data = await verifyEmail(t);
+      if (data.code === 'ALREADY_VERIFIED') {
+        setAlreadyVerified(true);
+        setUser({ emailVerified: true, accountStatus: data.accountStatus });
+        setStepComplete('emailVerified');
+        return;
+      }
       setUser({ emailVerified: true, accountStatus: data.accountStatus });
       setStepComplete('emailVerified');
       onNext();
     } catch (err) {
-      setApiError(err.response?.data?.message || 'Invalid or expired token');
+      const code = err.response?.data?.code;
+      if (code === 'EXPIRED_TOKEN') {
+        setApiError('Your verification link has expired. Please request a new one.');
+      } else {
+        setApiError(err.response?.data?.message || 'Invalid token. Please check and try again.');
+      }
     } finally {
       setLoading(false);
     }
   };
 
+  const handleVerify = async (e) => {
+    e.preventDefault();
+    if (!token.trim()) { setTokenError('Please enter the verification token'); return; }
+    await submitVerify(token.trim());
+  };
+
   const handleResend = async () => {
-    if (!userId) return;
+    if (!userId || secondsLeft > 0) return;
     setResending(true);
+    setApiError('');
     try {
       await sendVerificationEmail(userId);
-      setApiError('');
-    } catch {
-      setApiError('Failed to resend. Please try again.');
+      setEmailLastSentAt(Date.now());
+      setSecondsLeft(RESEND_COOLDOWN_SECONDS);
+    } catch (err) {
+      const code = err.response?.data?.code;
+      if (code === 'RATE_LIMITED' || code === 'MAX_EMAILS_REACHED') {
+        const retryAfter = err.response?.data?.retryAfter || RESEND_COOLDOWN_SECONDS;
+        setSecondsLeft(retryAfter);
+        setApiError(err.response?.data?.message || 'Too many requests. Please wait.');
+      } else {
+        setApiError('Failed to resend. Please try again.');
+      }
     } finally {
       setResending(false);
     }
   };
+
+  if (alreadyVerified) {
+    return (
+      <>
+        <h2>Email Already Verified</h2>
+        <p className="step-subtitle">Your email address has already been verified.</p>
+        <div className="alert alert-success">You're all set! Continue to the next step.</div>
+        <button className="btn-primary" onClick={onNext}>Continue</button>
+      </>
+    );
+  }
+
+  if (loading && urlToken) {
+    return (
+      <>
+        <h2>Verifying Email</h2>
+        <p className="step-subtitle">Please wait...</p>
+        <div className="alert alert-info">Verifying your email address...</div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -259,8 +331,12 @@ const Step3 = ({ onNext, onBack }) => {
 
       <div className="step-footer">
         <span>Didn't receive it?</span>
-        <button className="link-button" onClick={handleResend} disabled={resending}>
-          {resending ? 'Sending...' : 'Resend email'}
+        <button
+          className="link-button"
+          onClick={handleResend}
+          disabled={resending || secondsLeft > 0}
+        >
+          {resending ? 'Sending...' : secondsLeft > 0 ? `Resend in ${secondsLeft}s` : 'Resend email'}
         </button>
       </div>
     </>
@@ -342,14 +418,14 @@ const OnboardingStepper = () => {
   } = useOnboardingStore();
   const { user } = useAuthStore();
 
+  const urlToken = searchParams.get('step') === 'verify-email' ? searchParams.get('token') : null;
+
   // Handle email verification deep-link: /onboarding?step=verify-email&token=xxx
   useEffect(() => {
-    const step = searchParams.get('step');
-    const token = searchParams.get('token');
-    if (step === 'verify-email' && token) {
+    if (urlToken) {
       setCurrentStep(3);
     }
-  }, [searchParams, setCurrentStep]);
+  }, [urlToken, setCurrentStep]);
 
   const handleFinish = (role) => {
     reset();
@@ -381,7 +457,7 @@ const OnboardingStepper = () => {
       case 2:
         return <Step2 onNext={nextStep} onBack={previousStep} />;
       case 3:
-        return <Step3 onNext={nextStep} onBack={previousStep} />;
+        return <Step3 onNext={nextStep} onBack={previousStep} urlToken={urlToken} />;
       case 4:
         return <Step4 onFinish={handleCompleteAndFinish} onBack={previousStep} />;
       default:

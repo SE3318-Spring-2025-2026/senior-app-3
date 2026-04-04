@@ -210,6 +210,10 @@ const validateStudentId = async (req, res) => {
   }
 };
 
+const RESEND_COOLDOWN_MS = 60 * 1000;       // 1 minute between resends
+const MAX_EMAILS_PER_24H = 5;
+const WINDOW_24H_MS = 24 * 60 * 60 * 1000;
+
 /**
  * Send email verification link
  * POST /onboarding/send-verification-email
@@ -228,17 +232,52 @@ const sendVerificationEmailHandler = async (req, res) => {
     }
 
     if (user.emailVerified) {
-      return res.status(200).json({ messageId: 'already-verified', recipient: user.email, status: 'sent' });
+      return res.status(200).json({ code: 'ALREADY_VERIFIED', messageId: 'already-verified', recipient: user.email, status: 'sent' });
+    }
+
+    const now = new Date();
+
+    // Rate limit: 1 per minute
+    if (user.emailVerificationLastSentAt) {
+      const elapsed = now - user.emailVerificationLastSentAt;
+      if (elapsed < RESEND_COOLDOWN_MS) {
+        const retryAfter = Math.ceil((RESEND_COOLDOWN_MS - elapsed) / 1000);
+        return res.status(429).json({
+          code: 'RATE_LIMITED',
+          message: 'Please wait before requesting another verification email',
+          retryAfter,
+        });
+      }
+    }
+
+    // Rate limit: max 5 per 24h window
+    const windowExpired = !user.emailVerificationWindowStart ||
+      (now - user.emailVerificationWindowStart) >= WINDOW_24H_MS;
+
+    if (windowExpired) {
+      user.emailVerificationSentCount = 0;
+      user.emailVerificationWindowStart = now;
+    }
+
+    if (user.emailVerificationSentCount >= MAX_EMAILS_PER_24H) {
+      const retryAfter = Math.ceil((WINDOW_24H_MS - (now - user.emailVerificationWindowStart)) / 1000);
+      return res.status(429).json({
+        code: 'MAX_EMAILS_REACHED',
+        message: 'Maximum verification emails reached for today. Please try again tomorrow.',
+        retryAfter,
+      });
     }
 
     const token = crypto.randomBytes(32).toString('hex');
     user.emailVerificationToken = token;
-    user.emailVerificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    user.emailVerificationTokenExpiry = new Date(now.getTime() + WINDOW_24H_MS);
+    user.emailVerificationLastSentAt = now;
+    user.emailVerificationSentCount += 1;
     await user.save();
 
     const result = await sendVerificationEmail(user.email, token);
 
-    return res.status(200).json(result);
+    return res.status(200).json({ ...result, retryAfter: Math.ceil(RESEND_COOLDOWN_MS / 1000) });
   } catch (error) {
     console.error('Send verification email error:', error);
     res.status(500).json({ code: 'SERVER_ERROR', message: 'Failed to send verification email' });
@@ -257,15 +296,29 @@ const verifyEmail = async (req, res) => {
       return res.status(400).json({ code: 'MISSING_FIELDS', message: 'token is required' });
     }
 
-    const user = await User.findOne({
-      emailVerificationToken: token,
-      emailVerificationTokenExpiry: { $gt: new Date() },
-    });
+    // Find by token first (without expiry check) to distinguish invalid vs expired
+    const user = await User.findOne({ emailVerificationToken: token });
 
     if (!user) {
       return res.status(400).json({
         code: 'INVALID_TOKEN',
-        message: 'Verification token is invalid or expired',
+        message: 'Verification token is invalid',
+      });
+    }
+
+    if (user.emailVerified) {
+      return res.status(200).json({
+        code: 'ALREADY_VERIFIED',
+        userId: user.userId,
+        emailVerified: true,
+        accountStatus: user.accountStatus,
+      });
+    }
+
+    if (user.emailVerificationTokenExpiry < new Date()) {
+      return res.status(400).json({
+        code: 'EXPIRED_TOKEN',
+        message: 'Verification token has expired. Please request a new one.',
       });
     }
 

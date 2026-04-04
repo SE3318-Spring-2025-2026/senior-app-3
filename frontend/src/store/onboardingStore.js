@@ -23,6 +23,7 @@ const useOnboardingStore = create(
       userId: null,
       email: null,
       password: null,
+      emailLastSentAt: null,
 
       setStepComplete: (key) =>
         set((state) => ({ completed: { ...state.completed, [key]: true } })),
@@ -43,6 +44,7 @@ const useOnboardingStore = create(
       setUserId: (id) => set({ userId: id }),
       setEmail: (email) => set({ email }),
       setPassword: (password) => set({ password }),
+      setEmailLastSentAt: (ts) => set({ emailLastSentAt: ts }),
 
       canNavigateTo: (stepId) => {
         const { completed } = get();
@@ -71,6 +73,7 @@ const useOnboardingStore = create(
           userId: null,
           email: null,
           password: null,
+          emailLastSentAt: null,
         }),
     }),
     {
