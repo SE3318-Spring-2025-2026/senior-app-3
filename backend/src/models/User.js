@@ -28,6 +28,10 @@ const userSchema = new mongoose.Schema(
     githubUsername: {
       type: String,
       default: null,
+      lowercase: true,
+      trim: true,
+      // Note: Unique constraint enforced via sparse index in migration 002
+      // Do not add unique: true here - it conflicts with sparse index
     },
     githubId: {
       type: String,
@@ -80,10 +84,9 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-// Index for efficient queries
-userSchema.index({ email: 1 });
-userSchema.index({ userId: 1 });
+// Index for efficient queries (email and userId indexes are created automatically via unique: true on the field)
 userSchema.index({ githubId: 1 });
+// Note: githubUsername sparse unique index created in migration 002
 
 const User = mongoose.model('User', userSchema);
 
