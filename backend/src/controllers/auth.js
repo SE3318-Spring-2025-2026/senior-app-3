@@ -1,8 +1,9 @@
 const User = require('../models/User');
 const RefreshToken = require('../models/RefreshToken');
 const StudentIdRegistry = require('../models/StudentIdRegistry');
-const { hashPassword, comparePassword } = require('../utils/password');
+const { hashPassword, comparePassword, validatePasswordStrength } = require('../utils/password');
 const { generateTokenPair, verifyRefreshToken } = require('../utils/jwt');
+const { createAuditLog } = require('../services/auditService');
 const axios = require('axios');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
@@ -119,6 +120,16 @@ const registerStudent = async (req, res) => {
       });
     }
 
+    // Validate password strength
+    const { isValid, errors: passwordErrors } = validatePasswordStrength(password);
+    if (!isValid) {
+      return res.status(400).json({
+        code: 'WEAK_PASSWORD',
+        message: 'Password does not meet requirements',
+        details: passwordErrors,
+      });
+    }
+
     // Verify and decode validation token
     let tokenPayload;
     try {
@@ -183,6 +194,19 @@ const registerStudent = async (req, res) => {
     });
 
     await user.save();
+
+    // Best-effort audit log: failure here must not fail the registration response
+    try {
+      await createAuditLog({
+        action: 'ACCOUNT_CREATED',
+        actorId: user.userId,
+        targetId: user.userId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed for ACCOUNT_CREATED (non-fatal):', auditError.message);
+    }
 
     // Generate tokens
     const tokens = generateTokenPair(user.userId, user.role);

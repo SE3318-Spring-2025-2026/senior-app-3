@@ -5,6 +5,7 @@ const User = require('../models/User');
 const { parseCSV } = require('../utils/csvParser');
 const { validateBatch } = require('../utils/studentIdValidator');
 const { sendVerificationEmail, sendAccountReadyEmail } = require('../services/emailService');
+const { createAuditLog } = require('../services/auditService');
 
 /**
  * Upload and process student ID CSV file
@@ -329,15 +330,19 @@ const completeOnboarding = async (req, res) => {
 };
 
 /**
- * Get user account record from D1
+ * Get user account record
  * GET /onboarding/accounts/:userId
+ * Access: owner or admin
  */
 const getAccount = async (req, res) => {
   try {
     const { userId } = req.params;
     const requestingUser = req.user;
 
-    if (requestingUser.userId !== userId && requestingUser.role !== 'admin') {
+    const isOwner = requestingUser.userId === userId;
+    const isAdmin = requestingUser.role === 'admin';
+
+    if (!isOwner && !isAdmin) {
       return res.status(403).json({ code: 'FORBIDDEN', message: 'Access denied' });
     }
 
@@ -345,6 +350,15 @@ const getAccount = async (req, res) => {
     if (!user) {
       return res.status(404).json({ code: 'NOT_FOUND', message: 'User not found' });
     }
+
+    // Audit: account record accessed
+    await createAuditLog({
+      action: 'ACCOUNT_RETRIEVED',
+      actorId: requestingUser.userId,
+      targetId: userId,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
 
     return res.status(200).json({
       userId: user.userId,
@@ -364,17 +378,50 @@ const getAccount = async (req, res) => {
 /**
  * Update user account record
  * PATCH /onboarding/accounts/:userId
+ *
+ * Access / field rules:
+ *   - Owner (self):  may update githubUsername only
+ *   - Admin:         may update githubUsername, emailVerified, accountStatus
+ *   - Neither role can update `role` through this endpoint
  */
 const updateAccount = async (req, res) => {
   try {
     const { userId } = req.params;
     const requestingUser = req.user;
 
-    if (requestingUser.userId !== userId && requestingUser.role !== 'admin') {
+    const isOwner = requestingUser.userId === userId;
+    const isAdmin = requestingUser.role === 'admin';
+
+    if (!isOwner && !isAdmin) {
       return res.status(403).json({ code: 'FORBIDDEN', message: 'Access denied' });
     }
 
-    const allowedFields = ['githubUsername', 'emailVerified', 'accountStatus'];
+    // Block role updates for everyone through this endpoint
+    if (req.body.role !== undefined) {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'Role cannot be updated through this endpoint',
+      });
+    }
+
+    // Determine permitted fields by requester's privilege level
+    const allowedFields = isAdmin
+      ? ['githubUsername', 'emailVerified', 'accountStatus']
+      : ['githubUsername'];
+
+    // Non-admin trying to touch a privileged field
+    if (!isAdmin) {
+      const privilegedFields = ['emailVerified', 'accountStatus'];
+      for (const field of privilegedFields) {
+        if (req.body[field] !== undefined) {
+          return res.status(403).json({
+            code: 'FORBIDDEN',
+            message: `Only admins may update '${field}'`,
+          });
+        }
+      }
+    }
+
     const updates = {};
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) {
@@ -382,9 +429,38 @@ const updateAccount = async (req, res) => {
       }
     }
 
-    const user = await User.findOneAndUpdate({ userId }, updates, { new: true });
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ code: 'NO_CHANGES', message: 'No valid fields to update' });
+    }
+
+    const user = await User.findOne({ userId });
     if (!user) {
       return res.status(404).json({ code: 'NOT_FOUND', message: 'User not found' });
+    }
+
+    // Capture previous values before applying changes
+    const previousValues = {};
+    const newValues = {};
+    for (const field of Object.keys(updates)) {
+      previousValues[field] = user[field];
+      newValues[field] = updates[field];
+      user[field] = updates[field];
+    }
+
+    await user.save();
+
+    // Best-effort audit log: failure here must not fail the update response
+    try {
+      await createAuditLog({
+        action: 'ACCOUNT_UPDATED',
+        actorId: requestingUser.userId,
+        targetId: userId,
+        changes: { previous: previousValues, updated: newValues },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed for ACCOUNT_UPDATED (non-fatal):', auditError.message);
     }
 
     return res.status(200).json({
