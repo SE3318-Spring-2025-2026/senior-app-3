@@ -19,7 +19,7 @@ const AuthMethodSelection = () => {
 
   const handleLocalAuth = () => {
     if (isRegistration) {
-      navigate('/auth/register');
+      navigate('/onboarding');
     } else {
       navigate('/auth/login');
     }
