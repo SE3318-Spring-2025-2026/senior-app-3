@@ -6,6 +6,7 @@ const {
   registerStudent,
   refreshAccessToken,
   logout,
+  changePassword,
   initiateGithubOAuth,
   githubOAuthCallback,
 } = require('../controllers/auth');
@@ -18,6 +19,7 @@ router.get('/github/oauth/callback', githubOAuthCallback);
 
 // Protected routes
 router.post('/logout', authMiddleware, logout);
+router.post('/change-password', authMiddleware, changePassword);
 router.post('/github/oauth/initiate', authMiddleware, initiateGithubOAuth);
 
 module.exports = router;
