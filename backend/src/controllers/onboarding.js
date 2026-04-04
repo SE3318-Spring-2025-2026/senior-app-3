@@ -1,20 +1,17 @@
+const crypto = require('crypto');
 const StudentIdRegistry = require('../models/StudentIdRegistry');
 const StudentIdUploadBatch = require('../models/StudentIdUploadBatch');
+const User = require('../models/User');
 const { parseCSV } = require('../utils/csvParser');
-const { hashFileStream } = require('../utils/fileHash');
 const { validateBatch } = require('../utils/studentIdValidator');
-const { generateTokenPair } = require('../utils/jwt');
+const { sendVerificationEmail, sendAccountReadyEmail } = require('../services/emailService');
 
 /**
  * Upload and process student ID CSV file
  * POST /onboarding/upload-student-ids
- * 
- * Request: multipart/form-data with file
- * Response: 200 {status, batch, summary, rejectedRows}
  */
 const uploadStudentIds = async (req, res) => {
   try {
-    // Check if file was uploaded
     if (!req.file) {
       return res.status(400).json({
         code: 'NO_FILE',
@@ -27,23 +24,15 @@ const uploadStudentIds = async (req, res) => {
     const fileName = req.file.originalname;
     const fileBuffer = req.file.buffer;
 
-    // Step 1: Compute file hash to detect re-uploads (idempotency)
     let fileHash;
     try {
-      const crypto = require('crypto');
       fileHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
     } catch (error) {
-      console.error('File hash error:', error);
-      return res.status(500).json({
-        code: 'HASH_ERROR',
-        message: 'Failed to process file',
-      });
+      return res.status(500).json({ code: 'HASH_ERROR', message: 'Failed to process file' });
     }
 
-    // Check if this file was already uploaded
     const existingBatch = await StudentIdUploadBatch.findOne({ fileHash });
     if (existingBatch) {
-      // File already processed - return idempotent response with previous counts
       return res.status(200).json({
         status: 'success',
         message: 'File already processed (idempotent re-upload)',
@@ -63,14 +52,12 @@ const uploadStudentIds = async (req, res) => {
       });
     }
 
-    // Step 2: Parse CSV file
     let parsedRows;
     try {
       const { Readable } = require('stream');
       const fileStream = Readable.from([fileBuffer]);
       parsedRows = await parseCSV(fileStream);
     } catch (error) {
-      console.error('CSV parse error:', error);
       return res.status(400).json({
         code: 'CSV_PARSE_ERROR',
         message: 'Failed to parse CSV file',
@@ -78,23 +65,19 @@ const uploadStudentIds = async (req, res) => {
       });
     }
 
-    // Check for empty CSV
     if (parsedRows.length === 0) {
       return res.status(400).json({
         code: 'EMPTY_CSV',
         message: 'CSV file contains no data rows',
-        details: 'Please provide a CSV file with at least one student record',
       });
     }
 
-    // Step 3: Validate all rows
     let validRows, invalidRows;
     try {
       const validationResult = await validateBatch(parsedRows, StudentIdRegistry);
       validRows = validationResult.validRows;
       invalidRows = validationResult.invalidRows;
     } catch (error) {
-      console.error('Batch validation error:', error);
       return res.status(500).json({
         code: 'VALIDATION_ERROR',
         message: 'Failed to validate student IDs',
@@ -102,51 +85,34 @@ const uploadStudentIds = async (req, res) => {
       });
     }
 
-    // Step 4: Upsert valid rows into database
     let insertedCount = 0;
     let updatedCount = 0;
 
-    try {
-      for (const row of validRows) {
-        const { studentid, name, email } = row.data;
+    for (const row of validRows) {
+      const { studentid, name, email } = row.data;
+      const existingRecord = await StudentIdRegistry.findOne({ studentId: studentid.trim() });
 
-        // Try to find existing record
-        const existingRecord = await StudentIdRegistry.findOne({
+      if (existingRecord) {
+        existingRecord.name = name.trim();
+        existingRecord.email = email.trim().toLowerCase();
+        existingRecord.status = 'valid';
+        existingRecord.uploadBatchId = 'temp';
+        existingRecord.updatedByBatchId = 'temp';
+        await existingRecord.save();
+        updatedCount++;
+      } else {
+        const newRecord = new StudentIdRegistry({
           studentId: studentid.trim(),
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          status: 'valid',
+          uploadBatchId: 'temp',
         });
-
-        if (existingRecord) {
-          // Update existing record
-          existingRecord.name = name.trim();
-          existingRecord.email = email.trim().toLowerCase();
-          existingRecord.status = 'valid';
-          existingRecord.uploadBatchId = 'temp'; // Will be set after batch is created
-          existingRecord.updatedByBatchId = 'temp';
-          await existingRecord.save();
-          updatedCount++;
-        } else {
-          // Create new record
-          const newRecord = new StudentIdRegistry({
-            studentId: studentid.trim(),
-            name: name.trim(),
-            email: email.trim().toLowerCase(),
-            status: 'valid',
-            uploadBatchId: 'temp', // Will be set after batch is created
-          });
-          await newRecord.save();
-          insertedCount++;
-        }
+        await newRecord.save();
+        insertedCount++;
       }
-    } catch (error) {
-      console.error('Database upsert error:', error);
-      return res.status(500).json({
-        code: 'DATABASE_ERROR',
-        message: 'Failed to save student IDs to database',
-        details: error.message,
-      });
     }
 
-    // Step 5: Create upload batch record for audit trail
     const newBatch = new StudentIdUploadBatch({
       fileHash,
       coordinatorId,
@@ -159,30 +125,14 @@ const uploadStudentIds = async (req, res) => {
       uploadedAt: new Date(),
     });
 
-    try {
-      await newBatch.save();
-    } catch (error) {
-      console.error('Batch creation error:', error);
-      return res.status(500).json({
-        code: 'BATCH_ERROR',
-        message: 'Failed to record upload batch',
-        details: error.message,
-      });
-    }
+    await newBatch.save();
 
-    // Step 6: Update student records with correct batch ID
-    try {
-      await StudentIdRegistry.updateMany(
-        { uploadBatchId: 'temp' },
-        { uploadBatchId: newBatch.batchId },
-        { multi: true }
-      );
-    } catch (error) {
-      console.error('Batch ID update error:', error);
-      // Log but don't fail - batch record was created
-    }
+    await StudentIdRegistry.updateMany(
+      { uploadBatchId: 'temp' },
+      { uploadBatchId: newBatch.batchId },
+      { multi: true }
+    );
 
-    // Return success response
     res.status(200).json({
       status: 'success',
       batch: {
@@ -200,26 +150,18 @@ const uploadStudentIds = async (req, res) => {
     });
   } catch (error) {
     console.error('Upload student IDs error:', error);
-    res.status(500).json({
-      code: 'SERVER_ERROR',
-      message: 'Failed to process student ID upload',
-      details: error.message,
-    });
+    res.status(500).json({ code: 'SERVER_ERROR', message: 'Failed to process student ID upload' });
   }
 };
 
 /**
  * Validate student ID for registration
  * POST /onboarding/validate-student-id
- * 
- * Request: {studentId, email, password}
- * Response: 200 {valid: true, validationToken} or 422 {valid: false, reason}
  */
 const validateStudentId = async (req, res) => {
   try {
     const { studentId, email, password } = req.body;
 
-    // Input validation
     if (!studentId || !email || !password) {
       return res.status(400).json({
         code: 'MISSING_FIELDS',
@@ -234,56 +176,238 @@ const validateStudentId = async (req, res) => {
       });
     }
 
-    // Query student ID registry
     const registeredStudent = await StudentIdRegistry.findOne({
       studentId: studentId.trim(),
       status: 'valid',
     });
 
     if (!registeredStudent) {
-      return res.status(422).json({
-        valid: false,
-        reason: 'Student ID not recognised',
-      });
+      return res.status(422).json({ valid: false, reason: 'Student ID not recognised' });
     }
 
-    // Verify email matches
     if (registeredStudent.email !== email.trim().toLowerCase()) {
-      return res.status(422).json({
-        valid: false,
-        reason: 'Email does not match registered student ID',
-      });
+      return res.status(422).json({ valid: false, reason: 'Email does not match registered student ID' });
     }
 
-    // Generate validation token (short-lived, 10 minutes)
+    const jwt = require('jsonwebtoken');
     const validationPayload = {
       studentId: studentId.trim(),
       email: email.trim().toLowerCase(),
       iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + 600, // 10 minutes
+      exp: Math.floor(Date.now() / 1000) + 600,
       type: 'student_id_validation',
     };
 
-    const jwt = require('jsonwebtoken');
     const validationToken = jwt.sign(validationPayload, process.env.JWT_SECRET || 'your-secret-key', {
       algorithm: 'HS256',
     });
 
-    return res.status(200).json({
-      valid: true,
-      validationToken,
-      expiresIn: 600, // 10 minutes in seconds
-    });
+    return res.status(200).json({ valid: true, validationToken, expiresIn: 600 });
   } catch (error) {
     console.error('Validate student ID error:', error);
-    res.status(500).json({
-      code: 'SERVER_ERROR',
-      message: 'Failed to validate student ID',
+    res.status(500).json({ code: 'SERVER_ERROR', message: 'Failed to validate student ID' });
+  }
+};
+
+/**
+ * Send email verification link
+ * POST /onboarding/send-verification-email
+ */
+const sendVerificationEmailHandler = async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ code: 'MISSING_FIELDS', message: 'userId is required' });
+    }
+
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ code: 'NOT_FOUND', message: 'User not found' });
+    }
+
+    if (user.emailVerified) {
+      return res.status(200).json({ messageId: 'already-verified', recipient: user.email, status: 'sent' });
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    user.emailVerificationToken = token;
+    user.emailVerificationTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    await user.save();
+
+    const result = await sendVerificationEmail(user.email, token);
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('Send verification email error:', error);
+    res.status(500).json({ code: 'SERVER_ERROR', message: 'Failed to send verification email' });
+  }
+};
+
+/**
+ * Confirm email verification token
+ * POST /onboarding/verify-email
+ */
+const verifyEmail = async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ code: 'MISSING_FIELDS', message: 'token is required' });
+    }
+
+    const user = await User.findOne({
+      emailVerificationToken: token,
+      emailVerificationTokenExpiry: { $gt: new Date() },
     });
+
+    if (!user) {
+      return res.status(400).json({
+        code: 'INVALID_TOKEN',
+        message: 'Verification token is invalid or expired',
+      });
+    }
+
+    user.emailVerified = true;
+    user.emailVerificationToken = null;
+    user.emailVerificationTokenExpiry = null;
+    await user.save();
+
+    return res.status(200).json({
+      userId: user.userId,
+      emailVerified: true,
+      accountStatus: user.accountStatus,
+    });
+  } catch (error) {
+    console.error('Verify email error:', error);
+    res.status(500).json({ code: 'SERVER_ERROR', message: 'Failed to verify email' });
+  }
+};
+
+/**
+ * Finalise onboarding — mark account active and send account-ready email
+ * POST /onboarding/complete
+ */
+const completeOnboarding = async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ code: 'MISSING_FIELDS', message: 'userId is required' });
+    }
+
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ code: 'NOT_FOUND', message: 'User not found' });
+    }
+
+    if (!user.emailVerified) {
+      return res.status(400).json({
+        code: 'EMAIL_NOT_VERIFIED',
+        message: 'Email must be verified before completing onboarding',
+      });
+    }
+
+    user.accountStatus = 'active';
+    await user.save();
+
+    await sendAccountReadyEmail(user.email, user.role);
+
+    return res.status(200).json({
+      userId: user.userId,
+      email: user.email,
+      role: user.role,
+      githubUsername: user.githubUsername || null,
+      emailVerified: user.emailVerified,
+      accountStatus: user.accountStatus,
+      createdAt: user.createdAt,
+    });
+  } catch (error) {
+    console.error('Complete onboarding error:', error);
+    res.status(500).json({ code: 'SERVER_ERROR', message: 'Failed to complete onboarding' });
+  }
+};
+
+/**
+ * Get user account record from D1
+ * GET /onboarding/accounts/:userId
+ */
+const getAccount = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const requestingUser = req.user;
+
+    if (requestingUser.userId !== userId && requestingUser.role !== 'admin') {
+      return res.status(403).json({ code: 'FORBIDDEN', message: 'Access denied' });
+    }
+
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ code: 'NOT_FOUND', message: 'User not found' });
+    }
+
+    return res.status(200).json({
+      userId: user.userId,
+      email: user.email,
+      role: user.role,
+      githubUsername: user.githubUsername || null,
+      emailVerified: user.emailVerified,
+      accountStatus: user.accountStatus,
+      createdAt: user.createdAt,
+    });
+  } catch (error) {
+    console.error('Get account error:', error);
+    res.status(500).json({ code: 'SERVER_ERROR', message: 'Failed to get account' });
+  }
+};
+
+/**
+ * Update user account record
+ * PATCH /onboarding/accounts/:userId
+ */
+const updateAccount = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const requestingUser = req.user;
+
+    if (requestingUser.userId !== userId && requestingUser.role !== 'admin') {
+      return res.status(403).json({ code: 'FORBIDDEN', message: 'Access denied' });
+    }
+
+    const allowedFields = ['githubUsername', 'emailVerified', 'accountStatus'];
+    const updates = {};
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        updates[field] = req.body[field];
+      }
+    }
+
+    const user = await User.findOneAndUpdate({ userId }, updates, { new: true });
+    if (!user) {
+      return res.status(404).json({ code: 'NOT_FOUND', message: 'User not found' });
+    }
+
+    return res.status(200).json({
+      userId: user.userId,
+      email: user.email,
+      role: user.role,
+      githubUsername: user.githubUsername || null,
+      emailVerified: user.emailVerified,
+      accountStatus: user.accountStatus,
+      createdAt: user.createdAt,
+    });
+  } catch (error) {
+    console.error('Update account error:', error);
+    res.status(500).json({ code: 'SERVER_ERROR', message: 'Failed to update account' });
   }
 };
 
 module.exports = {
   uploadStudentIds,
   validateStudentId,
+  sendVerificationEmailHandler,
+  verifyEmail,
+  completeOnboarding,
+  getAccount,
+  updateAccount,
 };

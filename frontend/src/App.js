@@ -5,6 +5,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import AuthMethodSelection from './components/AuthMethodSelection';
 import LoginForm from './components/LoginForm';
 import RegisterForm from './components/RegisterForm';
+import OnboardingStepper from './components/onboarding/OnboardingStepper';
 import './App.css';
 
 /**
@@ -35,6 +36,7 @@ function App() {
         <Route path="/auth/method-selection" element={<AuthMethodSelection />} />
         <Route path="/auth/login" element={<LoginForm />} />
         <Route path="/auth/register" element={<RegisterForm />} />
+        <Route path="/onboarding" element={<OnboardingStepper />} />
 
         {/* Protected Routes */}
         <Route
