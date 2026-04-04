@@ -11,7 +11,8 @@
     "migrate:status": "node src/migrate.js status",
     "migrate:up": "node src/migrate.js up",
     "migrate:down": "node src/migrate.js down",
-    "migrate:reset": "node src/migrate.js reset"
+    "migrate:reset": "node src/migrate.js reset",
+    "seed": "node seed.js"
   },
   "keywords": ["auth", "jwt", "oauth"],
   "author": "",

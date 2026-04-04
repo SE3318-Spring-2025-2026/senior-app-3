@@ -22,7 +22,7 @@ const ROLE_REDIRECT = {
 // ─────────────────────────────────────────────
 // Step 1: Validate Student ID
 // ─────────────────────────────────────────────
-const Step1 = ({ onNext }) => {
+const Step1 = ({ onNext, onBack }) => {
   const { setValidationToken, setEmail, setPassword, setStepComplete } = useOnboardingStore();
   const [form, setForm] = useState({ studentId: '', email: '', password: '' });
   const [errors, setErrors] = useState({});
@@ -98,6 +98,9 @@ const Step1 = ({ onNext }) => {
         <button type="submit" className="btn-primary" disabled={loading}>
           {loading ? 'Validating...' : 'Validate & Continue'}
         </button>
+        <button type="button" className="btn-secondary" onClick={onBack}>
+          Back to Login
+        </button>
       </form>
     </>
   );
@@ -106,7 +109,7 @@ const Step1 = ({ onNext }) => {
 // ─────────────────────────────────────────────
 // Step 2: Create Account
 // ─────────────────────────────────────────────
-const Step2 = ({ onNext }) => {
+const Step2 = ({ onNext, onBack }) => {
   const { validationToken, email, userId, setUserId, setStepComplete } = useOnboardingStore();
   const { setAuth } = useAuthStore();
   const [loading, setLoading] = useState(false);
@@ -180,6 +183,9 @@ const Step2 = ({ onNext }) => {
       <button className="btn-primary" onClick={handleRegister} disabled={loading}>
         Create Account
       </button>
+      <button className="btn-secondary" onClick={onBack} disabled={loading}>
+        Back
+      </button>
     </>
   );
 };
@@ -187,7 +193,7 @@ const Step2 = ({ onNext }) => {
 // ─────────────────────────────────────────────
 // Step 3: Verify Email
 // ─────────────────────────────────────────────
-const Step3 = ({ onNext }) => {
+const Step3 = ({ onNext, onBack }) => {
   const { userId, email, setStepComplete } = useOnboardingStore();
   const { setUser } = useAuthStore();
   const [token, setToken] = useState('');
@@ -246,6 +252,9 @@ const Step3 = ({ onNext }) => {
         <button type="submit" className="btn-primary" disabled={loading}>
           {loading ? 'Verifying...' : 'Verify Email'}
         </button>
+        <button type="button" className="btn-secondary" onClick={onBack} disabled={loading}>
+          Back
+        </button>
       </form>
 
       <div className="step-footer">
@@ -261,7 +270,7 @@ const Step3 = ({ onNext }) => {
 // ─────────────────────────────────────────────
 // Step 4: Link GitHub (optional)
 // ─────────────────────────────────────────────
-const Step4 = ({ onFinish }) => {
+const Step4 = ({ onFinish, onBack }) => {
   const { setStepComplete } = useOnboardingStore();
   const { user } = useAuthStore();
   const [loading, setLoading] = useState(false);
@@ -308,6 +317,9 @@ const Step4 = ({ onFinish }) => {
       <button className="btn-secondary" onClick={handleSkip} disabled={loading}>
         Skip for now
       </button>
+      <button className="btn-secondary" onClick={onBack} disabled={loading}>
+        Back
+      </button>
     </>
   );
 };
@@ -323,6 +335,7 @@ const OnboardingStepper = () => {
     completed,
     setCurrentStep,
     nextStep,
+    previousStep,
     canNavigateTo,
     isFullyComplete,
     reset,
@@ -364,19 +377,13 @@ const OnboardingStepper = () => {
   const renderStep = () => {
     switch (currentStep) {
       case 1:
-        return <Step1 onNext={nextStep} />;
+        return <Step1 onNext={nextStep} onBack={() => navigate('/auth/method-selection')} />;
       case 2:
-        return <Step2 onNext={nextStep} />;
+        return <Step2 onNext={nextStep} onBack={previousStep} />;
       case 3:
-        return (
-          <Step3
-            onNext={() => {
-              nextStep();
-            }}
-          />
-        );
+        return <Step3 onNext={nextStep} onBack={previousStep} />;
       case 4:
-        return <Step4 onFinish={handleCompleteAndFinish} />;
+        return <Step4 onFinish={handleCompleteAndFinish} onBack={previousStep} />;
       default:
         return null;
     }

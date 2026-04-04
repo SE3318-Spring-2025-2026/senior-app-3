@@ -34,6 +34,11 @@ const useOnboardingStore = create(
         if (currentStep < STEPS.length) set({ currentStep: currentStep + 1 });
       },
 
+      previousStep: () => {
+        const { currentStep } = get();
+        if (currentStep > 1) set({ currentStep: currentStep - 1 });
+      },
+
       setValidationToken: (token) => set({ validationToken: token }),
       setUserId: (id) => set({ userId: id }),
       setEmail: (email) => set({ email }),
