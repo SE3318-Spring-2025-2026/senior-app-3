@@ -94,7 +94,7 @@ const loginWithPassword = async (req, res) => {
       accountStatus: user.accountStatus,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      expiresIn: 900, // 15 minutes in seconds
+      expiresIn: 3600, // 1 hour in seconds
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -319,7 +319,7 @@ const refreshAccessToken = async (req, res) => {
       return res.status(200).json({
         accessToken: newTokens.accessToken,
         refreshToken: newTokens.refreshToken,
-        expiresIn: 900, // 15 minutes in seconds
+        expiresIn: 3600, // 1 hour in seconds
       });
     } catch (tokenError) {
       return res.status(401).json({
@@ -461,11 +461,70 @@ const githubOAuthCallback = async (req, res) => {
   }
 };
 
+/**
+ * Change password and revoke all refresh tokens for the user
+ */
+const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const { userId } = req.user;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'currentPassword and newPassword are required',
+      });
+    }
+
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(401).json({
+        code: 'UNAUTHORIZED',
+        message: 'User not found',
+      });
+    }
+
+    const passwordMatch = await comparePassword(currentPassword, user.hashedPassword);
+    if (!passwordMatch) {
+      return res.status(401).json({
+        code: 'INVALID_CREDENTIALS',
+        message: 'Current password is incorrect',
+      });
+    }
+
+    const { isValid, errors: passwordErrors } = validatePasswordStrength(newPassword);
+    if (!isValid) {
+      return res.status(400).json({
+        code: 'WEAK_PASSWORD',
+        message: 'New password does not meet requirements',
+        details: passwordErrors,
+      });
+    }
+
+    user.hashedPassword = await hashPassword(newPassword);
+    await user.save();
+
+    // Revoke all refresh tokens for this user
+    await RefreshToken.updateMany({ userId }, { isRevoked: true });
+
+    return res.status(200).json({
+      message: 'Password changed successfully. All sessions have been invalidated.',
+    });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Password change failed',
+    });
+  }
+};
+
 module.exports = {
   loginWithPassword,
   registerStudent,
   refreshAccessToken,
   logout,
+  changePassword,
   initiateGithubOAuth,
   githubOAuthCallback,
 };
