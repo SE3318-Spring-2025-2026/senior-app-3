@@ -70,6 +70,18 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    emailVerificationSentCount: {
+      type: Number,
+      default: 0,
+    },
+    emailVerificationWindowStart: {
+      type: Date,
+      default: null,
+    },
+    emailVerificationLastSentAt: {
+      type: Date,
+      default: null,
+    },
     passwordResetToken: {
       type: String,
       default: null,
