@@ -9,6 +9,7 @@ import OnboardingStepper from './components/onboarding/OnboardingStepper';
 import ForgotPasswordPage from './components/ForgotPasswordPage';
 import ResetPasswordPage from './components/ResetPasswordPage';
 import ProfessorOnboardModal from './components/ProfessorOnboardModal';
+import AdminPasswordReset from './components/AdminPasswordReset';
 import './App.css';
 
 /**
@@ -47,6 +48,12 @@ function App() {
         <Route
           path="/professor/setup"
           element={<ProtectedRoute component={ProfessorOnboardModal} />}
+        />
+
+        {/* Admin Routes */}
+        <Route
+          path="/admin/password-reset"
+          element={<ProtectedRoute component={AdminPasswordReset} requiredRoles={['admin']} />}
         />
 
         {/* Protected Routes */}

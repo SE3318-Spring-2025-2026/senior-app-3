@@ -831,12 +831,57 @@ const adminInitiatePasswordReset = async (req, res) => {
       message: 'Password reset initiated. The user will receive an email with reset instructions.',
       userId: user.userId,
       email: user.email,
+      resetToken: plainToken,
+      expiresIn: 15 * 60 * 1000, // 15 minutes in milliseconds
+      resetLink: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/reset-password?token=${plainToken}`,
     });
   } catch (error) {
     console.error('Admin password reset error:', error);
     res.status(500).json({
       code: 'SERVER_ERROR',
       message: 'Admin password reset failed',
+    });
+  }
+};
+
+/**
+ * Get list of users for admin dropdown/search (admin-only)
+ * Supports optional search/filter by email or userId
+ */
+const getAdminUsersList = async (req, res) => {
+  try {
+    const { search = '', limit = 50 } = req.query;
+
+    const filter = {};
+    if (search.trim()) {
+      filter.$or = [
+        { email: { $regex: search, $options: 'i' } },
+        { userId: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    // Fetch users with essential fields 
+    const users = await User.find(filter)
+      .select('userId email role accountStatus emailVerified')
+      .limit(parseInt(limit, 10))
+      .sort({ email: 1 })
+      .exec();
+
+    return res.status(200).json({
+      users: users.map(user => ({
+        userId: user.userId,
+        email: user.email,
+        role: user.role,
+        accountStatus: user.accountStatus,
+        emailVerified: user.emailVerified,
+      })),
+      total: users.length,
+    });
+  } catch (error) {
+    console.error('Get users list error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Failed to fetch users list',
     });
   }
 };
@@ -853,6 +898,6 @@ module.exports = {
   validatePasswordResetToken,
   confirmPasswordReset,
   professorOnboard,
-  confirmPasswordReset,
   adminInitiatePasswordReset,
+  getAdminUsersList,
 };

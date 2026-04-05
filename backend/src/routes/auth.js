@@ -13,8 +13,8 @@ const {
   validatePasswordResetToken,
   confirmPasswordReset,
   professorOnboard,
-  confirmPasswordReset,
   adminInitiatePasswordReset,
+  getAdminUsersList,
 } = require('../controllers/auth');
 
 // Public routes
@@ -32,5 +32,6 @@ router.post('/change-password', authMiddleware, changePassword);
 router.post('/github/oauth/initiate', authMiddleware, initiateGithubOAuth);
 router.post('/professor/onboard', authMiddleware, professorOnboard);
 router.post('/password-reset/admin-initiate', authMiddleware, roleMiddleware(['admin']), adminInitiatePasswordReset);
+router.get('/admin/users', authMiddleware, roleMiddleware(['admin']), getAdminUsersList);
 
 module.exports = router;
