@@ -431,7 +431,7 @@ const sendProfessorCredentialsEmail = async (email, tempPassword) => {
   console.log(`[EMAIL] URL:      ${loginUrl}`);
   console.log('[EMAIL] ────────────────────────────────────────\n');
 
-  const transporter = getTransporter();
+  const transporter = createTransporter();
   if (!transporter) {
     return { messageId: 'dev-mode', recipient: email, status: 'sent' };
   }
