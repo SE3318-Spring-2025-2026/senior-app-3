@@ -236,3 +236,236 @@
     font-size: 0.9rem;
   }
 }
+
+/* ============ NEW STYLES FOR MULTI-STEP FORM ============ */
+
+/* Progress Indicator */
+.progress-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 40px;
+  gap: 10px;
+}
+
+.progress-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+
+.progress-step .step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: #e0e0e0;
+  color: #666;
+  font-weight: 700;
+  font-size: 1.1rem;
+  margin-bottom: 8px;
+  transition: all 0.3s ease;
+}
+
+.progress-step.active .step-number {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.progress-step.completed .step-number {
+  background-color: #27ae60;
+  color: white;
+}
+
+.progress-step .step-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #666;
+  text-align: center;
+}
+
+.progress-step.active .step-label {
+  color: #667eea;
+}
+
+.progress-step.completed .step-label {
+  color: #27ae60;
+}
+
+.progress-line {
+  flex: 1;
+  height: 2px;
+  background-color: #e0e0e0;
+  margin: 0 5px 15px 5px;
+  transition: all 0.3s ease;
+}
+
+.progress-indicator .progress-step.completed ~ .progress-line {
+  background: linear-gradient(to right, #27ae60, #e0e0e0);
+}
+
+/* Step Headers */
+.auth-form h3 {
+  margin: 0 0 10px 0;
+  font-size: 1.3rem;
+  color: #333;
+  font-weight: 600;
+}
+
+.step-description {
+  color: #666;
+  font-size: 0.95rem;
+  margin-bottom: 25px;
+  line-height: 1.5;
+}
+
+/* Validation Feedback */
+.validation-feedback {
+  display: flex;
+  align-items: center;
+  padding: 12px 15px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  font-size: 0.95rem;
+  gap: 10px;
+}
+
+.validation-feedback .feedback-icon {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.validation-feedback .feedback-message {
+  flex: 1;
+}
+
+.validation-validating {
+  background-color: #fff3cd;
+  border-left: 4px solid #ffc107;
+  color: #856404;
+}
+
+.validation-success {
+  background-color: #d4edda;
+  border-left: 4px solid #27ae60;
+  color: #155724;
+}
+
+.validation-error {
+  background-color: #f8d7da;
+  border-left: 4px solid #e74c3c;
+  color: #721c24;
+}
+
+/* Input Read-only */
+.form-group input.input-readonly {
+  background-color: #f8f9fa;
+  color: #666;
+  cursor: not-allowed;
+  border-color: #e0e0e0;
+}
+
+.form-group input.input-readonly:focus {
+  border-color: #e0e0e0;
+  box-shadow: none;
+  outline: none;
+}
+
+/* Success Message */
+.success-message {
+  color: #27ae60;
+  font-size: 0.85rem;
+  margin-top: 5px;
+  display: flex;
+  align-items: center;
+}
+
+/* Password Strength Valid */
+.password-requirements.password-valid {
+  background: #d4edda;
+  border-left-color: #27ae60;
+  color: #155724;
+}
+
+.password-requirements.password-valid p {
+  color: #155724;
+  margin: 0;
+}
+
+.password-requirements.password-valid ul {
+  display: none;
+}
+
+/* Form Actions (Multiple Buttons) */
+.form-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+  margin-top: 25px;
+}
+
+.form-actions .btn {
+  margin-bottom: 0;
+}
+
+/* Secondary Button */
+.btn-secondary {
+  width: 100%;
+  padding: 12px;
+  border: 2px solid #667eea;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  background: white;
+  color: #667eea;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-top: 15px;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.btn-secondary:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Responsive Progress Indicator */
+@media (max-width: 480px) {
+  .progress-indicator {
+    margin-bottom: 30px;
+    gap: 5px;
+  }
+
+  .progress-step .step-number {
+    width: 35px;
+    height: 35px;
+    font-size: 1rem;
+  }
+
+  .progress-step .step-label {
+    font-size: 0.75rem;
+  }
+
+  .form-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .auth-form h3 {
+    font-size: 1.15rem;
+  }
+}

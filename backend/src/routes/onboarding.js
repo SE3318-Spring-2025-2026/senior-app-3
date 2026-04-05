@@ -1,7 +1,15 @@
 const express = require('express');
 const multer = require('multer');
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
-const { uploadStudentIds, validateStudentId } = require('../controllers/onboarding');
+const {
+  uploadStudentIds,
+  validateStudentId,
+  sendVerificationEmailHandler,
+  verifyEmail,
+  completeOnboarding,
+  getAccount,
+  updateAccount,
+} = require('../controllers/onboarding');
 
 const router = express.Router();
 
@@ -20,8 +28,15 @@ const upload = multer({
 
 // Public routes
 router.post('/validate-student-id', validateStudentId);
+router.post('/verify-email', verifyEmail);
 
-// Protected routes (coordinator/admin only)
+// Protected routes
+router.post('/send-verification-email', authMiddleware, sendVerificationEmailHandler);
+router.post('/complete', authMiddleware, completeOnboarding);
+router.get('/accounts/:userId', authMiddleware, getAccount);
+router.patch('/accounts/:userId', authMiddleware, updateAccount);
+
+// Coordinator/admin only
 router.post(
   '/upload-student-ids',
   authMiddleware,

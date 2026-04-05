@@ -74,6 +74,71 @@ export const updateAccount = async (userId, updates) => {
   return response.data;
 };
 
+/**
+ * Validate a password reset token on page load (read-only, does not consume token)
+ */
+export const validatePasswordResetToken = async (token) => {
+  const response = await apiClient.post('/auth/password-reset/validate-token', { token });
+  return response.data;
+};
+
+/**
+ * Request a password reset email (non-revealing: always resolves)
+ */
+export const requestPasswordReset = async (email) => {
+  const response = await apiClient.post('/auth/password-reset/request', { email });
+  return response.data;
+};
+
+/**
+ * Confirm password reset with one-time token from email link
+ */
+export const confirmPasswordReset = async (token, newPassword) => {
+  const response = await apiClient.post('/auth/password-reset/confirm', { token, newPassword });
+  return response.data;
+};
+
+/**
+ * Admin: Generate password reset link for a user
+ */
+export const adminInitiatePasswordReset = async (targetUserIdOrEmail) => {
+  const isEmail = targetUserIdOrEmail.includes('@');
+  const response = await apiClient.post('/auth/password-reset/admin-initiate', {
+    ...(isEmail ? { email: targetUserIdOrEmail } : { userId: targetUserIdOrEmail }),
+  });
+  return response.data;
+};
+
+/**
+ * Admin: Fetch list of users for dropdown/search
+ */
+export const getAdminUsersList = async (search = '', limit = 50) => {
+  const response = await apiClient.get('/auth/admin/users', {
+    params: { search, limit },
+  });
+  return response.data;
+};
+
+/**
+ * Admin: Create professor account with temporary credentials
+ */
+export const adminCreateProfessor = async (email, firstName = '', lastName = '') => {
+  const response = await apiClient.post('/auth/admin/professor/create', {
+    email,
+    firstName,
+    lastName,
+  });
+  return response.data;
+};
+
+/**
+ * Professor first-login forced password change
+ */
+export const professorOnboard = async (newPassword, connectGithub = false) => {
+  const response = await apiClient.post('/auth/professor/onboard', { newPassword, connectGithub });
+  return response.data;
+};
+
 const authService = {
   loginUser,
   registerStudent,
@@ -82,6 +147,10 @@ const authService = {
   initiateGithubOAuth,
   getAccount,
   updateAccount,
+  validatePasswordResetToken,
+  requestPasswordReset,
+  confirmPasswordReset,
+  professorOnboard,
 };
 
 export default authService;
