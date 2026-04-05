@@ -8,10 +8,12 @@ require('dotenv').config();
 const mongoose = require('mongoose');
 const StudentIdRegistry = require('./src/models/StudentIdRegistry');
 const User = require('./src/models/User');
+const Group = require('./src/models/Group');
 const { hashPassword } = require('./src/utils/password');
+const { forwardToMemberRequestPipeline } = require('./src/services/groupService');
 
 const TEST_PROFESSORS = [
-  { email: 'prof.smith@university.edu',   name: 'Dr. Smith',   tempPassword: 'TempPass1!' },
+  { email: 'prof.smith@university.edu', name: 'Dr. Smith', tempPassword: 'TempPass1!' },
   { email: 'prof.johnson@university.edu', name: 'Dr. Johnson', tempPassword: 'TempPass1!' },
 ];
 
@@ -20,11 +22,32 @@ const TEST_ADMINS = [
 ];
 
 const TEST_STUDENTS = [
-  { studentId: 'STU-2025-001', name: 'Alice Smith',   email: 'alice@university.edu' },
-  { studentId: 'STU-2025-002', name: 'Bob Johnson',   email: 'bob@university.edu' },
+  { studentId: 'STU-2025-001', name: 'Alice Smith', email: 'alice@university.edu' },
+  { studentId: 'STU-2025-002', name: 'Bob Johnson', email: 'bob@university.edu' },
   { studentId: 'STU-2025-003', name: 'Charlie Brown', email: 'charlie@university.edu' },
-  { studentId: 'STU-2025-004', name: 'Diana Prince',  email: 'diana@university.edu' },
-  { studentId: 'STU-2025-005', name: 'Ethan Hunt',    email: 'ethan@university.edu' },
+  { studentId: 'STU-2025-004', name: 'Diana Prince', email: 'diana@university.edu' },
+  { studentId: 'STU-2025-005', name: 'Ethan Hunt', email: 'ethan@university.edu' },
+];
+
+const TEST_STUDENT_USERS = [
+  { email: 'charlie@university.edu', name: 'Charlie Brown', tempPassword: 'TempPass1!' },
+  { email: 'diana@university.edu', name: 'Diana Prince', tempPassword: 'TempPass1!' },
+  { email: 'ethan@university.edu', name: 'Ethan Hunt', tempPassword: 'TempPass1!' },
+];
+
+const TEST_GROUPS = [
+  {
+    groupName: 'Alpha Team',
+    leaderEmail: 'diana@university.edu',
+  },
+  {
+    groupName: 'Beta Squad',
+    leaderEmail: 'ethan@university.edu',
+  },
+  {
+    groupName: 'Gamma Force',
+    leaderEmail: 'charlie@university.edu',
+  },
 ];
 
 async function seed() {
@@ -82,7 +105,7 @@ async function seed() {
 
   console.log(`Done (professors): ${profInserted} inserted, ${profSkipped} skipped.`);
 
-   // ── Admins ────────────────────────────────────────────────────────────────
+  // ── Admins ────────────────────────────────────────────────────────────────
   console.log('\nSeeding admins...');
   let adminInserted = 0;
   let adminSkipped = 0;
@@ -108,6 +131,88 @@ async function seed() {
   }
 
   console.log(`Done (admins): ${adminInserted} inserted, ${adminSkipped} skipped.`);
+
+  // ── Student Users ─────────────────────────────────────────────────────────
+  console.log('\nSeeding student users...');
+  let studentUserInserted = 0;
+  let studentUserSkipped = 0;
+
+  for (const student of TEST_STUDENT_USERS) {
+    const exists = await User.findOne({ email: student.email });
+    if (exists) {
+      if (exists.requiresPasswordChange) {
+        await User.updateOne({ email: student.email }, { $set: { requiresPasswordChange: false } });
+        console.log(`  updated ${student.email} — cleared requiresPasswordChange`);
+      } else {
+        console.log(`  skip  ${student.email} (already exists)`);
+      }
+      studentUserSkipped++;
+    } else {
+      const hashedPassword = await hashPassword(student.tempPassword);
+      await User.create({
+        email: student.email,
+        hashedPassword,
+        role: 'student',
+        accountStatus: 'active',
+        emailVerified: true,
+        requiresPasswordChange: false,
+      });
+      console.log(`  added ${student.email} — temp password: ${student.tempPassword}`);
+      studentUserInserted++;
+    }
+  }
+
+  console.log(`Done (student users): ${studentUserInserted} inserted, ${studentUserSkipped} skipped.`);
+
+  // ── Groups ────────────────────────────────────────────────────────────────
+  console.log('\nSeeding groups...');
+  let groupInserted = 0;
+  let groupSkipped = 0;
+
+  for (const groupData of TEST_GROUPS) {
+    const exists = await Group.findOne({ groupName: groupData.groupName });
+    if (exists) {
+      console.log(`  skip  "${groupData.groupName}" (already exists)`);
+      groupSkipped++;
+      continue;
+    }
+
+    const leader = await User.findOne({ email: groupData.leaderEmail });
+    if (!leader) {
+      console.log(`  skip  "${groupData.groupName}" — leader ${groupData.leaderEmail} not found`);
+      groupSkipped++;
+      continue;
+    }
+
+    const group = new Group({
+      groupName: groupData.groupName,
+      leaderId: leader.userId,
+      status: 'pending_validation',
+      members: [
+        {
+          userId: leader.userId,
+          role: 'leader',
+          status: 'accepted',
+          joinedAt: new Date(),
+        },
+      ],
+    });
+
+    await group.save();
+
+    try {
+      await forwardToMemberRequestPipeline(group);
+    } catch (err) {
+      console.warn(`  warn  pipeline forward failed for "${groupData.groupName}":`, err.message);
+    }
+
+    console.log(`  added "${groupData.groupName}" — leader: ${groupData.leaderEmail}`);
+    groupInserted++;
+  }
+
+  console.log(`Done (groups): ${groupInserted} inserted, ${groupSkipped} skipped.`);
+
+  // ── Save ────────────────────────────────────────────────────────────────
 
   await mongoose.disconnect();
 }

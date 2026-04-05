@@ -67,7 +67,7 @@ const GroupMemberList = ({ members, isLoading, groupLeaderId }) => {
 
             return (
               <tr key={member.memberId || index}>
-                <td>{member.memberId || member.studentId || 'N/A'}</td>
+                <td>{member.memberId || member.studentId || member.userId || 'N/A'}</td>
                 <td>{member.studentName || 'Unknown'}</td>
                 <td>
                   <span className={`role-badge ${role}`}>
