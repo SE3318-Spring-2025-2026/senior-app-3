@@ -47,7 +47,27 @@ const groupSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    githubPat: {
+      type: String,
+      default: null,
+    },
     jiraProject: {
+      type: String,
+      default: null,
+    },
+    jiraUrl: {
+      type: String,
+      default: null,
+    },
+    jiraUsername: {
+      type: String,
+      default: null,
+    },
+    jiraToken: {
+      type: String,
+      default: null,
+    },
+    projectKey: {
       type: String,
       default: null,
     },

@@ -21,6 +21,10 @@ const TEST_ADMINS = [
   { email: 'admin@university.edu', name: 'Test Admin', password: 'AdminPass1!' },
 ];
 
+const TEST_COORDINATORS = [
+  { email: 'coordinator@university.edu', name: 'Test Coordinator', password: 'CoordPass1!' },
+];
+
 const TEST_STUDENTS = [
   { studentId: 'STU-2025-001', name: 'Alice Smith', email: 'alice@university.edu' },
   { studentId: 'STU-2025-002', name: 'Bob Johnson', email: 'bob@university.edu' },
@@ -131,6 +135,33 @@ async function seed() {
   }
 
   console.log(`Done (admins): ${adminInserted} inserted, ${adminSkipped} skipped.`);
+
+  // ── Coordinators ──────────────────────────────────────────────────────────
+  console.log('\nSeeding coordinators...');
+  let coordInserted = 0;
+  let coordSkipped = 0;
+
+  for (const coord of TEST_COORDINATORS) {
+    const exists = await User.findOne({ email: coord.email });
+    if (exists) {
+      console.log(`  skip  ${coord.email} (already exists)`);
+      coordSkipped++;
+    } else {
+      const hashedPassword = await hashPassword(coord.password);
+      await User.create({
+        email: coord.email,
+        hashedPassword,
+        role: 'coordinator',
+        accountStatus: 'active',
+        emailVerified: true,
+        requiresPasswordChange: false,
+      });
+      console.log(`  added ${coord.email} — password: ${coord.password}`);
+      coordInserted++;
+    }
+  }
+
+  console.log(`Done (coordinators): ${coordInserted} inserted, ${coordSkipped} skipped.`);
 
   // ── Student Users ─────────────────────────────────────────────────────────
   console.log('\nSeeding student users...');

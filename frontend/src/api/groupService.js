@@ -5,6 +5,55 @@ import apiClient from './apiClient';
  */
 
 /**
+ * Create a new group (Process 2.1 → 2.2, flow f01/f02)
+ * @param {object} payload
+ * @param {string} payload.groupName   - Required
+ * @param {string} payload.leaderId    - Required, must match authenticated user
+ * @param {string} [payload.githubPat]
+ * @param {string} [payload.githubOrg]
+ * @param {string} [payload.jiraUrl]
+ * @param {string} [payload.jiraUsername]
+ * @param {string} [payload.jiraToken]
+ * @param {string} [payload.projectKey]
+ * @returns {Promise<{groupId, groupName, leaderId, status, createdAt}>}
+ */
+export const createGroup = async ({
+  groupName,
+  leaderId,
+  githubPat,
+  githubOrg,
+  jiraUrl,
+  jiraUsername,
+  jiraToken,
+  projectKey,
+}) => {
+  const response = await apiClient.post('/groups', {
+    groupName,
+    leaderId,
+    githubPat: githubPat || undefined,
+    githubOrg: githubOrg || undefined,
+    jiraUrl: jiraUrl || undefined,
+    jiraUsername: jiraUsername || undefined,
+    jiraToken: jiraToken || undefined,
+    projectKey: projectKey || undefined,
+  });
+  return response.data;
+};
+
+/**
+ * Check if the group creation schedule window is currently open
+ * @returns {Promise<{open: boolean, window: object|null}>}
+ */
+export const getScheduleWindow = async () => {
+  try {
+    const response = await apiClient.get('/schedule-window/active');
+    return response.data;
+  } catch {
+    return { open: false, window: null };
+  }
+};
+
+/**
  * Get group details
  * @param {string} groupId - The group ID
  * @returns {Promise} Group data
