@@ -1,0 +1,378 @@
+.group-dashboard {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+  background-color: #f5f5f5;
+  min-height: 100vh;
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 32px;
+  background: white;
+  padding: 24px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.dashboard-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  color: #333;
+}
+
+.dashboard-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.refresh-button {
+  padding: 8px 16px;
+  background-color: #0969da;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.refresh-button:hover {
+  background-color: #0860ca;
+}
+
+.refresh-button:disabled {
+  background-color: #d0d0d0;
+  cursor: not-allowed;
+}
+
+.coordinator-panel-btn {
+  padding: 8px 16px;
+  background-color: #238636;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.coordinator-panel-btn:hover {
+  background-color: #2ea043;
+}
+
+.last-updated {
+  font-size: 12px;
+  color: #666;
+  margin-right: 16px;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+.status-card {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: box-shadow 0.2s;
+}
+
+.status-card:hover {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e1e4e8;
+}
+
+.card-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-badge.connected {
+  background-color: #dafbe1;
+  color: #238636;
+}
+
+.status-badge.disconnected {
+  background-color: #ffeaea;
+  color: #da3633;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-dot.connected {
+  background-color: #238636;
+}
+
+.status-dot.disconnected {
+  background-color: #da3633;
+}
+
+.card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+}
+
+.info-label {
+  color: #666;
+  font-weight: 500;
+}
+
+.info-value {
+  color: #333;
+  word-break: break-all;
+  text-align: right;
+  max-width: 60%;
+}
+
+.approval-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background-color: #ffd602;
+  color: #333;
+  border-radius: 50%;
+  font-size: 14px;
+  font-weight: 700;
+  margin-left: auto;
+}
+
+.approval-badge.zero {
+  background-color: #e1e4e8;
+  color: #666;
+}
+
+.members-section {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.members-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e1e4e8;
+}
+
+.members-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+}
+
+.members-count {
+  font-size: 12px;
+  color: #666;
+  background-color: #f6f8fa;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.members-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.members-table thead {
+  background-color: #f6f8fa;
+}
+
+.members-table th {
+  padding: 12px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #e1e4e8;
+}
+
+.members-table td {
+  padding: 12px;
+  border-bottom: 1px solid #e1e4e8;
+  font-size: 14px;
+  color: #333;
+}
+
+.members-table tbody tr:hover {
+  background-color: #f6f8fa;
+}
+
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.role-badge.leader {
+  background-color: #fff8c5;
+  color: #7d4e00;
+}
+
+.role-badge.member {
+  background-color: #e1f0ff;
+  color: #0969da;
+}
+
+.member-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.member-status.active {
+  color: #238636;
+}
+
+.member-status.pending {
+  color: #9e6a03;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 400px;
+  font-size: 16px;
+  color: #666;
+}
+
+.loading::after {
+  content: '';
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 3px solid #e1e4e8;
+  border-top-color: #0969da;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-left: 12px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.error-container {
+  background-color: #ffeaea;
+  border: 1px solid #da3633;
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 20px;
+  color: #da3633;
+}
+
+.error-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.error-message {
+  margin: 0;
+  font-size: 14px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: #666;
+}
+
+.empty-state p {
+  margin: 0;
+  font-size: 14px;
+}
+
+@media (max-width: 768px) {
+  .group-dashboard {
+    padding: 16px;
+  }
+
+  .dashboard-header {
+    flex-direction: column;
+    gap: 16px;
+    align-items: flex-start;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-actions {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .refresh-button,
+  .coordinator-panel-btn {
+    width: 100%;
+  }
+
+  .info-row {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .info-value {
+    max-width: 100%;
+    text-align: left;
+  }
+}
