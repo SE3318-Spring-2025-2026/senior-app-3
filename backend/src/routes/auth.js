@@ -15,6 +15,7 @@ const {
   professorOnboard,
   adminInitiatePasswordReset,
   getAdminUsersList,
+  adminCreateProfessor,
 } = require('../controllers/auth');
 
 // Public routes
@@ -33,5 +34,6 @@ router.post('/github/oauth/initiate', authMiddleware, initiateGithubOAuth);
 router.post('/professor/onboard', authMiddleware, professorOnboard);
 router.post('/password-reset/admin-initiate', authMiddleware, roleMiddleware(['admin']), adminInitiatePasswordReset);
 router.get('/admin/users', authMiddleware, roleMiddleware(['admin']), getAdminUsersList);
+router.post('/admin/professor/create', authMiddleware, roleMiddleware(['admin']), adminCreateProfessor);
 
 module.exports = router;

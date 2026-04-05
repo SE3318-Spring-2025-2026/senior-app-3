@@ -120,6 +120,18 @@ export const getAdminUsersList = async (search = '', limit = 50) => {
 };
 
 /**
+ * Admin: Create professor account with temporary credentials
+ */
+export const adminCreateProfessor = async (email, firstName = '', lastName = '') => {
+  const response = await apiClient.post('/auth/admin/professor/create', {
+    email,
+    firstName,
+    lastName,
+  });
+  return response.data;
+};
+
+/**
  * Professor first-login forced password change
  */
 export const professorOnboard = async (newPassword, connectGithub = false) => {

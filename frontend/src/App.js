@@ -10,6 +10,7 @@ import ForgotPasswordPage from './components/ForgotPasswordPage';
 import ResetPasswordPage from './components/ResetPasswordPage';
 import ProfessorOnboardModal from './components/ProfessorOnboardModal';
 import AdminPasswordReset from './components/AdminPasswordReset';
+import AdminProfessorCreation from './components/AdminProfessorCreation';
 import './App.css';
 
 /**
@@ -54,6 +55,10 @@ function App() {
         <Route
           path="/admin/password-reset"
           element={<ProtectedRoute component={AdminPasswordReset} requiredRoles={['admin']} />}
+        />
+        <Route
+          path="/admin/professor-creation"
+          element={<ProtectedRoute component={AdminProfessorCreation} requiredRoles={['admin']} />}
         />
 
         {/* Protected Routes */}
