@@ -833,7 +833,6 @@ const professorOnboard = async (req, res) => {
     }
 
     user.hashedPassword = await hashPassword(newPassword);
-    user.accountStatus = 'active';
     user.requiresPasswordChange = false;
     await user.save();
 
@@ -1015,9 +1014,9 @@ const adminCreateProfessor = async (req, res) => {
       role: 'professor',
       firstName: firstName || '',
       lastName: lastName || '',
-      accountStatus: 'active',
+      accountStatus: 'pending',
       emailVerified: false,
-      requiresPasswordChange: true, 
+      requiresPasswordChange: true,
     });
 
     await professor.save();

@@ -374,6 +374,10 @@ const verifyEmail = async (req, res) => {
 /**
  * Finalise onboarding — mark account active and send account-ready email
  * POST /onboarding/complete
+ *
+ * Triggered after:
+ *   - Email verification (student flow f16): emailVerified === true
+ *   - Password set (professor flow f21):     requiresPasswordChange === false
  */
 const completeOnboarding = async (req, res) => {
   try {
@@ -388,17 +392,54 @@ const completeOnboarding = async (req, res) => {
       return res.status(404).json({ code: 'NOT_FOUND', message: 'User not found' });
     }
 
-    if (!user.emailVerified) {
-      return res.status(400).json({
-        code: 'EMAIL_NOT_VERIFIED',
-        message: 'Email must be verified before completing onboarding',
+    // Idempotency: account already active — return current state without resending email (f22)
+    if (user.accountStatus === 'active') {
+      return res.status(200).json({
+        userId: user.userId,
+        email: user.email,
+        role: user.role,
+        githubUsername: user.githubUsername || null,
+        emailVerified: user.emailVerified,
+        accountStatus: user.accountStatus,
+        createdAt: user.createdAt,
       });
     }
 
+    // Verify prerequisites for finalization
+    const emailVerifiedFlow = user.emailVerified; // student: verified email (f16)
+    const passwordSetFlow = user.role === 'professor' && user.requiresPasswordChange === false; // professor: set password (f21)
+
+    if (!emailVerifiedFlow && !passwordSetFlow) {
+      return res.status(400).json({
+        code: 'PREREQUISITES_NOT_MET',
+        message: 'Account cannot be finalized: email must be verified or initial password must be set',
+      });
+    }
+
+    // Persist: mark account active in D1 (flow f22)
     user.accountStatus = 'active';
     await user.save();
 
-    await sendAccountReadyEmail(user.email, user.role, user.userId);
+    // Audit: log onboarding completion (best-effort)
+    try {
+      await createAuditLog({
+        action: 'ONBOARDING_COMPLETED',
+        actorId: user.userId,
+        targetId: user.userId,
+        changes: { newStatus: 'active', role: user.role },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed for ONBOARDING_COMPLETED (non-fatal):', auditError.message);
+    }
+
+    // Notify: role-specific account-ready email (best-effort, f23/f24)
+    try {
+      await sendAccountReadyEmail(user.email, user.role, user.userId);
+    } catch (emailError) {
+      console.error('Account-ready email failed (non-fatal):', emailError.message);
+    }
 
     return res.status(200).json({
       userId: user.userId,
