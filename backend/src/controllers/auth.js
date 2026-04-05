@@ -194,6 +194,16 @@ const registerStudent = async (req, res) => {
       });
     }
 
+    // Check if student ID is already registered
+    const existingStudentUser = await User.findOne({ studentId: tokenPayload.studentId });
+    if (existingStudentUser) {
+      return res.status(409).json({
+        code: 'DUPLICATE_STUDENT_ID',
+        message: 'This student ID has already been registered',
+        reason: 'Student ID already in use',
+      });
+    }
+
     // Hash password
     const hashedPassword = await hashPassword(password);
 
@@ -202,7 +212,7 @@ const registerStudent = async (req, res) => {
       email: email.toLowerCase(),
       hashedPassword,
       role: 'student',
-      accountStatus: 'pending',
+      accountStatus: 'pending_verification',
       studentId: tokenPayload.studentId,
     });
 

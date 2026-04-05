@@ -43,8 +43,8 @@ const userSchema = new mongoose.Schema(
     },
     accountStatus: {
       type: String,
-      enum: ['pending', 'active', 'suspended'],
-      default: 'pending',
+      enum: ['pending', 'pending_verification', 'active', 'suspended'],
+      default: 'pending_verification',
     },
     studentId: {
       type: String,
