@@ -112,10 +112,12 @@ const Step1 = ({ onNext, onBack }) => {
 // Step 2: Create Account
 // ─────────────────────────────────────────────
 const Step2 = ({ onNext, onBack }) => {
+  const navigate = useNavigate();
   const { validationToken, email, userId, setUserId, setStepComplete, setEmailLastSentAt } = useOnboardingStore();
   const { setAuth } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState('');
+  const [accountExists, setAccountExists] = useState(false);
   const [done, setDone] = useState(!!userId);
 
   useEffect(() => {
@@ -148,6 +150,30 @@ const Step2 = ({ onNext, onBack }) => {
       } catch { /* non-critical */ }
       setDone(true);
     } catch (err) {
+      const code = err.response?.data?.code;
+
+      // Account already exists — recover gracefully instead of showing a dead-end error
+      if (code === 'CONFLICT') {
+        const existingAuth = useAuthStore.getState();
+        if (existingAuth.isAuthenticated && existingAuth.user?.userId) {
+          // Already registered and still authenticated from a previous run — resume the flow
+          setUserId(existingAuth.user.userId);
+          setStepComplete('accountCreated');
+          if (!existingAuth.user.emailVerified) {
+            try {
+              await sendVerificationEmail(existingAuth.user.userId);
+              setEmailLastSentAt(Date.now());
+            } catch { /* non-critical */ }
+          }
+          setDone(true);
+          return;
+        }
+        // Not authenticated — tell user to sign in
+        setAccountExists(true);
+        setApiError('An account with this email already exists.');
+        return;
+      }
+
       const msg = err.response?.data?.message || 'Registration failed';
       setApiError(msg);
     } finally {
@@ -182,7 +208,23 @@ const Step2 = ({ onNext, onBack }) => {
     <>
       <h2>Create Account</h2>
       <p className="step-subtitle">Ready to create your account with email <strong>{email}</strong>.</p>
-      {apiError && <div className="alert alert-error">{apiError}</div>}
+      {apiError && (
+        <div className="alert alert-error">
+          {apiError}
+          {accountExists && (
+            <span>
+              {' '}
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => navigate('/auth/login')}
+              >
+                Sign in instead
+              </button>
+            </span>
+          )}
+        </div>
+      )}
       <button className="btn-primary" onClick={handleRegister} disabled={loading}>
         Create Account
       </button>

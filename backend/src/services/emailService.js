@@ -27,15 +27,29 @@ const ROLE_TEMPLATES = {
   }),
 };
 
-const isDev = () =>
-  process.env.NODE_ENV !== 'production' ||
-  !process.env.EMAIL_USER ||
-  process.env.EMAIL_USER === 'your-email@gmail.com';
+const isDev = () => {
+  // Real sending is enabled when EMAIL_USER (and EMAIL_HOST or EMAIL_SERVICE) are configured
+  if (!process.env.EMAIL_USER || process.env.EMAIL_USER === 'your-email@gmail.com') return true;
+  const hasSmtp = process.env.EMAIL_HOST || process.env.EMAIL_SERVICE;
+  return !hasSmtp;
+};
 
 const getTransporter = () => {
   if (isDev()) return null;
   try {
     const nodemailer = require('nodemailer');
+    // Mailtrap (SMTP) support: set EMAIL_HOST + EMAIL_PORT in .env
+    if (process.env.EMAIL_HOST) {
+      return nodemailer.createTransport({
+        host: process.env.EMAIL_HOST,
+        port: parseInt(process.env.EMAIL_PORT || '587', 10),
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASSWORD,
+        },
+      });
+    }
+    // Gmail / other named service
     return nodemailer.createTransport({
       service: process.env.EMAIL_SERVICE || 'gmail',
       auth: {
@@ -139,8 +153,8 @@ const sendPasswordResetEmail = async (email, token) => {
       from: process.env.EMAIL_USER,
       to: email,
       subject: 'Reset your password',
-      text: `Reset your password: ${resetUrl}\n\nThis link expires in 15 minutes. If you did not request this, ignore this email.`,
-      html: `<p>Click to reset your password: <a href="${resetUrl}">Reset Password</a></p><p>This link expires in <strong>15 minutes</strong>. If you did not request a password reset, please ignore this email.</p>`,
+      text: `Reset your password: ${resetUrl}\n\nThis link expires in 15 minutes. If you did not request a password reset, ignore this email.`,
+      html: `<p>Click to reset your password: <a href="${resetUrl}">Reset Password</a></p><p>This link expires in <strong>15 minutes</strong>. If you did not request a password reset, ignore this email.</p>`,
     });
     return { messageId: info.messageId, recipient: email, status: 'sent' };
   } catch (err) {

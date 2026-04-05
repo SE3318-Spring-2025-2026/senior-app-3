@@ -10,6 +10,9 @@ const {
   initiateGithubOAuth,
   githubOAuthCallback,
   requestPasswordReset,
+  validatePasswordResetToken,
+  confirmPasswordReset,
+  professorOnboard,
   confirmPasswordReset,
   adminInitiatePasswordReset,
 } = require('../controllers/auth');
@@ -20,12 +23,14 @@ router.post('/register', registerStudent);
 router.post('/refresh', refreshAccessToken);
 router.get('/github/oauth/callback', githubOAuthCallback);
 router.post('/password-reset/request', requestPasswordReset);
+router.post('/password-reset/validate-token', validatePasswordResetToken);
 router.post('/password-reset/confirm', confirmPasswordReset);
 
 // Protected routes
 router.post('/logout', authMiddleware, logout);
 router.post('/change-password', authMiddleware, changePassword);
 router.post('/github/oauth/initiate', authMiddleware, initiateGithubOAuth);
+router.post('/professor/onboard', authMiddleware, professorOnboard);
 router.post('/password-reset/admin-initiate', authMiddleware, roleMiddleware(['admin']), adminInitiatePasswordReset);
 
 module.exports = router;
