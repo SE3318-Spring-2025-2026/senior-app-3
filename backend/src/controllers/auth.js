@@ -962,6 +962,100 @@ const getAdminUsersList = async (req, res) => {
   }
 };
 
+/**
+ * Admin-initiated professor account creation
+ * Generates temporary password, sets force_password_change flag
+ * Sends credentials via email
+ */
+const adminCreateProfessor = async (req, res) => {
+  try {
+    const { email, firstName = '', lastName = '' } = req.body;
+    const { userId: actorId } = req.user;
+
+    // Validation
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'A valid email address is required',
+      });
+    }
+
+    // Check if account already exists
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    if (existingUser) {
+      return res.status(409).json({
+        code: 'CONFLICT',
+        message: 'A user with this email already exists',
+      });
+    }
+
+    // Generate temporary password: 12 characters with mixed case, numbers, and special chars
+    const tempPassword = crypto
+      .randomBytes(6)
+      .toString('hex')
+      .slice(0, 8)
+      .toUpperCase() + crypto.randomInt(100, 999) + '!A';
+
+    const hashedPassword = await hashPassword(tempPassword);
+
+    // Create professor account
+    const professor = new User({
+      email: email.toLowerCase(),
+      hashedPassword,
+      role: 'professor',
+      firstName: firstName || '',
+      lastName: lastName || '',
+      accountStatus: 'active',
+      emailVerified: false,
+      requiresPasswordChange: true, 
+    });
+
+    await professor.save();
+
+    // Audit log
+    try {
+      await createAuditLog({
+        action: 'ACCOUNT_CREATED',
+        actorId,
+        targetId: professor.userId,
+        changes: {
+          email: professor.email,
+          role: 'professor',
+          tempPasswordGenerated: true,
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed for ACCOUNT_CREATED (non-fatal):', auditError.message);
+    }
+
+    // Send credentials email
+    try {
+      const { sendProfessorCredentialsEmail } = require('../services/emailService');
+      await sendProfessorCredentialsEmail(professor.email, tempPassword);
+    } catch (emailError) {
+      console.error('Credentials email failed (non-fatal):', emailError.message);
+    }
+
+    return res.status(201).json({
+      message: 'Professor account created. Credentials have been sent via email.',
+      userId: professor.userId,
+      email: professor.email,
+      firstName: professor.firstName,
+      lastName: professor.lastName,
+      accountStatus: professor.accountStatus,
+      requiresPasswordChange: professor.requiresPasswordChange,
+    });
+  } catch (error) {
+    console.error('Admin create professor error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Failed to create professor account',
+    });
+  }
+};
+
 module.exports = {
   loginWithPassword,
   registerStudent,
@@ -976,4 +1070,5 @@ module.exports = {
   professorOnboard,
   adminInitiatePasswordReset,
   getAdminUsersList,
+  adminCreateProfessor,
 };

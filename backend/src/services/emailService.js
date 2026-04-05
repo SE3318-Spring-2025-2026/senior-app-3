@@ -163,4 +163,38 @@ const sendPasswordResetEmail = async (email, token) => {
   }
 };
 
-module.exports = { sendVerificationEmail, sendAccountReadyEmail, sendPasswordResetEmail };
+/**
+ * Send temporary credentials to newly created professor account.
+ * In dev mode: logs the credentials to the console.
+ */
+const sendProfessorCredentialsEmail = async (email, tempPassword) => {
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const loginUrl = `${frontendUrl}/auth/login`;
+
+  console.log('\n[EMAIL] ── Professor Credentials Email ──────────');
+  console.log(`[EMAIL] To:       ${email}`);
+  console.log(`[EMAIL] Password: ${tempPassword}`);
+  console.log(`[EMAIL] URL:      ${loginUrl}`);
+  console.log('[EMAIL] ────────────────────────────────────────\n');
+
+  const transporter = getTransporter();
+  if (!transporter) {
+    return { messageId: 'dev-mode', recipient: email, status: 'sent' };
+  }
+
+  try {
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: 'Your Professor Account Credentials',
+      text: `Your professor account has been created.\n\nEmail: ${email}\nTemporary Password: ${tempPassword}\n\nPlease log in at: ${loginUrl}\n\nYou will be required to change your password on first login.`,
+      html: `<h2>Welcome, Professor!</h2><p>Your professor account has been created by an administrator.</p><p><strong>Email:</strong> ${email}</p><p><strong>Temporary Password:</strong> <code>${tempPassword}</code></p><p><a href="${loginUrl}">Log in here</a></p><p><em>You will be required to change your password on first login.</em></p>`,
+    });
+    return { messageId: info.messageId, recipient: email, status: 'sent' };
+  } catch (err) {
+    console.error('[EMAIL] Send failed:', err.message);
+    return { messageId: null, recipient: email, status: 'failed' };
+  }
+};
+
+module.exports = { sendVerificationEmail, sendAccountReadyEmail, sendPasswordResetEmail, sendProfessorCredentialsEmail };
