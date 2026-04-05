@@ -12,6 +12,8 @@ import ProfessorOnboardModal from './components/ProfessorOnboardModal';
 import AdminPasswordReset from './components/AdminPasswordReset';
 import AdminProfessorCreation from './components/AdminProfessorCreation';
 import GitHubCallbackHandler from './components/GitHubCallbackHandler';
+import GroupDashboard from './components/GroupDashboard';
+import CoordinatorPanel from './components/CoordinatorPanel';
 import './App.css';
 
 /**
@@ -67,6 +69,14 @@ function App() {
         <Route
           path="/dashboard"
           element={<ProtectedRoute component={Dashboard} />}
+        />
+        <Route
+          path="/groups/:group_id"
+          element={<ProtectedRoute component={GroupDashboard} />}
+        />
+        <Route
+          path="/groups/:group_id/coordinator"
+          element={<ProtectedRoute component={CoordinatorPanel} requiredRoles={['coordinator', 'admin']} />}
         />
         <Route
           path="/profile"
