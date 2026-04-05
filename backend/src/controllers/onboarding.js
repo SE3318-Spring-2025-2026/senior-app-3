@@ -177,25 +177,56 @@ const validateStudentId = async (req, res) => {
       });
     }
 
+    // Check if student ID exists in registry
     const registeredStudent = await StudentIdRegistry.findOne({
       studentId: studentId.trim(),
       status: 'valid',
     });
 
     if (!registeredStudent) {
-      return res.status(422).json({ valid: false, reason: 'Student ID not recognised' });
+      return res.status(422).json({
+        valid: false,
+        reason: 'Student ID not found in records. Please verify your ID and try again.',
+        code: 'INVALID_STUDENT_ID',
+      });
     }
 
+    // Check email matches
     if (registeredStudent.email !== email.trim().toLowerCase()) {
-      return res.status(422).json({ valid: false, reason: 'Email does not match registered student ID' });
+      return res.status(422).json({
+        valid: false,
+        reason: 'Email address does not match the registered student ID. Please use the email associated with your enrollment.',
+        code: 'EMAIL_MISMATCH',
+      });
     }
 
+    // Check if this student ID has already been registered
+    const existingUser = await User.findOne({ studentId: studentId.trim() });
+    if (existingUser) {
+      return res.status(422).json({
+        valid: false,
+        reason: 'This student ID has already been registered. If you forgot your password, please use the password reset option.',
+        code: 'DUPLICATE_REGISTRATION',
+      });
+    }
+
+    // Check if this email has already been registered
+    const existingEmailUser = await User.findOne({ email: email.trim().toLowerCase() });
+    if (existingEmailUser) {
+      return res.status(422).json({
+        valid: false,
+        reason: 'An account with this email address already exists. Please sign in or use a different email.',
+        code: 'EMAIL_ALREADY_REGISTERED',
+      });
+    }
+
+    // Generate validation token
     const jwt = require('jsonwebtoken');
     const validationPayload = {
       studentId: studentId.trim(),
       email: email.trim().toLowerCase(),
       iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + 600,
+      exp: Math.floor(Date.now() / 1000) + 600, // 10 minutes expiry
       type: 'student_id_validation',
     };
 
@@ -203,10 +234,19 @@ const validateStudentId = async (req, res) => {
       algorithm: 'HS256',
     });
 
-    return res.status(200).json({ valid: true, validationToken, expiresIn: 600 });
+    return res.status(200).json({
+      valid: true,
+      validationToken,
+      expiresIn: 600,
+      message: 'Student ID validated successfully',
+    });
   } catch (error) {
     console.error('Validate student ID error:', error);
-    res.status(500).json({ code: 'SERVER_ERROR', message: 'Failed to validate student ID' });
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Failed to validate student ID',
+      valid: false,
+    });
   }
 };
 
