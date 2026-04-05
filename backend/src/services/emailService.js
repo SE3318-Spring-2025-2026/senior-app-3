@@ -121,7 +121,7 @@ const sendAccountReadyEmail = async (email, role) => {
  */
 const sendPasswordResetEmail = async (email, token) => {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-  const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
+  const resetUrl = `${frontendUrl}/auth/reset-password?token=${token}`;
 
   console.log('\n[EMAIL] ── Password Reset Email ─────────────────');
   console.log(`[EMAIL] To:    ${email}`);
