@@ -1,9 +1,10 @@
 const Group = require('../models/Group');
 const ApprovalQueue = require('../models/ApprovalQueue');
 const GroupMembership = require('../models/GroupMembership');
+const Override = require('../models/Override');
 const User = require('../models/User');
 const { createAuditLog } = require('../services/auditService');
-const { forwardToMemberRequestPipeline } = require('../services/groupService');
+const { forwardToMemberRequestPipeline, forwardOverrideToReconciliation } = require('../services/groupService');
 
 const VALID_DECISIONS = new Set(['approved', 'rejected']);
 
@@ -314,4 +315,154 @@ const formatGroupResponse = (group) => ({
   updatedAt: group.updatedAt,
 });
 
-module.exports = { forwardApprovalResults, createGroup, getGroup };
+const VALID_OVERRIDE_ACTIONS = new Set(['add_member', 'remove_member']);
+
+/**
+ * PATCH /groups/:groupId/override
+ *
+ * Process 2.8 — Coordinator Override: forcibly add or remove a student from a group,
+ * bypassing the standard invitation/approval flow.
+ *
+ * DFD flows:
+ *   f16 — Coordinator → 2.8 (override request received)
+ *   f21 — 2.8 → D2  (member records updated immediately)
+ *   f17 — 2.8 → 2.5 (override confirmation forwarded for reconciliation)
+ *
+ * Role guard: coordinator only (403 for all other roles).
+ * Not restricted by coordinator-defined schedule windows.
+ */
+const coordinatorOverride = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const { action, target_student_id, reason } = req.body;
+
+    if (!action || !VALID_OVERRIDE_ACTIONS.has(action)) {
+      return res.status(400).json({
+        code: 'INVALID_ACTION',
+        message: "action must be 'add_member' or 'remove_member'",
+      });
+    }
+
+    if (!target_student_id || typeof target_student_id !== 'string' || !target_student_id.trim()) {
+      return res.status(400).json({
+        code: 'MISSING_TARGET_STUDENT',
+        message: 'target_student_id is required',
+      });
+    }
+
+    if (!reason || typeof reason !== 'string' || !reason.trim()) {
+      return res.status(400).json({
+        code: 'MISSING_REASON',
+        message: 'reason is required',
+      });
+    }
+
+    const group = await Group.findOne({ groupId });
+    if (!group) {
+      return res.status(404).json({
+        code: 'GROUP_NOT_FOUND',
+        message: 'Group not found',
+      });
+    }
+
+    const targetStudent = await User.findOne({ userId: target_student_id.trim() });
+    if (!targetStudent) {
+      return res.status(404).json({
+        code: 'STUDENT_NOT_FOUND',
+        message: 'Target student not found',
+      });
+    }
+
+    const studentId = target_student_id.trim();
+    const timestamp = new Date();
+
+    // f21: Update D2 member records immediately
+    if (action === 'add_member') {
+      const alreadyMember = group.members.some((m) => m.userId === studentId && m.status === 'accepted');
+      if (!alreadyMember) {
+        // Remove any existing non-accepted entry for this student first
+        group.members = group.members.filter((m) => m.userId !== studentId);
+        group.members.push({
+          userId: studentId,
+          role: 'member',
+          status: 'accepted',
+          joinedAt: timestamp,
+        });
+        await group.save();
+      }
+
+      await GroupMembership.findOneAndUpdate(
+        { groupId, studentId },
+        {
+          $set: {
+            status: 'approved',
+            decidedBy: req.user.userId,
+            decidedAt: timestamp,
+          },
+          $setOnInsert: {
+            membershipId: `mem_${require('uuid').v4().split('-')[0]}`,
+          },
+        },
+        { upsert: true, new: true }
+      );
+    } else {
+      // remove_member
+      group.members = group.members.filter((m) => m.userId !== studentId);
+      await group.save();
+
+      await GroupMembership.findOneAndUpdate(
+        { groupId, studentId },
+        {
+          $set: {
+            status: 'rejected',
+            decidedBy: req.user.userId,
+            decidedAt: timestamp,
+          },
+        }
+      );
+    }
+
+    // Persist override record to D2
+    const override = await Override.create({
+      groupId,
+      action,
+      targetStudentId: studentId,
+      reason: reason.trim(),
+      coordinatorId: req.user.userId,
+      status: 'applied',
+    });
+
+    // f17: Forward override confirmation to process 2.5 for reconciliation
+    await forwardOverrideToReconciliation(override);
+
+    // Audit log (non-fatal)
+    try {
+      await createAuditLog({
+        action: 'COORDINATOR_OVERRIDE',
+        actorId: req.user.userId,
+        targetId: groupId,
+        changes: { action, targetStudentId: studentId, reason: reason.trim() },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed (non-fatal):', auditError.message);
+    }
+
+    return res.status(200).json({
+      override_id: override.overrideId,
+      action: override.action,
+      status: 'applied',
+      confirmation: `${action === 'add_member' ? 'Student added to' : 'Student removed from'} group ${groupId} by coordinator override`,
+      timestamp: override.createdAt.toISOString(),
+    });
+  } catch (err) {
+    console.error('coordinatorOverride error:', err);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: 'An unexpected error occurred',
+    });
+  }
+};
+
+module.exports = { forwardApprovalResults, createGroup, getGroup, coordinatorOverride };

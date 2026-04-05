@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
-const { forwardApprovalResults, createGroup, getGroup } = require('../controllers/groups');
+const { forwardApprovalResults, createGroup, getGroup, coordinatorOverride } = require('../controllers/groups');
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
 router.post('/', authMiddleware, createGroup);
@@ -16,6 +16,15 @@ router.post(
   authMiddleware,
   roleMiddleware(['committee_member', 'professor', 'admin']),
   forwardApprovalResults
+);
+
+// PATCH /api/v1/groups/:groupId/override
+// Process 2.8: Coordinator override — add/remove member, bypassing standard flow
+router.patch(
+  '/:groupId/override',
+  authMiddleware,
+  roleMiddleware(['coordinator']),
+  coordinatorOverride
 );
 
 module.exports = router;
