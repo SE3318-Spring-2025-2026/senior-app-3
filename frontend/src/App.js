@@ -13,6 +13,7 @@ import AdminPasswordReset from './components/AdminPasswordReset';
 import AdminProfessorCreation from './components/AdminProfessorCreation';
 import GitHubCallbackHandler from './components/GitHubCallbackHandler';
 import GroupDashboard from './components/GroupDashboard';
+import GroupCreationPage from './components/GroupCreationPage';
 import CoordinatorPanel from './components/CoordinatorPanel';
 import './App.css';
 
@@ -71,6 +72,10 @@ function App() {
           element={<ProtectedRoute component={Dashboard} />}
         />
         <Route
+          path="/groups/new"
+          element={<ProtectedRoute component={GroupCreationPage} />}
+        />
+        <Route
           path="/groups/:group_id"
           element={<ProtectedRoute component={GroupDashboard} />}
         />
@@ -92,3 +97,4 @@ function App() {
 }
 
 export default App;
+

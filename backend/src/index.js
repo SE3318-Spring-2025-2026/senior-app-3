@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const authRoutes = require('./routes/auth');
 const onboardingRoutes = require('./routes/onboarding');
 const groupRoutes = require('./routes/groups');
+const scheduleWindowRoutes = require('./routes/scheduleWindow');
 const { errorHandler } = require('./middleware/auth');
 
 const app = express();
@@ -51,6 +52,7 @@ connectDB();
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/onboarding', onboardingRoutes);
 app.use('/api/v1/groups', groupRoutes);
+app.use('/api/v1/schedule-window', scheduleWindowRoutes);
 
 // 404 handler
 app.use((req, res) => {

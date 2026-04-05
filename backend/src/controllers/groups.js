@@ -3,6 +3,7 @@ const ApprovalQueue = require('../models/ApprovalQueue');
 const GroupMembership = require('../models/GroupMembership');
 const Override = require('../models/Override');
 const User = require('../models/User');
+const ScheduleWindow = require('../models/ScheduleWindow');
 const { createAuditLog } = require('../services/auditService');
 const { forwardToMemberRequestPipeline, forwardOverrideToReconciliation } = require('../services/groupService');
 
@@ -151,7 +152,31 @@ const forwardApprovalResults = async (req, res) => {
  */
 const createGroup = async (req, res) => {
   try {
-    const { groupName, leaderId } = req.body;
+    const {
+      groupName,
+      leaderId,
+      githubPat,
+      githubOrg,
+      jiraUrl,
+      jiraUsername,
+      jiraToken,
+      projectKey,
+    } = req.body;
+
+    // --- Schedule boundary check (f01: Student → 2.1) ---
+    const now = new Date();
+    const activeWindow = await ScheduleWindow.findOne({
+      isActive: true,
+      startsAt: { $lte: now },
+      endsAt: { $gte: now },
+    });
+
+    if (!activeWindow) {
+      return res.status(403).json({
+        code: 'OUTSIDE_SCHEDULE_WINDOW',
+        message: 'Group creation is currently closed. Please check the coordinator-defined schedule.',
+      });
+    }
 
     // --- Input validation ---
     if (!groupName || typeof groupName !== 'string' || !groupName.trim()) {
@@ -212,6 +237,12 @@ const createGroup = async (req, res) => {
       groupName: normalizedName,
       leaderId: leader.userId,
       status: 'pending_validation',
+      githubPat: githubPat || null,
+      githubOrg: githubOrg || null,
+      jiraUrl: jiraUrl || null,
+      jiraUsername: jiraUsername || null,
+      jiraToken: jiraToken || null,
+      projectKey: projectKey || null,
     });
 
     await group.save();
@@ -311,6 +342,7 @@ const formatGroupResponse = (group) => ({
   })),
   githubOrg: group.githubOrg,
   jiraProject: group.jiraProject,
+  projectKey: group.projectKey,
   createdAt: group.createdAt,
   updatedAt: group.updatedAt,
 });
