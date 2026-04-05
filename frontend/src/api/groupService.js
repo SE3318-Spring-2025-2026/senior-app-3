@@ -100,20 +100,14 @@ export const getPendingApprovals = async (groupId) => {
  */
 export const getGroupDashboardData = async (groupId) => {
   try {
-    const [groupData, membersData, githubData, jiraData, approvalsData] = await Promise.all([
-      getGroup(groupId),
-      getGroupMembers(groupId),
-      getGitHubStatus(groupId),
-      getJiraStatus(groupId),
-      getPendingApprovals(groupId),
-    ]);
+    const groupData = await getGroup(groupId);
 
     return {
       group: groupData,
-      members: membersData,
-      github: githubData,
-      jira: jiraData,
-      approvals: approvalsData,
+      members: groupData.members || [],
+      github: { connected: false, repo_url: null, last_synced: null },
+      jira: { connected: false, project_key: null, board_url: null },
+      approvals: { approvals: [] },
     };
   } catch (error) {
     console.error('Error fetching group dashboard data:', error);

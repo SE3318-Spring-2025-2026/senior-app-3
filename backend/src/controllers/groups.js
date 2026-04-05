@@ -164,21 +164,21 @@ const getGroup = async (req, res) => {
  *   github_org, jira_project
  */
 const formatGroupResponse = (group) => ({
-  group_id: group.groupId,
-  group_name: group.groupName,
-  leader: group.leaderId,
+  groupId: group.groupId,
+  groupName: group.groupName,
+  leaderId: group.leaderId,
   advisor: group.advisor,
   status: group.status,
   members: group.members.map((m) => ({
-    user_id: m.userId,
+    userId: m.userId,
     role: m.role,
     status: m.status,
-    joined_at: m.joinedAt,
+    joinedAt: m.joinedAt,
   })),
-  github_org: group.githubOrg,
-  jira_project: group.jiraProject,
-  created_at: group.createdAt,
-  updated_at: group.updatedAt,
+  githubOrg: group.githubOrg,
+  jiraProject: group.jiraProject,
+  createdAt: group.createdAt,
+  updatedAt: group.updatedAt,
 });
 
 module.exports = { createGroup, getGroup };

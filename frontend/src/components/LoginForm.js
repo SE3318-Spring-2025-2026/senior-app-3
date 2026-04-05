@@ -78,10 +78,14 @@ const LoginForm = () => {
         response.refreshToken
       );
 
-      // Professor first-login: go to dedicated setup page instead of dashboard
+      // First-login forced password change: professors go to dedicated setup page
       if (response.requiresPasswordChange) {
         setRequiresPasswordChange(true);
-        navigate('/professor/setup');
+        if (response.role === 'professor') {
+          navigate('/professor/setup');
+        } else {
+          navigate('/dashboard');
+        }
         return;
       }
 
