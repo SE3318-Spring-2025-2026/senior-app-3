@@ -90,6 +90,14 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    passwordResetSentCount: {
+      type: Number,
+      default: 0,
+    },
+    passwordResetWindowStart: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,

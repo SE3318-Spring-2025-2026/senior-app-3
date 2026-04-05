@@ -115,4 +115,38 @@ const sendAccountReadyEmail = async (email, role) => {
   }
 };
 
-module.exports = { sendVerificationEmail, sendAccountReadyEmail };
+/**
+ * Send password reset link to user.
+ * In dev mode: logs the token to the console.
+ */
+const sendPasswordResetEmail = async (email, token) => {
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const resetUrl = `${frontendUrl}/auth/reset-password?token=${token}`;
+
+  console.log('\n[EMAIL] ── Password Reset Email ─────────────────');
+  console.log(`[EMAIL] To:    ${email}`);
+  console.log(`[EMAIL] Token: ${token}`);
+  console.log(`[EMAIL] URL:   ${resetUrl}`);
+  console.log('[EMAIL] ────────────────────────────────────────\n');
+
+  const transporter = getTransporter();
+  if (!transporter) {
+    return { messageId: 'dev-mode', recipient: email, status: 'sent' };
+  }
+
+  try {
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: 'Reset your password',
+      text: `Reset your password: ${resetUrl}\n\nThis link expires in 15 minutes. If you did not request this, ignore this email.`,
+      html: `<p>Click to reset your password: <a href="${resetUrl}">Reset Password</a></p><p>This link expires in <strong>15 minutes</strong>. If you did not request a password reset, please ignore this email.</p>`,
+    });
+    return { messageId: info.messageId, recipient: email, status: 'sent' };
+  } catch (err) {
+    console.error('[EMAIL] Send failed:', err.message);
+    return { messageId: null, recipient: email, status: 'failed' };
+  }
+};
+
+module.exports = { sendVerificationEmail, sendAccountReadyEmail, sendPasswordResetEmail };
