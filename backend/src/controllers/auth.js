@@ -4,6 +4,7 @@ const StudentIdRegistry = require('../models/StudentIdRegistry');
 const { hashPassword, comparePassword, validatePasswordStrength } = require('../utils/password');
 const { generateTokenPair, verifyRefreshToken } = require('../utils/jwt');
 const { createAuditLog } = require('../services/auditService');
+const { sendPasswordResetEmail } = require('../services/emailService');
 const axios = require('axios');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
@@ -92,6 +93,7 @@ const loginWithPassword = async (req, res) => {
       role: user.role,
       emailVerified: user.emailVerified,
       accountStatus: user.accountStatus,
+      requiresPasswordChange: user.requiresPasswordChange || false,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       expiresIn: 3600, // 1 hour in seconds
@@ -519,6 +521,204 @@ const changePassword = async (req, res) => {
   }
 };
 
+/**
+ * Request password reset — always returns 200 to prevent user enumeration (flow f20)
+ */
+const requestPasswordReset = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'A valid email address is required',
+      });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+
+    if (user) {
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      user.passwordResetToken = resetToken;
+      user.passwordResetTokenExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+      await user.save();
+      await sendPasswordResetEmail(user.email, resetToken);
+    }
+
+    // Non-revealing: always return same response regardless of whether email exists
+    return res.status(200).json({
+      messageId: 'sent',
+      recipient: email,
+      status: 'queued',
+    });
+  } catch (error) {
+    console.error('Password reset request error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Password reset request failed',
+    });
+  }
+};
+
+/**
+ * Validate a password reset token without consuming it (read-only check)
+ * Used by the frontend on page load to detect expired links immediately
+ */
+const validatePasswordResetToken = async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'Token is required',
+      });
+    }
+
+    const user = await User.findOne({
+      passwordResetToken: token,
+      passwordResetTokenExpiry: { $gt: new Date() },
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        code: 'INVALID_TOKEN',
+        message: 'Reset token is invalid or has expired',
+      });
+    }
+
+    return res.status(200).json({ valid: true });
+  } catch (error) {
+    console.error('Token validation error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Token validation failed',
+    });
+  }
+};
+
+/**
+ * Confirm password reset with one-time token (flow f21)
+ */
+const confirmPasswordReset = async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+
+    if (!token || !newPassword) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'Token and newPassword are required',
+      });
+    }
+
+    const user = await User.findOne({
+      passwordResetToken: token,
+      passwordResetTokenExpiry: { $gt: new Date() },
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        code: 'INVALID_TOKEN',
+        message: 'Reset token is invalid or has expired',
+      });
+    }
+
+    const { isValid, errors: passwordErrors } = validatePasswordStrength(newPassword);
+    if (!isValid) {
+      return res.status(400).json({
+        code: 'WEAK_PASSWORD',
+        message: 'Password does not meet requirements',
+        details: passwordErrors,
+      });
+    }
+
+    user.hashedPassword = await hashPassword(newPassword);
+    user.passwordResetToken = null;
+    user.passwordResetTokenExpiry = null;
+    await user.save();
+
+    // Revoke all sessions for security after password change
+    await RefreshToken.updateMany({ userId: user.userId }, { isRevoked: true });
+
+    return res.status(200).json({
+      userId: user.userId,
+      message: 'Password updated successfully.',
+    });
+  } catch (error) {
+    console.error('Password reset confirm error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Password reset failed',
+    });
+  }
+};
+
+/**
+ * Professor first-login forced password change (flow f07)
+ * Requires bearerAuth — professor must be logged in with temp password
+ */
+const professorOnboard = async (req, res) => {
+  try {
+    const { newPassword, connectGithub } = req.body;
+    const { userId } = req.user;
+
+    if (!newPassword) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'newPassword is required',
+      });
+    }
+
+    const user = await User.findOne({ userId });
+
+    if (!user) {
+      return res.status(401).json({
+        code: 'UNAUTHORIZED',
+        message: 'User not found',
+      });
+    }
+
+    if (user.role !== 'professor') {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'This endpoint is for professors only',
+      });
+    }
+
+    const { isValid, errors: passwordErrors } = validatePasswordStrength(newPassword);
+    if (!isValid) {
+      return res.status(400).json({
+        code: 'WEAK_PASSWORD',
+        message: 'Password does not meet requirements',
+        details: passwordErrors,
+      });
+    }
+
+    user.hashedPassword = await hashPassword(newPassword);
+    user.accountStatus = 'active';
+    user.requiresPasswordChange = false;
+    await user.save();
+
+    const response = {
+      userId: user.userId,
+      accountStatus: user.accountStatus,
+    };
+
+    if (connectGithub) {
+      const state = crypto.randomBytes(16).toString('hex');
+      response.githubOauthUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&redirect_uri=${process.env.GITHUB_REDIRECT_URI}&state=${state}&scope=user`;
+    }
+
+    return res.status(200).json(response);
+  } catch (error) {
+    console.error('Professor onboard error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Professor onboarding failed',
+    });
+  }
+};
+
 module.exports = {
   loginWithPassword,
   registerStudent,
@@ -527,4 +727,8 @@ module.exports = {
   changePassword,
   initiateGithubOAuth,
   githubOAuthCallback,
+  requestPasswordReset,
+  validatePasswordResetToken,
+  confirmPasswordReset,
+  professorOnboard,
 };

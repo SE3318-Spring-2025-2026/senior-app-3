@@ -90,6 +90,10 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    requiresPasswordChange: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,

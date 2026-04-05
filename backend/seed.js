@@ -7,6 +7,13 @@
 require('dotenv').config();
 const mongoose = require('mongoose');
 const StudentIdRegistry = require('./src/models/StudentIdRegistry');
+const User = require('./src/models/User');
+const { hashPassword } = require('./src/utils/password');
+
+const TEST_PROFESSORS = [
+  { email: 'prof.smith@university.edu',   name: 'Dr. Smith',   tempPassword: 'TempPass1!' },
+  { email: 'prof.johnson@university.edu', name: 'Dr. Johnson', tempPassword: 'TempPass1!' },
+];
 
 const TEST_STUDENTS = [
   { studentId: 'STU-2025-001', name: 'Alice Smith',   email: 'alice@university.edu' },
@@ -42,7 +49,34 @@ async function seed() {
     }
   }
 
-  console.log(`\nDone: ${inserted} inserted, ${skipped} skipped.`);
+  console.log(`\nDone (students): ${inserted} inserted, ${skipped} skipped.`);
+
+  // ── Professors ────────────────────────────────────────────────────────────
+  console.log('\nSeeding professors...');
+  let profInserted = 0;
+  let profSkipped = 0;
+
+  for (const prof of TEST_PROFESSORS) {
+    const exists = await User.findOne({ email: prof.email });
+    if (exists) {
+      console.log(`  skip  ${prof.email} (already exists)`);
+      profSkipped++;
+    } else {
+      const hashedPassword = await hashPassword(prof.tempPassword);
+      await User.create({
+        email: prof.email,
+        hashedPassword,
+        role: 'professor',
+        accountStatus: 'active',
+        emailVerified: true,
+        requiresPasswordChange: true,
+      });
+      console.log(`  added ${prof.email} — temp password: ${prof.tempPassword}`);
+      profInserted++;
+    }
+  }
+
+  console.log(`Done (professors): ${profInserted} inserted, ${profSkipped} skipped.`);
   await mongoose.disconnect();
 }
 

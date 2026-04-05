@@ -27,15 +27,29 @@ const ROLE_TEMPLATES = {
   }),
 };
 
-const isDev = () =>
-  process.env.NODE_ENV !== 'production' ||
-  !process.env.EMAIL_USER ||
-  process.env.EMAIL_USER === 'your-email@gmail.com';
+const isDev = () => {
+  // Real sending is enabled when EMAIL_USER (and EMAIL_HOST or EMAIL_SERVICE) are configured
+  if (!process.env.EMAIL_USER || process.env.EMAIL_USER === 'your-email@gmail.com') return true;
+  const hasSmtp = process.env.EMAIL_HOST || process.env.EMAIL_SERVICE;
+  return !hasSmtp;
+};
 
 const getTransporter = () => {
   if (isDev()) return null;
   try {
     const nodemailer = require('nodemailer');
+    // Mailtrap (SMTP) support: set EMAIL_HOST + EMAIL_PORT in .env
+    if (process.env.EMAIL_HOST) {
+      return nodemailer.createTransport({
+        host: process.env.EMAIL_HOST,
+        port: parseInt(process.env.EMAIL_PORT || '587', 10),
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASSWORD,
+        },
+      });
+    }
+    // Gmail / other named service
     return nodemailer.createTransport({
       service: process.env.EMAIL_SERVICE || 'gmail',
       auth: {
@@ -115,4 +129,38 @@ const sendAccountReadyEmail = async (email, role) => {
   }
 };
 
-module.exports = { sendVerificationEmail, sendAccountReadyEmail };
+/**
+ * Send password reset link to user.
+ * In dev mode: logs the token to the console.
+ */
+const sendPasswordResetEmail = async (email, token) => {
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const resetUrl = `${frontendUrl}/auth/reset-password?token=${token}`;
+
+  console.log('\n[EMAIL] ── Password Reset Email ─────────────────');
+  console.log(`[EMAIL] To:    ${email}`);
+  console.log(`[EMAIL] Token: ${token}`);
+  console.log(`[EMAIL] URL:   ${resetUrl}`);
+  console.log('[EMAIL] ────────────────────────────────────────\n');
+
+  const transporter = getTransporter();
+  if (!transporter) {
+    return { messageId: 'dev-mode', recipient: email, status: 'sent' };
+  }
+
+  try {
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: 'Reset your password',
+      text: `Reset your password: ${resetUrl}\n\nThis link expires in 15 minutes. If you did not request a password reset, ignore this email.`,
+      html: `<p>Click to reset your password: <a href="${resetUrl}">Reset Password</a></p><p>This link expires in <strong>15 minutes</strong>. If you did not request a password reset, ignore this email.</p>`,
+    });
+    return { messageId: info.messageId, recipient: email, status: 'sent' };
+  } catch (err) {
+    console.error('[EMAIL] Send failed:', err.message);
+    return { messageId: null, recipient: email, status: 'failed' };
+  }
+};
+
+module.exports = { sendVerificationEmail, sendAccountReadyEmail, sendPasswordResetEmail };
