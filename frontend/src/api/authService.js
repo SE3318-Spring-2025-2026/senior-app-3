@@ -99,6 +99,27 @@ export const confirmPasswordReset = async (token, newPassword) => {
 };
 
 /**
+ * Admin: Generate password reset link for a user
+ */
+export const adminInitiatePasswordReset = async (targetUserIdOrEmail) => {
+  const isEmail = targetUserIdOrEmail.includes('@');
+  const response = await apiClient.post('/auth/password-reset/admin-initiate', {
+    ...(isEmail ? { email: targetUserIdOrEmail } : { userId: targetUserIdOrEmail }),
+  });
+  return response.data;
+};
+
+/**
+ * Admin: Fetch list of users for dropdown/search
+ */
+export const getAdminUsersList = async (search = '', limit = 50) => {
+  const response = await apiClient.get('/auth/admin/users', {
+    params: { search, limit },
+  });
+  return response.data;
+};
+
+/**
  * Professor first-login forced password change
  */
 export const professorOnboard = async (newPassword, connectGithub = false) => {

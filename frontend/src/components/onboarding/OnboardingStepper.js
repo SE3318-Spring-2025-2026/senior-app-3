@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import useOnboardingStore, { STEPS } from '../../store/onboardingStore';
-
-const RESEND_COOLDOWN_SECONDS = 60;
 import useAuthStore from '../../store/authStore';
 import {
   validateStudentId,
@@ -14,6 +12,7 @@ import { registerStudent } from '../../api/authService';
 import { validatePasswordStrength } from '../../utils/passwordValidator';
 import './OnboardingStepper.css';
 
+const RESEND_COOLDOWN_SECONDS = 60;
 const ROLE_REDIRECT = {
   student:          '/dashboard',
   professor:        '/dashboard',

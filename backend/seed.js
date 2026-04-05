@@ -15,6 +15,10 @@ const TEST_PROFESSORS = [
   { email: 'prof.johnson@university.edu', name: 'Dr. Johnson', tempPassword: 'TempPass1!' },
 ];
 
+const TEST_ADMINS = [
+  { email: 'admin@university.edu', name: 'Test Admin', password: 'AdminPass1!' },
+];
+
 const TEST_STUDENTS = [
   { studentId: 'STU-2025-001', name: 'Alice Smith',   email: 'alice@university.edu' },
   { studentId: 'STU-2025-002', name: 'Bob Johnson',   email: 'bob@university.edu' },
@@ -77,6 +81,34 @@ async function seed() {
   }
 
   console.log(`Done (professors): ${profInserted} inserted, ${profSkipped} skipped.`);
+
+   // ── Admins ────────────────────────────────────────────────────────────────
+  console.log('\nSeeding admins...');
+  let adminInserted = 0;
+  let adminSkipped = 0;
+
+  for (const admin of TEST_ADMINS) {
+    const exists = await User.findOne({ email: admin.email });
+    if (exists) {
+      console.log(`  skip  ${admin.email} (already exists)`);
+      adminSkipped++;
+    } else {
+      const hashedPassword = await hashPassword(admin.password);
+      await User.create({
+        email: admin.email,
+        hashedPassword,
+        role: 'admin',
+        accountStatus: 'active',
+        emailVerified: true,
+        requiresPasswordChange: false,
+      });
+      console.log(`  added ${admin.email} — password: ${admin.password}`);
+      adminInserted++;
+    }
+  }
+
+  console.log(`Done (admins): ${adminInserted} inserted, ${adminSkipped} skipped.`);
+
   await mongoose.disconnect();
 }
 
