@@ -544,6 +544,7 @@ const requestPasswordReset = async (req, res) => {
       // Rate limiting: max 5 requests per hour
       if (user.passwordResetWindowStart && user.passwordResetWindowStart > oneHourAgo) {
         if (user.passwordResetSentCount >= 5) {
+          // Non-revealing: still return 200, just don't send email
           return res.status(200).json({
             message: 'If an account with that email exists, a password reset link has been sent.',
           });
@@ -852,5 +853,6 @@ module.exports = {
   validatePasswordResetToken,
   confirmPasswordReset,
   professorOnboard,
+  confirmPasswordReset,
   adminInitiatePasswordReset,
 };

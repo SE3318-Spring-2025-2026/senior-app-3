@@ -13,6 +13,7 @@ const {
   validatePasswordResetToken,
   confirmPasswordReset,
   professorOnboard,
+  confirmPasswordReset,
   adminInitiatePasswordReset,
 } = require('../controllers/auth');
 
