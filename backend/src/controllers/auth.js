@@ -640,7 +640,7 @@ const requestPasswordReset = async (req, res) => {
       await user.save();
 
       try {
-        await sendPasswordResetEmail(user.email, plainToken);
+        await sendPasswordResetEmail(user.email, plainToken, user.userId);
       } catch (emailError) {
         console.error('Password reset email failed (non-fatal):', emailError.message);
       }
@@ -886,7 +886,7 @@ const adminInitiatePasswordReset = async (req, res) => {
     await user.save();
 
     try {
-      await sendPasswordResetEmail(user.email, plainToken);
+      await sendPasswordResetEmail(user.email, plainToken, user.userId);
     } catch (emailError) {
       console.error('Password reset email failed (non-fatal):', emailError.message);
     }

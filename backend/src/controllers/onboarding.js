@@ -275,7 +275,7 @@ const sendVerificationEmailHandler = async (req, res) => {
     user.emailVerificationSentCount += 1;
     await user.save();
 
-    const result = await sendVerificationEmail(user.email, token);
+    const result = await sendVerificationEmail(user.email, token, user.userId);
 
     return res.status(200).json({ ...result, retryAfter: Math.ceil(RESEND_COOLDOWN_MS / 1000) });
   } catch (error) {
@@ -365,7 +365,7 @@ const completeOnboarding = async (req, res) => {
     user.accountStatus = 'active';
     await user.save();
 
-    await sendAccountReadyEmail(user.email, user.role);
+    await sendAccountReadyEmail(user.email, user.role, user.userId);
 
     return res.status(200).json({
       userId: user.userId,
