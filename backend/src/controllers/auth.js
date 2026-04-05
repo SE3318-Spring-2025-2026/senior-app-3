@@ -538,18 +538,51 @@ const requestPasswordReset = async (req, res) => {
     const user = await User.findOne({ email: email.toLowerCase() });
 
     if (user) {
-      const resetToken = crypto.randomBytes(32).toString('hex');
-      user.passwordResetToken = resetToken;
-      user.passwordResetTokenExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+      const now = new Date();
+      const oneHourAgo = new Date(now - 60 * 60 * 1000);
+
+      // Rate limiting: max 5 requests per hour
+      if (user.passwordResetWindowStart && user.passwordResetWindowStart > oneHourAgo) {
+        if (user.passwordResetSentCount >= 5) {
+          return res.status(200).json({
+            message: 'If an account with that email exists, a password reset link has been sent.',
+          });
+        }
+        user.passwordResetSentCount += 1;
+      } else {
+        user.passwordResetWindowStart = now;
+        user.passwordResetSentCount = 1;
+      }
+
+      // Generate plain token, store SHA-256 hash
+      const plainToken = crypto.randomBytes(32).toString('hex');
+      const hashedToken = crypto.createHash('sha256').update(plainToken).digest('hex');
+
+      user.passwordResetToken = hashedToken;
+      user.passwordResetTokenExpiry = new Date(now.getTime() + 15 * 60 * 1000);
       await user.save();
-      await sendPasswordResetEmail(user.email, resetToken);
+
+      try {
+        await sendPasswordResetEmail(user.email, plainToken);
+      } catch (emailError) {
+        console.error('Password reset email failed (non-fatal):', emailError.message);
+      }
+
+      try {
+        await createAuditLog({
+          action: 'PASSWORD_RESET_REQUESTED',
+          actorId: user.userId,
+          targetId: user.userId,
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      } catch (auditError) {
+        console.error('Audit log failed for PASSWORD_RESET_REQUESTED (non-fatal):', auditError.message);
+      }
     }
 
-    // Non-revealing: always return same response regardless of whether email exists
     return res.status(200).json({
-      messageId: 'sent',
-      recipient: email,
-      status: 'queued',
+      message: 'If an account with that email exists, a password reset link has been sent.',
     });
   } catch (error) {
     console.error('Password reset request error:', error);
@@ -575,8 +608,10 @@ const validatePasswordResetToken = async (req, res) => {
       });
     }
 
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
     const user = await User.findOne({
-      passwordResetToken: token,
+      passwordResetToken: hashedToken,
       passwordResetTokenExpiry: { $gt: new Date() },
     });
 
@@ -611,15 +646,17 @@ const confirmPasswordReset = async (req, res) => {
       });
     }
 
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
     const user = await User.findOne({
-      passwordResetToken: token,
+      passwordResetToken: hashedToken,
       passwordResetTokenExpiry: { $gt: new Date() },
     });
 
     if (!user) {
       return res.status(400).json({
         code: 'INVALID_TOKEN',
-        message: 'Reset token is invalid or has expired',
+        message: 'Password reset token is invalid or has expired',
       });
     }
 
@@ -627,22 +664,36 @@ const confirmPasswordReset = async (req, res) => {
     if (!isValid) {
       return res.status(400).json({
         code: 'WEAK_PASSWORD',
-        message: 'Password does not meet requirements',
+        message: 'New password does not meet requirements',
         details: passwordErrors,
       });
     }
 
+    // Update password and invalidate token (single-use enforcement)
     user.hashedPassword = await hashPassword(newPassword);
     user.passwordResetToken = null;
     user.passwordResetTokenExpiry = null;
+    user.passwordResetSentCount = 0;
+    user.passwordResetWindowStart = null;
     await user.save();
 
-    // Revoke all sessions for security after password change
+    // Revoke all refresh tokens (log out all sessions)
     await RefreshToken.updateMany({ userId: user.userId }, { isRevoked: true });
 
+    try {
+      await createAuditLog({
+        action: 'PASSWORD_RESET_CONFIRMED',
+        actorId: user.userId,
+        targetId: user.userId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed for PASSWORD_RESET_CONFIRMED (non-fatal):', auditError.message);
+    }
+
     return res.status(200).json({
-      userId: user.userId,
-      message: 'Password updated successfully.',
+      message: 'Password has been reset successfully. All sessions have been invalidated.',
     });
   } catch (error) {
     console.error('Password reset confirm error:', error);
@@ -719,6 +770,76 @@ const professorOnboard = async (req, res) => {
   }
 };
 
+/**
+ * Admin-initiated password reset for any user
+ * Requires admin role
+ */
+const adminInitiatePasswordReset = async (req, res) => {
+  try {
+    const { userId: targetUserId, email: targetEmail } = req.body;
+    const { userId: actorId } = req.user;
+
+    if (!targetUserId && !targetEmail) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'Either userId or email is required',
+      });
+    }
+
+    const query = targetUserId
+      ? { userId: targetUserId }
+      : { email: targetEmail.toLowerCase() };
+
+    const user = await User.findOne(query);
+
+    if (!user) {
+      return res.status(404).json({
+        code: 'USER_NOT_FOUND',
+        message: 'User not found',
+      });
+    }
+
+    const plainToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(plainToken).digest('hex');
+
+    user.passwordResetToken = hashedToken;
+    user.passwordResetTokenExpiry = new Date(Date.now() + 15 * 60 * 1000);
+    user.passwordResetSentCount = 0;
+    user.passwordResetWindowStart = null;
+    await user.save();
+
+    try {
+      await sendPasswordResetEmail(user.email, plainToken);
+    } catch (emailError) {
+      console.error('Password reset email failed (non-fatal):', emailError.message);
+    }
+
+    try {
+      await createAuditLog({
+        action: 'PASSWORD_RESET_ADMIN_INITIATED',
+        actorId,
+        targetId: user.userId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed for PASSWORD_RESET_ADMIN_INITIATED (non-fatal):', auditError.message);
+    }
+
+    return res.status(200).json({
+      message: 'Password reset initiated. The user will receive an email with reset instructions.',
+      userId: user.userId,
+      email: user.email,
+    });
+  } catch (error) {
+    console.error('Admin password reset error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Admin password reset failed',
+    });
+  }
+};
+
 module.exports = {
   loginWithPassword,
   registerStudent,
@@ -731,4 +852,5 @@ module.exports = {
   validatePasswordResetToken,
   confirmPasswordReset,
   professorOnboard,
+  adminInitiatePasswordReset,
 };
