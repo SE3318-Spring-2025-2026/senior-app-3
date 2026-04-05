@@ -123,8 +123,7 @@ const RegisterForm = () => {
     try {
       const response = await validateStudentId(
         validationData.studentId,
-        validationData.email,
-        'temp' // Temporary password for validation endpoint
+        validationData.email
       );
 
       if (response.valid) {

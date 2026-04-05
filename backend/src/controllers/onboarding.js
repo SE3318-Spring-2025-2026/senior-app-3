@@ -161,19 +161,12 @@ const uploadStudentIds = async (req, res) => {
  */
 const validateStudentId = async (req, res) => {
   try {
-    const { studentId, email, password } = req.body;
+    const { studentId, email } = req.body;
 
-    if (!studentId || !email || !password) {
+    if (!studentId || !email) {
       return res.status(400).json({
         code: 'MISSING_FIELDS',
-        message: 'Student ID, email, and password are required',
-      });
-    }
-
-    if (password.length < 8) {
-      return res.status(400).json({
-        code: 'INVALID_PASSWORD',
-        message: 'Password must be at least 8 characters',
+        message: 'Student ID and email are required',
       });
     }
 
