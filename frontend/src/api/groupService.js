@@ -102,10 +102,10 @@ export const getGroupDashboardData = async (groupId) => {
   try {
     const [groupData, membersData, githubData, jiraData, approvalsData] = await Promise.all([
       getGroup(groupId),
-      getGroupMembers(groupId),
-      getGitHubStatus(groupId),
-      getJiraStatus(groupId),
-      getPendingApprovals(groupId),
+      // getGroupMembers(groupId),
+      // getGitHubStatus(groupId),
+      // getJiraStatus(groupId),
+      // getPendingApprovals(groupId),
     ]);
 
     return {
