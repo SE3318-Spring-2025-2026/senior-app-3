@@ -4,6 +4,7 @@ const StudentIdRegistry = require('../models/StudentIdRegistry');
 const { hashPassword, comparePassword, validatePasswordStrength } = require('../utils/password');
 const { generateTokenPair, verifyRefreshToken } = require('../utils/jwt');
 const { createAuditLog } = require('../services/auditService');
+const { sendPasswordResetEmail } = require('../services/emailService');
 const axios = require('axios');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
@@ -519,6 +520,223 @@ const changePassword = async (req, res) => {
   }
 };
 
+/**
+ * Request a password reset link (non-revealing: always returns 200)
+ * Rate limited to 5 requests per hour per account
+ */
+const requestPasswordReset = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'Email is required',
+      });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+
+    if (user) {
+      const now = new Date();
+      const oneHourAgo = new Date(now - 60 * 60 * 1000);
+
+      // Rate limiting: max 5 requests per hour
+      if (user.passwordResetWindowStart && user.passwordResetWindowStart > oneHourAgo) {
+        if (user.passwordResetSentCount >= 5) {
+          // Non-revealing: still return 200, just don't send email
+          return res.status(200).json({
+            message: 'If an account with that email exists, a password reset link has been sent.',
+          });
+        }
+        user.passwordResetSentCount += 1;
+      } else {
+        user.passwordResetWindowStart = now;
+        user.passwordResetSentCount = 1;
+      }
+
+      // Generate plain token, store SHA-256 hash
+      const plainToken = crypto.randomBytes(32).toString('hex');
+      const hashedToken = crypto.createHash('sha256').update(plainToken).digest('hex');
+
+      user.passwordResetToken = hashedToken;
+      user.passwordResetTokenExpiry = new Date(now.getTime() + 15 * 60 * 1000); // 15 minutes
+      await user.save();
+
+      try {
+        await sendPasswordResetEmail(user.email, plainToken);
+      } catch (emailError) {
+        console.error('Password reset email failed (non-fatal):', emailError.message);
+      }
+
+      try {
+        await createAuditLog({
+          action: 'PASSWORD_RESET_REQUESTED',
+          actorId: user.userId,
+          targetId: user.userId,
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      } catch (auditError) {
+        console.error('Audit log failed for PASSWORD_RESET_REQUESTED (non-fatal):', auditError.message);
+      }
+    }
+
+    return res.status(200).json({
+      message: 'If an account with that email exists, a password reset link has been sent.',
+    });
+  } catch (error) {
+    console.error('Password reset request error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Password reset request failed',
+    });
+  }
+};
+
+/**
+ * Confirm password reset using token from email
+ */
+const confirmPasswordReset = async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+
+    if (!token || !newPassword) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'Token and newPassword are required',
+      });
+    }
+
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+    const user = await User.findOne({
+      passwordResetToken: hashedToken,
+      passwordResetTokenExpiry: { $gt: new Date() },
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        code: 'INVALID_TOKEN',
+        message: 'Password reset token is invalid or has expired',
+      });
+    }
+
+    const { isValid, errors: passwordErrors } = validatePasswordStrength(newPassword);
+    if (!isValid) {
+      return res.status(400).json({
+        code: 'WEAK_PASSWORD',
+        message: 'New password does not meet requirements',
+        details: passwordErrors,
+      });
+    }
+
+    // Update password and invalidate token (single-use enforcement)
+    user.hashedPassword = await hashPassword(newPassword);
+    user.passwordResetToken = null;
+    user.passwordResetTokenExpiry = null;
+    user.passwordResetSentCount = 0;
+    user.passwordResetWindowStart = null;
+    await user.save();
+
+    // Revoke all refresh tokens (log out all sessions)
+    await RefreshToken.updateMany({ userId: user.userId }, { isRevoked: true });
+
+    try {
+      await createAuditLog({
+        action: 'PASSWORD_RESET_CONFIRMED',
+        actorId: user.userId,
+        targetId: user.userId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed for PASSWORD_RESET_CONFIRMED (non-fatal):', auditError.message);
+    }
+
+    return res.status(200).json({
+      message: 'Password has been reset successfully. All sessions have been invalidated.',
+    });
+  } catch (error) {
+    console.error('Password reset confirm error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Password reset failed',
+    });
+  }
+};
+
+/**
+ * Admin-initiated password reset for any user
+ * Requires admin role
+ */
+const adminInitiatePasswordReset = async (req, res) => {
+  try {
+    const { userId: targetUserId, email: targetEmail } = req.body;
+    const { userId: actorId } = req.user;
+
+    if (!targetUserId && !targetEmail) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'Either userId or email is required',
+      });
+    }
+
+    const query = targetUserId
+      ? { userId: targetUserId }
+      : { email: targetEmail.toLowerCase() };
+
+    const user = await User.findOne(query);
+
+    if (!user) {
+      return res.status(404).json({
+        code: 'USER_NOT_FOUND',
+        message: 'User not found',
+      });
+    }
+
+    const plainToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(plainToken).digest('hex');
+
+    user.passwordResetToken = hashedToken;
+    user.passwordResetTokenExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+    // Admin override clears the rate limit window
+    user.passwordResetSentCount = 0;
+    user.passwordResetWindowStart = null;
+    await user.save();
+
+    try {
+      await sendPasswordResetEmail(user.email, plainToken);
+    } catch (emailError) {
+      console.error('Password reset email failed (non-fatal):', emailError.message);
+    }
+
+    try {
+      await createAuditLog({
+        action: 'PASSWORD_RESET_ADMIN_INITIATED',
+        actorId,
+        targetId: user.userId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed for PASSWORD_RESET_ADMIN_INITIATED (non-fatal):', auditError.message);
+    }
+
+    return res.status(200).json({
+      message: 'Password reset initiated. The user will receive an email with reset instructions.',
+      userId: user.userId,
+      email: user.email,
+    });
+  } catch (error) {
+    console.error('Admin password reset error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Admin password reset failed',
+    });
+  }
+};
+
 module.exports = {
   loginWithPassword,
   registerStudent,
@@ -527,4 +745,7 @@ module.exports = {
   changePassword,
   initiateGithubOAuth,
   githubOAuthCallback,
+  requestPasswordReset,
+  confirmPasswordReset,
+  adminInitiatePasswordReset,
 };

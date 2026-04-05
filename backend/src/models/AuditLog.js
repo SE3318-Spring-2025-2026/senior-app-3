@@ -12,7 +12,14 @@ const auditLogSchema = new mongoose.Schema(
     action: {
       type: String,
       required: true,
-      enum: ['ACCOUNT_CREATED', 'ACCOUNT_RETRIEVED', 'ACCOUNT_UPDATED'],
+      enum: [
+        'ACCOUNT_CREATED',
+        'ACCOUNT_RETRIEVED',
+        'ACCOUNT_UPDATED',
+        'PASSWORD_RESET_REQUESTED',
+        'PASSWORD_RESET_CONFIRMED',
+        'PASSWORD_RESET_ADMIN_INITIATED',
+      ],
     },
     actorId: {
       type: String,
