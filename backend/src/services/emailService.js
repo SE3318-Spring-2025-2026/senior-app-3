@@ -57,6 +57,63 @@ const isTransientError = (err) => {
 // ─── Transport factory ────────────────────────────────────────────────────────
 
 const isDevMode = () => {
+ *
+ * Handles all outbound email delivery with:
+ *  - Retry logic: up to 3 attempts with exponential backoff (1s, 2s, 4s)
+ *  - Transient vs permanent failure classification (no infinite retry)
+ *  - Delivery audit trail (EMAIL_*_SENT / EMAIL_DELIVERY_FAILED)
+ *  - Rich HTML templates for each email type
+ *
+ * Transport selection:
+ *  - Development (default): logs to console only — no setup required
+ *  - Production: set EMAIL_USER + EMAIL_PASSWORD and either:
+ *      - EMAIL_HOST + EMAIL_PORT  (SMTP, e.g. Mailtrap, SendGrid, Mailgun SMTP)
+ *      - EMAIL_SERVICE            (named service, e.g. 'gmail')
+ */
+
+const nodemailer = require('nodemailer');
+const { createAuditLog } = require('./auditService');
+
+// ─── Retry constants ──────────────────────────────────────────────────────────
+
+const MAX_ATTEMPTS = 3;
+const BASE_DELAY_MS = 1000; // delays: 1 s, 2 s, 4 s
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Classify a nodemailer/SMTP error as transient (safe to retry) or permanent.
+ *
+ * Transient: network blips, temporary server unavailability (4xx SMTP).
+ * Permanent: bad credentials, invalid recipient address, domain not found.
+ */
+const isTransientError = (err) => {
+  const code = err.code || '';
+  const responseCode = err.responseCode || 0;
+  const message = (err.message || '').toLowerCase();
+
+  // Network-level errors → transient
+  if (['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNREFUSED', 'EHOSTUNREACH'].includes(code)) {
+    return true;
+  }
+
+  // SMTP 4xx temporary failures (421 = service unavailable, 450/451 = mailbox temp issues)
+  // 452 = mailbox full — treat as permanent (no point retrying immediately)
+  if (responseCode >= 400 && responseCode < 500 && responseCode !== 452) {
+    return true;
+  }
+
+  // Generic keyword hints
+  if (message.includes('connection timed out') || message.includes('network')) {
+    return true;
+  }
+
+  return false;
+};
+
+// ─── Transport factory ────────────────────────────────────────────────────────
+
+const isDevMode = () => {
   if (!process.env.EMAIL_USER || process.env.EMAIL_USER === 'your-email@gmail.com') return true;
   return !(process.env.EMAIL_HOST || process.env.EMAIL_SERVICE);
 };
@@ -271,6 +328,7 @@ const templates = {
  * @returns {{ messageId, recipient, status, attempts }}
  */
 const sendVerificationEmail = async (email, token, userId) => {
+const sendVerificationEmail = async (email, token, userId) => {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
   const verifyUrl = `${frontendUrl}/onboarding?step=verify-email&token=${token}`;
 
@@ -423,7 +481,7 @@ const sendAccountReadyEmail = async (email, role, userId) => {
  */
 const sendProfessorCredentialsEmail = async (email, tempPassword) => {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-  const loginUrl = `${frontendUrl}/auth/login`;
+  const resetUrl = `${frontendUrl}/auth/reset-password?token=${token}`;
 
   console.log('\n[EMAIL] ── Professor Credentials Email ──────────');
   console.log(`[EMAIL] To:       ${email}`);
@@ -431,9 +489,10 @@ const sendProfessorCredentialsEmail = async (email, tempPassword) => {
   console.log(`[EMAIL] URL:      ${loginUrl}`);
   console.log('[EMAIL] ────────────────────────────────────────\n');
 
-  const transporter = getTransporter();
+  const transporter = createTransporter();
   if (!transporter) {
-    return { messageId: 'dev-mode', recipient: email, status: 'sent' };
+    await logDelivery({ action: 'EMAIL_ACCOUNT_READY_SENT', userId, email, extra: { role, mode: 'dev' } });
+    return { messageId: 'dev-mode', recipient: email, status: 'sent', attempts: 0 };
   }
 
   try {
@@ -444,11 +503,16 @@ const sendProfessorCredentialsEmail = async (email, tempPassword) => {
       text: `Your professor account has been created.\n\nEmail: ${email}\nTemporary Password: ${tempPassword}\n\nPlease log in at: ${loginUrl}\n\nYou will be required to change your password on first login.`,
       html: `<h2>Welcome, Professor!</h2><p>Your professor account has been created by an administrator.</p><p><strong>Email:</strong> ${email}</p><p><strong>Temporary Password:</strong> <code>${tempPassword}</code></p><p><a href="${loginUrl}">Log in here</a></p><p><em>You will be required to change your password on first login.</em></p>`,
     });
-    return { messageId: info.messageId, recipient: email, status: 'sent' };
-  } catch (err) {
-    console.error('[EMAIL] Send failed:', err.message);
-    return { messageId: null, recipient: email, status: 'failed' };
+    return { messageId: result.messageId, recipient: email, status: 'sent', attempts: result.attempts };
   }
+
+  await logDelivery({
+    action: 'EMAIL_DELIVERY_FAILED',
+    userId,
+    email,
+    extra: { type: 'account_ready', role, error: result.error, attempts: result.attempts, permanent: result.permanent },
+  });
+  return { messageId: null, recipient: email, status: 'failed', attempts: result.attempts, permanent: result.permanent };
 };
 
 module.exports = {
