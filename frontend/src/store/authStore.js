@@ -13,6 +13,7 @@ const useAuthStore = create(
       accessToken: null,
       refreshToken: null,
       isAuthenticated: false,
+      requiresPasswordChange: false,
       isLoading: false,
       error: null,
 
@@ -45,6 +46,13 @@ const useAuthStore = create(
       },
 
       /**
+       * Set requiresPasswordChange flag (for professor forced change flow)
+       */
+      setRequiresPasswordChange: (value) => {
+        set({ requiresPasswordChange: value });
+      },
+
+      /**
        * Clear auth on logout or session expiration
        */
       clearAuth: () => {
@@ -53,6 +61,7 @@ const useAuthStore = create(
           accessToken: null,
           refreshToken: null,
           isAuthenticated: false,
+          requiresPasswordChange: false,
           error: null,
         });
       },
@@ -105,6 +114,7 @@ const useAuthStore = create(
         accessToken: state.accessToken,
         refreshToken: state.refreshToken,
         isAuthenticated: state.isAuthenticated,
+        requiresPasswordChange: state.requiresPasswordChange,
       }),
       storage: {
         // Use sessionStorage for more security; alternatively use localStorage

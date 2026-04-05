@@ -1,29 +1,59 @@
 <mxfile host="65bd71144e">
     <diagram id="L2-Process4" name="Level 2 DFD - 4.0 Committee Assignment">
-        <mxGraphModel dx="783" dy="804" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1100" math="0" shadow="0">
+        <mxGraphModel dx="996" dy="1024" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1100" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
                 <mxCell id="title" value="Senior Project Management System — Level 2 DFD: 4.0 Committee Assignment" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;" parent="1" vertex="1">
                     <mxGeometry y="20" width="1700" height="35" as="geometry"/>
                 </mxCell>
+                <mxCell id="boundary_system" value="" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#1a1a2e;fillColor=none;strokeWidth=3;dashed=1;dashPattern=8 4;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="60" width="1100" height="370" as="geometry"/>
+                </mxCell>
+                <mxCell id="boundary_label" value="System Boundary — Process 4.0 Committee Assignment" style="text;html=1;strokeColor=none;fillColor=#1a1a2e;fontColor=#ffffff;align=left;verticalAlign=middle;fontSize=11;fontStyle=1;rounded=1;arcSize=5;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="60" width="360" height="26" as="geometry"/>
+                </mxCell>
+                <mxCell id="ep_post_committees" value="&lt;font style=&quot;font-size: 10px;&quot;&gt;&lt;b&gt;POST /committees&lt;/b&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#e65100;fontSize=10;fontStyle=1;arcSize=30;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="200" width="160" height="34" as="geometry"/>
+                </mxCell>
+                <mxCell id="ep_post_advisors" value="&lt;font style=&quot;font-size: 10px;&quot;&gt;&lt;b&gt;POST /committees/{committeeId}/advisors&lt;/b&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#e65100;fontSize=10;fontStyle=1;arcSize=30;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="520" y="200" width="260" height="34" as="geometry"/>
+                </mxCell>
+                <mxCell id="ep_post_jury" value="&lt;font style=&quot;font-size: 10px;&quot;&gt;&lt;b&gt;POST /committees/{committeeId}/jury&lt;/b&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#e65100;fontSize=10;fontStyle=1;arcSize=30;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="800" y="200" width="240" height="34" as="geometry"/>
+                </mxCell>
+                <mxCell id="ep_post_validate" value="&lt;font style=&quot;font-size: 10px;&quot;&gt;&lt;b&gt;POST /committees/{committeeId}/validate&lt;/b&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#e65100;fontSize=10;fontStyle=1;arcSize=30;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="1060" y="200" width="250" height="34" as="geometry"/>
+                </mxCell>
+                <mxCell id="ep_post_publish" value="&lt;font style=&quot;font-size: 10px;&quot;&gt;&lt;b&gt;POST /committees/{committeeId}/publish&lt;/b&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#e65100;fontSize=10;fontStyle=1;arcSize=30;align=center;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="1320" y="200" width="250" height="34" as="geometry"/>
+                </mxCell>
                 <mxCell id="ext_coordinator" value="Coordinator" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=12;" parent="1" vertex="1">
                     <mxGeometry x="40" y="260" width="180" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="ext_student" value="Student" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="370" width="180" height="70" as="geometry"/>
                 </mxCell>
                 <mxCell id="ext_notification" value="Notification Service" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontSize=12;" parent="1" vertex="1">
                     <mxGeometry x="1200" y="280" width="200" height="70" as="geometry"/>
                 </mxCell>
                 <mxCell id="ds_d2" value="D2  Groups &amp; Advisor Assignments" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=11;" parent="1" vertex="1">
-                    <mxGeometry x="720" y="440" width="230" height="70" as="geometry"/>
+                    <mxGeometry x="590" y="450" width="230" height="70" as="geometry"/>
                 </mxCell>
                 <mxCell id="ds_d3" value="D3  Committees" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=11;" parent="1" vertex="1">
-                    <mxGeometry x="1120" y="440" width="210" height="70" as="geometry"/>
+                    <mxGeometry x="1110" y="460" width="210" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="ds_d4" value="D4 Deliverables" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="1370" y="460" width="210" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="ds_d6" value="D6 Sprint / Contribution Records" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="1430" y="280" width="210" height="70" as="geometry"/>
                 </mxCell>
                 <mxCell id="p41" value="4.1 Create Committee" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=11;" parent="1" vertex="1">
                     <mxGeometry x="300" y="120" width="220" height="70" as="geometry"/>
                 </mxCell>
                 <mxCell id="p42" value="4.2 Assign Advisors" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=11;" parent="1" vertex="1">
-                    <mxGeometry x="620" y="120" width="220" height="70" as="geometry"/>
+                    <mxGeometry x="670" y="120" width="220" height="70" as="geometry"/>
                 </mxCell>
                 <mxCell id="p45" value="4.5 Publish Committee" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=11;" parent="1" vertex="1">
                     <mxGeometry x="980" y="120" width="220" height="70" as="geometry"/>
@@ -34,10 +64,10 @@
                 <mxCell id="p44" value="4.4 Validate Committee Setup" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=11;" parent="1" vertex="1">
                     <mxGeometry x="655" y="320" width="250" height="70" as="geometry"/>
                 </mxCell>
-                <mxCell id="f01" value="committee details" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;" parent="1" source="ext_coordinator" target="p41" edge="1">
+                <mxCell id="f01" value="committee details" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="ext_coordinator" target="p41" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
-                            <mxPoint x="220" y="230"/>
+                            <mxPoint x="220" y="155"/>
                         </Array>
                     </mxGeometry>
                 </mxCell>
@@ -67,8 +97,8 @@
                 <mxCell id="f05" value="committee validation" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;" parent="1" source="p44" target="p45" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
-                            <mxPoint x="860" y="355"/>
                             <mxPoint x="860" y="275"/>
+                            <mxPoint x="1050" y="275"/>
                         </Array>
                     </mxGeometry>
                 </mxCell>
@@ -81,11 +111,11 @@
                     </mxGeometry>
                 </mxCell>
                 <mxCell id="f07" value="committee assignments" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;" parent="1" source="p45" target="ds_d2" edge="1">
-                    <mxGeometry relative="1" as="geometry">
+                    <mxGeometry x="0.478" relative="1" as="geometry">
                         <Array as="points">
-                            <mxPoint x="1060" y="275"/>
-                            <mxPoint x="1060" y="685"/>
+                            <mxPoint x="1070" y="485"/>
                         </Array>
+                        <mxPoint as="offset"/>
                     </mxGeometry>
                 </mxCell>
                 <mxCell id="f08" value="publish status" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;" parent="1" source="p45" target="ext_coordinator" edge="1">
@@ -109,6 +139,37 @@
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
                             <mxPoint x="220" y="370"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="f11" value="deliverable submission" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="ext_student" target="p45" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="220" y="230"/>
+                            <mxPoint x="980" y="230"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="f12" value="store deliverable" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;" parent="1" source="p45" target="ds_d4" edge="1">
+                    <mxGeometry x="-0.2045" relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1160" y="470"/>
+                        </Array>
+                        <mxPoint y="-1" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="f13" value="update sprint records" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;" parent="1" source="p45" target="ds_d6" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1535" y="140"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="f14" value="deliverable to sprint records" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;" parent="1" source="ds_d4" target="ds_d6" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1530" y="470"/>
+                            <mxPoint x="1740" y="470"/>
                         </Array>
                     </mxGeometry>
                 </mxCell>

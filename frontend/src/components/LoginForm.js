@@ -9,7 +9,7 @@ import './AuthForms.css';
  */
 const LoginForm = () => {
   const navigate = useNavigate();
-  const { setAuth, setError, error } = useAuthStore();
+  const { setAuth, setError, setRequiresPasswordChange, error } = useAuthStore();
 
   const [formData, setFormData] = useState({
     email: '',
@@ -78,7 +78,13 @@ const LoginForm = () => {
         response.refreshToken
       );
 
-      // Redirect to dashboard
+      // Professor first-login: go to dedicated setup page instead of dashboard
+      if (response.requiresPasswordChange) {
+        setRequiresPasswordChange(true);
+        navigate('/professor/setup');
+        return;
+      }
+
       navigate('/dashboard');
     } catch (err) {
       const errorMessage = err.response?.data?.message || err.message || 'Login failed';

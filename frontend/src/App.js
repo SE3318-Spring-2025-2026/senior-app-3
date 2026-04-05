@@ -5,6 +5,13 @@ import ProtectedRoute from './components/ProtectedRoute';
 import AuthMethodSelection from './components/AuthMethodSelection';
 import LoginForm from './components/LoginForm';
 import RegisterForm from './components/RegisterForm';
+import OnboardingStepper from './components/onboarding/OnboardingStepper';
+import ForgotPasswordPage from './components/ForgotPasswordPage';
+import ResetPasswordPage from './components/ResetPasswordPage';
+import ProfessorOnboardModal from './components/ProfessorOnboardModal';
+import AdminPasswordReset from './components/AdminPasswordReset';
+import AdminProfessorCreation from './components/AdminProfessorCreation';
+import GitHubCallbackHandler from './components/GitHubCallbackHandler';
 import './App.css';
 
 /**
@@ -35,6 +42,26 @@ function App() {
         <Route path="/auth/method-selection" element={<AuthMethodSelection />} />
         <Route path="/auth/login" element={<LoginForm />} />
         <Route path="/auth/register" element={<RegisterForm />} />
+        <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/auth/github/callback" element={<GitHubCallbackHandler />} />
+        <Route path="/onboarding" element={<OnboardingStepper />} />
+
+        {/* Professor first-login: dedicated route, protected */}
+        <Route
+          path="/professor/setup"
+          element={<ProtectedRoute component={ProfessorOnboardModal} />}
+        />
+
+        {/* Admin Routes */}
+        <Route
+          path="/admin/password-reset"
+          element={<ProtectedRoute component={AdminPasswordReset} requiredRoles={['admin']} />}
+        />
+        <Route
+          path="/admin/professor-creation"
+          element={<ProtectedRoute component={AdminProfessorCreation} requiredRoles={['admin']} />}
+        />
 
         {/* Protected Routes */}
         <Route

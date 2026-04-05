@@ -28,6 +28,10 @@ const userSchema = new mongoose.Schema(
     githubUsername: {
       type: String,
       default: null,
+      lowercase: true,
+      trim: true,
+      // Note: Unique constraint enforced via sparse index in migration 002
+      // Do not add unique: true here - it conflicts with sparse index
     },
     githubId: {
       type: String,
@@ -39,8 +43,8 @@ const userSchema = new mongoose.Schema(
     },
     accountStatus: {
       type: String,
-      enum: ['pending', 'active', 'suspended'],
-      default: 'pending',
+      enum: ['pending', 'pending_verification', 'active', 'suspended'],
+      default: 'pending_verification',
     },
     studentId: {
       type: String,
@@ -66,6 +70,18 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    emailVerificationSentCount: {
+      type: Number,
+      default: 0,
+    },
+    emailVerificationWindowStart: {
+      type: Date,
+      default: null,
+    },
+    emailVerificationLastSentAt: {
+      type: Date,
+      default: null,
+    },
     passwordResetToken: {
       type: String,
       default: null,
@@ -74,16 +90,27 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    passwordResetSentCount: {
+      type: Number,
+      default: 0,
+    },
+    passwordResetWindowStart: {
+      type: Date,
+      default: null,
+    },
+    requiresPasswordChange: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,
   }
 );
 
-// Index for efficient queries
-userSchema.index({ email: 1 });
-userSchema.index({ userId: 1 });
+// Index for efficient queries (email and userId indexes are created automatically via unique: true on the field)
 userSchema.index({ githubId: 1 });
+// Note: githubUsername sparse unique index created in migration 002
 
 const User = mongoose.model('User', userSchema);
 

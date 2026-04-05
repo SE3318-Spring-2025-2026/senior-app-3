@@ -1,9 +1,24 @@
 const User = require('../models/User');
 const RefreshToken = require('../models/RefreshToken');
-const { hashPassword, comparePassword } = require('../utils/password');
+const StudentIdRegistry = require('../models/StudentIdRegistry');
+const { hashPassword, comparePassword, validatePasswordStrength } = require('../utils/password');
 const { generateTokenPair, verifyRefreshToken } = require('../utils/jwt');
+const { createAuditLog } = require('../services/auditService');
+const { sendPasswordResetEmail } = require('../services/emailService');
 const axios = require('axios');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
+
+// In-memory CSRF state store: state → { userId, expiresAt }
+const oauthStateStore = new Map();
+
+// Purge expired state tokens every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of oauthStateStore.entries()) {
+    if (val.expiresAt < now) oauthStateStore.delete(key);
+  }
+}, 5 * 60 * 1000).unref();
 
 /**
  * Login with email and password
@@ -89,9 +104,10 @@ const loginWithPassword = async (req, res) => {
       role: user.role,
       emailVerified: user.emailVerified,
       accountStatus: user.accountStatus,
+      requiresPasswordChange: user.requiresPasswordChange || false,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      expiresIn: 900, // 15 minutes in seconds
+      expiresIn: 3600, // 1 hour in seconds
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -117,8 +133,57 @@ const registerStudent = async (req, res) => {
       });
     }
 
-    // TODO: Verify validation token (from student ID validation process)
-    // For now, we'll accept it as valid
+    // Validate password strength
+    const { isValid, errors: passwordErrors } = validatePasswordStrength(password);
+    if (!isValid) {
+      return res.status(400).json({
+        code: 'WEAK_PASSWORD',
+        message: 'Password does not meet requirements',
+        details: passwordErrors,
+      });
+    }
+
+    // Verify and decode validation token
+    let tokenPayload;
+    try {
+      tokenPayload = jwt.verify(validationToken, process.env.JWT_SECRET || 'your-secret-key');
+    } catch (error) {
+      return res.status(401).json({
+        code: 'INVALID_TOKEN',
+        message: 'Validation token is invalid or expired',
+        details: 'Please re-validate your student ID',
+      });
+    }
+
+    // Check if token is for student ID validation
+    if (tokenPayload.type !== 'student_id_validation') {
+      return res.status(401).json({
+        code: 'INVALID_TOKEN_TYPE',
+        message: 'Token is not valid for registration',
+      });
+    }
+
+    // Verify email in token matches request email
+    if (tokenPayload.email !== email.toLowerCase()) {
+      return res.status(422).json({
+        code: 'EMAIL_MISMATCH',
+        message: 'Email does not match validated student ID',
+      });
+    }
+
+    // Verify student ID is still in registry
+    const registeredStudent = await StudentIdRegistry.findOne({
+      studentId: tokenPayload.studentId,
+      email: tokenPayload.email,
+      status: 'valid',
+    });
+
+    if (!registeredStudent) {
+      return res.status(422).json({
+        code: 'INVALID_STUDENT_ID',
+        message: 'Student ID is no longer valid',
+      });
+    }
 
     // Check if user already exists
     const existingUser = await User.findOne({ email: email.toLowerCase() });
@@ -126,6 +191,16 @@ const registerStudent = async (req, res) => {
       return res.status(409).json({
         code: 'CONFLICT',
         message: 'User with this email already exists',
+      });
+    }
+
+    // Check if student ID is already registered
+    const existingStudentUser = await User.findOne({ studentId: tokenPayload.studentId });
+    if (existingStudentUser) {
+      return res.status(409).json({
+        code: 'DUPLICATE_STUDENT_ID',
+        message: 'This student ID has already been registered',
+        reason: 'Student ID already in use',
       });
     }
 
@@ -137,10 +212,24 @@ const registerStudent = async (req, res) => {
       email: email.toLowerCase(),
       hashedPassword,
       role: 'student',
-      accountStatus: 'pending',
+      accountStatus: 'pending_verification',
+      studentId: tokenPayload.studentId,
     });
 
     await user.save();
+
+    // Best-effort audit log: failure here must not fail the registration response
+    try {
+      await createAuditLog({
+        action: 'ACCOUNT_CREATED',
+        actorId: user.userId,
+        targetId: user.userId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed for ACCOUNT_CREATED (non-fatal):', auditError.message);
+    }
 
     // Generate tokens
     const tokens = generateTokenPair(user.userId, user.role);
@@ -159,6 +248,7 @@ const registerStudent = async (req, res) => {
     const response = {
       userId: user.userId,
       email: user.email,
+      studentId: user.studentId,
       accountStatus: user.accountStatus,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
@@ -252,7 +342,7 @@ const refreshAccessToken = async (req, res) => {
       return res.status(200).json({
         accessToken: newTokens.accessToken,
         refreshToken: newTokens.refreshToken,
-        expiresIn: 900, // 15 minutes in seconds
+        expiresIn: 3600, // 1 hour in seconds
       });
     } catch (tokenError) {
       return res.status(401).json({
@@ -296,31 +386,29 @@ const logout = async (req, res) => {
 };
 
 /**
- * Initiate GitHub OAuth
+ * Initiate GitHub OAuth (1.3-A)
+ * Protected — requires authenticated user.
+ * Generates a CSRF state token, stores it in memory with a 10-minute TTL,
+ * and returns the GitHub authorization URL.
  */
 const initiateGithubOAuth = async (req, res) => {
   try {
-    const { redirectUri } = req.body;
-
-    if (!redirectUri) {
-      return res.status(400).json({
-        code: 'INVALID_INPUT',
-        message: 'Redirect URI is required',
-      });
-    }
-
-    // Generate state token for CSRF protection
     const state = crypto.randomBytes(32).toString('hex');
 
-    // TODO: Store state in Redis or database with expiration
-    // For now, we'll just generate it
-
-    const authorizationUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&redirect_uri=${redirectUri}&state=${state}&scope=user`;
-
-    return res.status(200).json({
-      authorizationUrl,
-      state,
+    oauthStateStore.set(state, {
+      userId: req.user.userId,
+      expiresAt: Date.now() + 10 * 60 * 1000,
     });
+
+    const redirectUri = process.env.GITHUB_REDIRECT_URI;
+    const authorizationUrl =
+      `https://github.com/login/oauth/authorize` +
+      `?client_id=${process.env.GITHUB_CLIENT_ID}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&state=${state}` +
+      `&scope=read:user`;
+
+    return res.status(200).json({ authorizationUrl, state });
   } catch (error) {
     console.error('GitHub OAuth initiation error:', error);
     res.status(500).json({
@@ -331,65 +419,648 @@ const initiateGithubOAuth = async (req, res) => {
 };
 
 /**
- * Handle GitHub OAuth callback
+ * Handle GitHub OAuth callback (1.3-B)
+ * Public GET — browser is redirected here by GitHub after authorization.
+ * Verifies CSRF state, exchanges code for GitHub access token, fetches
+ * the GitHub user, enforces uniqueness, and links the account.
+ * Always responds with a 302 redirect to the frontend callback handler.
  */
 const githubOAuthCallback = async (req, res) => {
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const callbackBase = `${frontendUrl}/auth/github/callback`;
+
+  const redirectError = (code) =>
+    res.redirect(`${callbackBase}?error=${encodeURIComponent(code)}`);
+
   try {
-    const { code, state } = req.query;
+    const { code, state, error: oauthError } = req.query;
+
+    // GitHub may send an error query param (e.g. user denied access)
+    if (oauthError) {
+      return redirectError(oauthError);
+    }
 
     if (!code || !state) {
-      return res.status(400).json({
-        code: 'INVALID_INPUT',
-        message: 'Code and state parameters are required',
-      });
+      return redirectError('MISSING_PARAMS');
     }
 
-    // TODO: Verify state token
-    // For now, we'll accept it
+    // Verify CSRF state token
+    const stateData = oauthStateStore.get(state);
+    if (!stateData || stateData.expiresAt < Date.now()) {
+      oauthStateStore.delete(state);
+      return redirectError('INVALID_STATE');
+    }
 
-    // Exchange code for access token
-    const tokenResponse = await axios.post(
-      'https://github.com/login/oauth/access_token',
-      {
-        client_id: process.env.GITHUB_CLIENT_ID,
-        client_secret: process.env.GITHUB_CLIENT_SECRET,
-        code,
-        redirect_uri: process.env.GITHUB_REDIRECT_URI,
-      },
-      {
-        headers: { Accept: 'application/json' },
+    // Consume state (one-time use)
+    const { userId } = stateData;
+    oauthStateStore.delete(state);
+
+    // Exchange authorization code for GitHub access token
+    let githubAccessToken;
+    try {
+      const tokenResponse = await axios.post(
+        'https://github.com/login/oauth/access_token',
+        {
+          client_id: process.env.GITHUB_CLIENT_ID,
+          client_secret: process.env.GITHUB_CLIENT_SECRET,
+          code,
+          redirect_uri: process.env.GITHUB_REDIRECT_URI,
+        },
+        { headers: { Accept: 'application/json' } }
+      );
+
+      if (tokenResponse.data.error) {
+        console.error('GitHub token exchange error:', tokenResponse.data.error_description);
+        return redirectError('TOKEN_EXCHANGE_FAILED');
       }
-    );
 
-    const { access_token } = tokenResponse.data;
-
-    if (!access_token) {
-      return res.status(400).json({
-        code: 'OAUTH_FAILED',
-        message: 'Failed to obtain GitHub access token',
-      });
+      githubAccessToken = tokenResponse.data.access_token;
+    } catch (exchangeError) {
+      console.error('GitHub token exchange request failed:', exchangeError.message);
+      return redirectError('TOKEN_EXCHANGE_FAILED');
     }
 
-    // Get GitHub user info
-    const userResponse = await axios.get('https://api.github.com/user', {
-      headers: { Authorization: `Bearer ${access_token}` },
+    if (!githubAccessToken) {
+      return redirectError('TOKEN_EXCHANGE_FAILED');
+    }
+
+    // Fetch GitHub user profile
+    let githubUsername, githubId;
+    try {
+      const userResponse = await axios.get('https://api.github.com/user', {
+        headers: { Authorization: `Bearer ${githubAccessToken}` },
+      });
+      githubUsername = userResponse.data.login;
+      githubId = String(userResponse.data.id);
+    } catch (userError) {
+      console.error('GitHub /user API failed:', userError.message);
+      return redirectError('GITHUB_API_FAILED');
+    }
+
+    if (!githubUsername || !githubId) {
+      return redirectError('GITHUB_API_FAILED');
+    }
+
+    // Load the authenticated user who initiated the OAuth flow
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return redirectError('USER_NOT_FOUND');
+    }
+
+    // Uniqueness check: reject if this GitHub ID is already linked to a different account
+    const conflictById = await User.findOne({ githubId, userId: { $ne: userId } });
+    if (conflictById) {
+      return redirectError('GITHUB_ALREADY_LINKED');
+    }
+
+    // Uniqueness check: reject if this GitHub username is already taken by a different account
+    const conflictByUsername = await User.findOne({
+      githubUsername: githubUsername.toLowerCase(),
+      userId: { $ne: userId },
     });
+    if (conflictByUsername) {
+      return redirectError('GITHUB_USERNAME_TAKEN');
+    }
 
-    const { login: githubUsername, id: githubId } = userResponse.data;
+    // Persist GitHub identity on the user record
+    user.githubUsername = githubUsername;
+    user.githubId = githubId;
+    await user.save();
 
-    // TODO: Link GitHub to current user or create new account
-    // For now, just return the GitHub info
+    // Best-effort audit log
+    try {
+      await createAuditLog({
+        action: 'GITHUB_OAUTH_LINKED',
+        actorId: userId,
+        targetId: userId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed for GITHUB_OAUTH_LINKED (non-fatal):', auditError.message);
+    }
 
-    return res.status(200).json({
-      githubUsername,
-      githubId,
-      linkedUserId: req.user?.userId || null,
-    });
+    return res.redirect(
+      `${callbackBase}?status=linked&githubUsername=${encodeURIComponent(githubUsername)}`
+    );
   } catch (error) {
     console.error('GitHub OAuth callback error:', error);
+    return redirectError('SERVER_ERROR');
+  }
+};
+
+/**
+ * Change password and revoke all refresh tokens for the user
+ */
+const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const { userId } = req.user;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'currentPassword and newPassword are required',
+      });
+    }
+
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(401).json({
+        code: 'UNAUTHORIZED',
+        message: 'User not found',
+      });
+    }
+
+    const passwordMatch = await comparePassword(currentPassword, user.hashedPassword);
+    if (!passwordMatch) {
+      return res.status(401).json({
+        code: 'INVALID_CREDENTIALS',
+        message: 'Current password is incorrect',
+      });
+    }
+
+    const { isValid, errors: passwordErrors } = validatePasswordStrength(newPassword);
+    if (!isValid) {
+      return res.status(400).json({
+        code: 'WEAK_PASSWORD',
+        message: 'New password does not meet requirements',
+        details: passwordErrors,
+      });
+    }
+
+    user.hashedPassword = await hashPassword(newPassword);
+    await user.save();
+
+    // Revoke all refresh tokens for this user
+    await RefreshToken.updateMany({ userId }, { isRevoked: true });
+
+    return res.status(200).json({
+      message: 'Password changed successfully. All sessions have been invalidated.',
+    });
+  } catch (error) {
+    console.error('Change password error:', error);
     res.status(500).json({
       code: 'SERVER_ERROR',
-      message: 'GitHub OAuth callback failed',
+      message: 'Password change failed',
+    });
+  }
+};
+
+/**
+ * Request password reset — always returns 200 to prevent user enumeration (flow f20)
+ */
+const requestPasswordReset = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'A valid email address is required',
+      });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+
+    if (user) {
+      const now = new Date();
+      const oneHourAgo = new Date(now - 60 * 60 * 1000);
+
+      // Rate limiting: max 5 requests per hour
+      if (user.passwordResetWindowStart && user.passwordResetWindowStart > oneHourAgo) {
+        if (user.passwordResetSentCount >= 5) {
+          // Non-revealing: still return 200, just don't send email
+          return res.status(200).json({
+            message: 'If an account with that email exists, a password reset link has been sent.',
+          });
+        }
+        user.passwordResetSentCount += 1;
+      } else {
+        user.passwordResetWindowStart = now;
+        user.passwordResetSentCount = 1;
+      }
+
+      // Generate plain token, store SHA-256 hash
+      const plainToken = crypto.randomBytes(32).toString('hex');
+      const hashedToken = crypto.createHash('sha256').update(plainToken).digest('hex');
+
+      user.passwordResetToken = hashedToken;
+      user.passwordResetTokenExpiry = new Date(now.getTime() + 15 * 60 * 1000);
+      await user.save();
+
+      try {
+        await sendPasswordResetEmail(user.email, plainToken, user.userId);
+      } catch (emailError) {
+        console.error('Password reset email failed (non-fatal):', emailError.message);
+      }
+
+      try {
+        await createAuditLog({
+          action: 'PASSWORD_RESET_REQUESTED',
+          actorId: user.userId,
+          targetId: user.userId,
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      } catch (auditError) {
+        console.error('Audit log failed for PASSWORD_RESET_REQUESTED (non-fatal):', auditError.message);
+      }
+    }
+
+    return res.status(200).json({
+      message: 'If an account with that email exists, a password reset link has been sent.',
+    });
+  } catch (error) {
+    console.error('Password reset request error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Password reset request failed',
+    });
+  }
+};
+
+/**
+ * Validate a password reset token without consuming it (read-only check)
+ * Used by the frontend on page load to detect expired links immediately
+ */
+const validatePasswordResetToken = async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'Token is required',
+      });
+    }
+
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+    const user = await User.findOne({
+      passwordResetToken: hashedToken,
+      passwordResetTokenExpiry: { $gt: new Date() },
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        code: 'INVALID_TOKEN',
+        message: 'Reset token is invalid or has expired',
+      });
+    }
+
+    return res.status(200).json({ valid: true });
+  } catch (error) {
+    console.error('Token validation error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Token validation failed',
+    });
+  }
+};
+
+/**
+ * Confirm password reset with one-time token (flow f21)
+ */
+const confirmPasswordReset = async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+
+    if (!token || !newPassword) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'Token and newPassword are required',
+      });
+    }
+
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+    const user = await User.findOne({
+      passwordResetToken: hashedToken,
+      passwordResetTokenExpiry: { $gt: new Date() },
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        code: 'INVALID_TOKEN',
+        message: 'Password reset token is invalid or has expired',
+      });
+    }
+
+    const { isValid, errors: passwordErrors } = validatePasswordStrength(newPassword);
+    if (!isValid) {
+      return res.status(400).json({
+        code: 'WEAK_PASSWORD',
+        message: 'New password does not meet requirements',
+        details: passwordErrors,
+      });
+    }
+
+    // Update password and invalidate token (single-use enforcement)
+    user.hashedPassword = await hashPassword(newPassword);
+    user.passwordResetToken = null;
+    user.passwordResetTokenExpiry = null;
+    user.passwordResetSentCount = 0;
+    user.passwordResetWindowStart = null;
+    await user.save();
+
+    // Revoke all refresh tokens (log out all sessions)
+    await RefreshToken.updateMany({ userId: user.userId }, { isRevoked: true });
+
+    try {
+      await createAuditLog({
+        action: 'PASSWORD_RESET_CONFIRMED',
+        actorId: user.userId,
+        targetId: user.userId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed for PASSWORD_RESET_CONFIRMED (non-fatal):', auditError.message);
+    }
+
+    return res.status(200).json({
+      message: 'Password has been reset successfully. All sessions have been invalidated.',
+    });
+  } catch (error) {
+    console.error('Password reset confirm error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Password reset failed',
+    });
+  }
+};
+
+/**
+ * Professor first-login forced password change (flow f07)
+ * Requires bearerAuth — professor must be logged in with temp password
+ */
+const professorOnboard = async (req, res) => {
+  try {
+    const { newPassword, connectGithub } = req.body;
+    const { userId } = req.user;
+
+    if (!newPassword) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'newPassword is required',
+      });
+    }
+
+    const user = await User.findOne({ userId });
+
+    if (!user) {
+      return res.status(401).json({
+        code: 'UNAUTHORIZED',
+        message: 'User not found',
+      });
+    }
+
+    if (user.role !== 'professor') {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'This endpoint is for professors only',
+      });
+    }
+
+    const { isValid, errors: passwordErrors } = validatePasswordStrength(newPassword);
+    if (!isValid) {
+      return res.status(400).json({
+        code: 'WEAK_PASSWORD',
+        message: 'Password does not meet requirements',
+        details: passwordErrors,
+      });
+    }
+
+    user.hashedPassword = await hashPassword(newPassword);
+    user.requiresPasswordChange = false;
+    await user.save();
+
+    const response = {
+      userId: user.userId,
+      accountStatus: user.accountStatus,
+    };
+
+    if (connectGithub) {
+      const state = crypto.randomBytes(16).toString('hex');
+      response.githubOauthUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&redirect_uri=${process.env.GITHUB_REDIRECT_URI}&state=${state}&scope=user`;
+    }
+
+    return res.status(200).json(response);
+  } catch (error) {
+    console.error('Professor onboard error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Professor onboarding failed',
+    });
+  }
+};
+
+/**
+ * Admin-initiated password reset for any user
+ * Requires admin role
+ */
+const adminInitiatePasswordReset = async (req, res) => {
+  try {
+    const { userId: targetUserId, email: targetEmail } = req.body;
+    const { userId: actorId } = req.user;
+
+    if (!targetUserId && !targetEmail) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'Either userId or email is required',
+      });
+    }
+
+    const query = targetUserId
+      ? { userId: targetUserId }
+      : { email: targetEmail.toLowerCase() };
+
+    const user = await User.findOne(query);
+
+    if (!user) {
+      return res.status(404).json({
+        code: 'USER_NOT_FOUND',
+        message: 'User not found',
+      });
+    }
+
+    const plainToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(plainToken).digest('hex');
+
+    user.passwordResetToken = hashedToken;
+    user.passwordResetTokenExpiry = new Date(Date.now() + 15 * 60 * 1000);
+    user.passwordResetSentCount = 0;
+    user.passwordResetWindowStart = null;
+    await user.save();
+
+    try {
+      await sendPasswordResetEmail(user.email, plainToken, user.userId);
+    } catch (emailError) {
+      console.error('Password reset email failed (non-fatal):', emailError.message);
+    }
+
+    try {
+      await createAuditLog({
+        action: 'PASSWORD_RESET_ADMIN_INITIATED',
+        actorId,
+        targetId: user.userId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed for PASSWORD_RESET_ADMIN_INITIATED (non-fatal):', auditError.message);
+    }
+
+    return res.status(200).json({
+      message: 'Password reset initiated. The user will receive an email with reset instructions.',
+      userId: user.userId,
+      email: user.email,
+      resetToken: plainToken,
+      expiresIn: 15 * 60 * 1000, // 15 minutes in milliseconds
+      resetLink: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/reset-password?token=${plainToken}`,
+    });
+  } catch (error) {
+    console.error('Admin password reset error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Admin password reset failed',
+    });
+  }
+};
+
+/**
+ * Get list of users for admin dropdown/search (admin-only)
+ * Supports optional search/filter by email or userId
+ */
+const getAdminUsersList = async (req, res) => {
+  try {
+    const { search = '', limit = 50 } = req.query;
+
+    const filter = {};
+    if (search.trim()) {
+      filter.$or = [
+        { email: { $regex: search, $options: 'i' } },
+        { userId: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    // Fetch users with essential fields 
+    const users = await User.find(filter)
+      .select('userId email role accountStatus emailVerified')
+      .limit(parseInt(limit, 10))
+      .sort({ email: 1 })
+      .exec();
+
+    return res.status(200).json({
+      users: users.map(user => ({
+        userId: user.userId,
+        email: user.email,
+        role: user.role,
+        accountStatus: user.accountStatus,
+        emailVerified: user.emailVerified,
+      })),
+      total: users.length,
+    });
+  } catch (error) {
+    console.error('Get users list error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Failed to fetch users list',
+    });
+  }
+};
+
+/**
+ * Admin-initiated professor account creation
+ * Generates temporary password, sets force_password_change flag
+ * Sends credentials via email
+ */
+const adminCreateProfessor = async (req, res) => {
+  try {
+    const { email, firstName = '', lastName = '' } = req.body;
+    const { userId: actorId } = req.user;
+
+    // Validation
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'A valid email address is required',
+      });
+    }
+
+    // Check if account already exists
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    if (existingUser) {
+      return res.status(409).json({
+        code: 'CONFLICT',
+        message: 'A user with this email already exists',
+      });
+    }
+
+    // Generate temporary password: 12 characters with mixed case, numbers, and special chars
+    const tempPassword = crypto
+      .randomBytes(6)
+      .toString('hex')
+      .slice(0, 8)
+      .toUpperCase() + crypto.randomInt(100, 999) + '!A';
+
+    const hashedPassword = await hashPassword(tempPassword);
+
+    // Create professor account
+    const professor = new User({
+      email: email.toLowerCase(),
+      hashedPassword,
+      role: 'professor',
+      firstName: firstName || '',
+      lastName: lastName || '',
+      accountStatus: 'pending',
+      emailVerified: false,
+      requiresPasswordChange: true,
+    });
+
+    await professor.save();
+
+    // Audit log
+    try {
+      await createAuditLog({
+        action: 'ACCOUNT_CREATED',
+        actorId,
+        targetId: professor.userId,
+        changes: {
+          email: professor.email,
+          role: 'professor',
+          tempPasswordGenerated: true,
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed for ACCOUNT_CREATED (non-fatal):', auditError.message);
+    }
+
+    // Send credentials email
+    try {
+      const { sendProfessorCredentialsEmail } = require('../services/emailService');
+      await sendProfessorCredentialsEmail(professor.email, tempPassword);
+    } catch (emailError) {
+      console.error('Credentials email failed (non-fatal):', emailError.message);
+    }
+
+    return res.status(201).json({
+      message: 'Professor account created. Credentials have been sent via email.',
+      userId: professor.userId,
+      email: professor.email,
+      firstName: professor.firstName,
+      lastName: professor.lastName,
+      accountStatus: professor.accountStatus,
+      requiresPasswordChange: professor.requiresPasswordChange,
+    });
+  } catch (error) {
+    console.error('Admin create professor error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Failed to create professor account',
     });
   }
 };
@@ -399,6 +1070,14 @@ module.exports = {
   registerStudent,
   refreshAccessToken,
   logout,
+  changePassword,
   initiateGithubOAuth,
   githubOAuthCallback,
+  requestPasswordReset,
+  validatePasswordResetToken,
+  confirmPasswordReset,
+  professorOnboard,
+  adminInitiatePasswordReset,
+  getAdminUsersList,
+  adminCreateProfessor,
 };
