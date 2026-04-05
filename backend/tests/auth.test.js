@@ -22,6 +22,7 @@ describe('Password Reset Flow (integration)', () => {
   let RefreshToken;
   let AuditLog;
   let hashPassword;
+  let comparePassword;
   let generateRefreshToken;
   let requestPasswordReset;
   let confirmPasswordReset;
@@ -53,7 +54,7 @@ describe('Password Reset Flow (integration)', () => {
     User = require('../src/models/User');
     RefreshToken = require('../src/models/RefreshToken');
     AuditLog = require('../src/models/AuditLog');
-    ({ hashPassword } = require('../src/utils/password'));
+    ({ hashPassword, comparePassword } = require('../src/utils/password'));
     ({ generateRefreshToken } = require('../src/utils/jwt'));
     ({ requestPasswordReset, confirmPasswordReset, adminInitiatePasswordReset } = require('../src/controllers/auth'));
   });

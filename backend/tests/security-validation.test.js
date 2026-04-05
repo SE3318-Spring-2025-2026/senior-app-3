@@ -15,6 +15,11 @@
  * Run: npm test -- security-validation.test.js
  */
 
+// Mock email service before imports
+jest.mock('../src/services/emailService', () => ({
+  sendPasswordResetEmail: jest.fn().mockResolvedValue({ messageId: 'mock-id', status: 'sent' }),
+}));
+
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 const User = require('../src/models/User');
@@ -412,6 +417,9 @@ describe('Security Validation - Tokens & CSRF', () => {
       const { requestPasswordReset } = require('../src/controllers/auth');
       const emailService = require('../src/services/emailService');
 
+      // Reset mock before test
+      emailService.sendPasswordResetEmail.mockClear();
+
       const user = new User({
         email: 'pwratelimit@example.com',
         hashedPassword: 'hashed',
@@ -482,7 +490,7 @@ describe('Security Validation - Tokens & CSRF', () => {
       for (let i = 0; i < 3; i++) {
         const rt = new RefreshToken({
           userId: user.userId,
-          token: generateRefreshToken(user.userId),
+          token: crypto.randomBytes(32).toString('hex'),
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         });
         await rt.save();
