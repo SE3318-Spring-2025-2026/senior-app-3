@@ -140,7 +140,12 @@ async function seed() {
   for (const student of TEST_STUDENT_USERS) {
     const exists = await User.findOne({ email: student.email });
     if (exists) {
-      console.log(`  skip  ${student.email} (already exists)`);
+      if (exists.requiresPasswordChange) {
+        await User.updateOne({ email: student.email }, { $set: { requiresPasswordChange: false } });
+        console.log(`  updated ${student.email} — cleared requiresPasswordChange`);
+      } else {
+        console.log(`  skip  ${student.email} (already exists)`);
+      }
       studentUserSkipped++;
     } else {
       const hashedPassword = await hashPassword(student.tempPassword);
@@ -150,7 +155,7 @@ async function seed() {
         role: 'student',
         accountStatus: 'active',
         emailVerified: true,
-        requiresPasswordChange: true,
+        requiresPasswordChange: false,
       });
       console.log(`  added ${student.email} — temp password: ${student.tempPassword}`);
       studentUserInserted++;
