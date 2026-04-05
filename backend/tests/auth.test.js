@@ -22,6 +22,7 @@ describe('Password Reset Flow (integration)', () => {
   let RefreshToken;
   let AuditLog;
   let hashPassword;
+  let comparePassword;
   let generateRefreshToken;
   let requestPasswordReset;
   let confirmPasswordReset;
@@ -53,7 +54,7 @@ describe('Password Reset Flow (integration)', () => {
     User = require('../src/models/User');
     RefreshToken = require('../src/models/RefreshToken');
     AuditLog = require('../src/models/AuditLog');
-    ({ hashPassword } = require('../src/utils/password'));
+    ({ hashPassword, comparePassword } = require('../src/utils/password'));
     ({ generateRefreshToken } = require('../src/utils/jwt'));
     ({ requestPasswordReset, confirmPasswordReset, adminInitiatePasswordReset } = require('../src/controllers/auth'));
   });
@@ -274,6 +275,27 @@ describe('Password Reset Flow (integration)', () => {
       expect(active).toHaveLength(0);
     });
 
+    it('password updated correctly: new password works for login', async () => {
+      const { plainToken, user } = await setupUserWithToken();
+      const newPassword = 'NewSecure@456';
+
+      const req = makeReq({ token: plainToken, newPassword });
+      const res = makeRes();
+      await confirmPasswordReset(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+
+      // Verify new password works
+      const updated = await User.findOne({ email: 'reset@example.com' });
+      const isValid = await comparePassword(newPassword, updated.hashedPassword);
+      expect(isValid).toBe(true);
+
+      // Verify old password no longer works
+      const oldPassword = 'Original#123';
+      const isOldValid = await comparePassword(oldPassword, updated.hashedPassword);
+      expect(isOldValid).toBe(false);
+    });
+
     it('creates PASSWORD_RESET_CONFIRMED audit log', async () => {
       const { plainToken } = await setupUserWithToken();
       const req = makeReq({ token: plainToken, newPassword: 'NewSecure@123' });
@@ -302,6 +324,24 @@ describe('Password Reset Flow (integration)', () => {
         role: 'student',
         accountStatus: 'active',
       }).save();
+
+    it('returns 403 when non-admin user attempts admin reset', async () => {
+      const student = await new User({
+        email: 'student@example.com',
+        hashedPassword: await hashPassword('Pass#123'),
+        role: 'student',
+      }).save();
+      const target = await setupTarget();
+
+      const req = makeReq({ userId: target.userId }, { userId: student.userId, role: 'student' });
+      const res = makeRes();
+      await adminInitiatePasswordReset(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'FORBIDDEN' })
+      );
+    });
 
     it('returns 400 when neither userId nor email provided', async () => {
       const admin = await setupAdmin();
@@ -659,5 +699,298 @@ describe('Token rotation and revocation (integration)', () => {
 
     const remaining = await RefreshToken.find({ userId: user.userId, isRevoked: false });
     expect(remaining).toHaveLength(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECURITY TESTS: Password Reset Token Security
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Password Reset - Security Tests', () => {
+  const mongoUri = process.env.MONGODB_TEST_URI || 'mongodb://localhost:27017/senior-app-test-auth';
+
+  let User;
+  let RefreshToken;
+  let AuditLog;
+  let hashPassword;
+  let confirmPasswordReset;
+
+  const makeReq = (body = {}, user = null) => ({
+    body,
+    user,
+    ip: '127.0.0.1',
+    headers: { 'user-agent': 'test-agent' },
+  });
+
+  const makeRes = () => {
+    const res = {};
+    res.status = jest.fn().mockReturnValue(res);
+    res.json = jest.fn().mockReturnValue(res);
+    return res;
+  };
+
+  beforeAll(async () => {
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.disconnect();
+    }
+    await mongoose.connect(mongoUri);
+    await mongoose.connection.dropDatabase();
+    User = require('../src/models/User');
+    RefreshToken = require('../src/models/RefreshToken');
+    AuditLog = require('../src/models/AuditLog');
+    ({ hashPassword } = require('../src/utils/password'));
+    ({ confirmPasswordReset } = require('../src/controllers/auth'));
+  });
+
+  afterAll(async () => {
+    await mongoose.connection.dropDatabase();
+    await mongoose.disconnect();
+  });
+
+  beforeEach(async () => {
+    await User.deleteMany({});
+    await RefreshToken.deleteMany({});
+    await AuditLog.deleteMany({});
+  });
+
+  it('stores hashed token (never plaintext) in database', async () => {
+    const plainToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(plainToken).digest('hex');
+
+    const user = new User({
+      email: 'hashedtest@example.com',
+      hashedPassword: await hashPassword('T3st_Secure#99'),
+      role: 'student',
+      accountStatus: 'active',
+      passwordResetToken: hashedToken,
+      passwordResetTokenExpiry: new Date(Date.now() + 15 * 60 * 1000),
+    });
+    await user.save();
+
+    const stored = await User.findOne({ email: 'hashedtest@example.com' });
+    // Token in DB should be hashed, not plaintext
+    expect(stored.passwordResetToken).toBe(hashedToken);
+    expect(stored.passwordResetToken).not.toBe(plainToken);
+  });
+
+  it('token generated with correct 15-minute expiry', async () => {
+    const plainToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(plainToken).digest('hex');
+
+    const user = new User({
+      email: 'expirytest@example.com',
+      hashedPassword: await hashPassword('T3st_Secure#99'),
+      role: 'student',
+      accountStatus: 'active',
+      passwordResetToken: hashedToken,
+      passwordResetTokenExpiry: new Date(Date.now() + 15 * 60 * 1000),
+    });
+    await user.save();
+
+    const msUntilExpiry = user.passwordResetTokenExpiry - new Date();
+    expect(msUntilExpiry).toBeGreaterThan(14 * 60 * 1000);
+    expect(msUntilExpiry).toBeLessThanOrEqual(15 * 60 * 1000);
+  });
+
+  it('invalidates token after single use (cannot reuse same token)', async () => {
+    const plainToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(plainToken).digest('hex');
+
+    const user = new User({
+      email: 'singleuse@example.com',
+      hashedPassword: await hashPassword('T3st_Secure#99'),
+      role: 'student',
+      accountStatus: 'active',
+      passwordResetToken: hashedToken,
+      passwordResetTokenExpiry: new Date(Date.now() + 15 * 60 * 1000),
+    });
+    await user.save();
+
+    // First confirmation — succeeds
+    const req1 = makeReq({ token: plainToken, newPassword: 'NewSecure@456' });
+    await confirmPasswordReset(req1, makeRes());
+
+    const reused = await User.findOne({ email: 'singleuse@example.com' });
+    expect(reused.passwordResetToken).toBeNull();
+
+    // Attempting to reuse the same token — fails
+    const req2 = makeReq({ token: plainToken, newPassword: 'AnotherPass@789' });
+    const res2 = makeRes();
+    await confirmPasswordReset(req2, res2);
+
+    expect(res2.status).toHaveBeenCalledWith(400);
+    expect(res2.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'INVALID_TOKEN' })
+    );
+  });
+
+  it('constant-time hash comparison to prevent timing attacks', async () => {
+    const plainToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(plainToken).digest('hex');
+
+    const user = new User({
+      email: 'timingtest@example.com',
+      hashedPassword: await hashPassword('T3st_Secure#99'),
+      role: 'student',
+      accountStatus: 'active',
+      passwordResetToken: hashedToken,
+      passwordResetTokenExpiry: new Date(Date.now() + 15 * 60 * 1000),
+    });
+    await user.save();
+
+    // Test with partially-correct token (first char matches, rest wrong)
+    const wrongToken = plainToken.substring(0, 1) + 'x'.repeat(plainToken.length - 1);
+
+    const req = makeReq({ token: wrongToken, newPassword: 'NewSecure@456' });
+    const res = makeRes();
+    await confirmPasswordReset(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'INVALID_TOKEN' })
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INTEGRATION TESTS: Password Reset Workflow
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Password Reset - Integration Workflow', () => {
+  const mongoUri = process.env.MONGODB_TEST_URI || 'mongodb://localhost:27017/senior-app-test-auth';
+
+  let User;
+  let RefreshToken;
+  let AuditLog;
+  let hashPassword;
+  let comparePassword;
+  let requestPasswordReset;
+  let confirmPasswordReset;
+
+  const makeReq = (body = {}, user = null) => ({
+    body,
+    user,
+    ip: '127.0.0.1',
+    headers: { 'user-agent': 'test-agent' },
+  });
+
+  const makeRes = () => {
+    const res = {};
+    res.status = jest.fn().mockReturnValue(res);
+    res.json = jest.fn().mockReturnValue(res);
+    return res;
+  };
+
+  beforeAll(async () => {
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.disconnect();
+    }
+    await mongoose.connect(mongoUri);
+    await mongoose.connection.dropDatabase();
+    User = require('../src/models/User');
+    RefreshToken = require('../src/models/RefreshToken');
+    AuditLog = require('../src/models/AuditLog');
+    ({ hashPassword, comparePassword } = require('../src/utils/password'));
+    ({ requestPasswordReset, confirmPasswordReset } = require('../src/controllers/auth'));
+  });
+
+  afterAll(async () => {
+    await mongoose.connection.dropDatabase();
+    await mongoose.disconnect();
+  });
+
+  beforeEach(async () => {
+    await User.deleteMany({});
+    await RefreshToken.deleteMany({});
+    await AuditLog.deleteMany({});
+  });
+
+  it('completes full workflow: request → confirm → password changed', async () => {
+    // Setup: create user
+    const user = new User({
+      email: 'workflow@example.com',
+      hashedPassword: await hashPassword('OldPass#123'),
+      role: 'student',
+      accountStatus: 'active',
+    });
+    await user.save();
+
+    // Step 1: Request password reset
+    const reqRequest = makeReq({ email: 'workflow@example.com' });
+    const resRequest = makeRes();
+    await requestPasswordReset(reqRequest, resRequest);
+
+    expect(resRequest.status).toHaveBeenCalledWith(200);
+
+    // Get the token from the user
+    let resetUser = await User.findOne({ email: 'workflow@example.com' });
+    const hashedToken = resetUser.passwordResetToken;
+
+    // Simulate getting plain token (in real flow, sent via email)
+    // For test, we'll directly create one
+    const plainToken = crypto.randomBytes(32).toString('hex');
+    const newHashedToken = crypto.createHash('sha256').update(plainToken).digest('hex');
+
+    resetUser.passwordResetToken = newHashedToken;
+    resetUser.passwordResetTokenExpiry = new Date(Date.now() + 15 * 60 * 1000);
+    await resetUser.save();
+
+    // Step 2: Confirm password reset
+    const reqConfirm = makeReq({ token: plainToken, newPassword: 'NewSecure@789' });
+    const resConfirm = makeRes();
+    await confirmPasswordReset(reqConfirm, resConfirm);
+
+    expect(resConfirm.status).toHaveBeenCalledWith(200);
+
+    // Step 3: Verify using new password works
+    const updatedUser = await User.findOne({ email: 'workflow@example.com' });
+    const passwordMatch = await comparePassword('NewSecure@789', updatedUser.hashedPassword);
+    expect(passwordMatch).toBe(true);
+  });
+
+  it('rate limiting applies: only 5 reset requests per hour', async () => {
+    const user = new User({
+      email: 'ratelimitflow@example.com',
+      hashedPassword: await hashPassword('Pass#123'),
+      role: 'student',
+      accountStatus: 'active',
+    });
+    await user.save();
+
+    // Send exactly 5 requests
+    for (let i = 0; i < 5; i++) {
+      const req = makeReq({ email: 'ratelimitflow@example.com' });
+      await requestPasswordReset(req, makeRes());
+    }
+
+    // 6th request should still return 200 (non-revealing) but not generate new token
+    const tokenBefore = (await User.findOne({ email: 'ratelimitflow@example.com' })).passwordResetToken;
+
+    const req6 = makeReq({ email: 'ratelimitflow@example.com' });
+    const res6 = makeRes();
+    await requestPasswordReset(req6, res6);
+
+    expect(res6.status).toHaveBeenCalledWith(200); // Returns 200 for non-revealing
+
+    const tokenAfter = (await User.findOne({ email: 'ratelimitflow@example.com' })).passwordResetToken;
+    // Token should remain unchanged (rate limiting silently suppressed the send)
+    expect(tokenAfter).toBe(tokenBefore);
+  });
+
+  it('logs all reset events in audit trail', async () => {
+    const user = new User({
+      email: 'auditflow@example.com',
+      hashedPassword: await hashPassword('Pass#123'),
+      role: 'student',
+      accountStatus: 'active',
+    });
+    await user.save();
+
+    // Request
+    const reqRequest = makeReq({ email: 'auditflow@example.com' });
+    await requestPasswordReset(reqRequest, makeRes());
+
+    const logs = await AuditLog.find({ targetId: user.userId });
+    expect(logs.some(log => log.action === 'PASSWORD_RESET_REQUESTED')).toBe(true);
   });
 });

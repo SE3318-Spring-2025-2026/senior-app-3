@@ -863,7 +863,15 @@ const professorOnboard = async (req, res) => {
 const adminInitiatePasswordReset = async (req, res) => {
   try {
     const { userId: targetUserId, email: targetEmail } = req.body;
-    const { userId: actorId } = req.user;
+    const { userId: actorId, role } = req.user;
+
+    // Verify admin role
+    if (role !== 'admin') {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'Only admins can initiate password resets for other users',
+      });
+    }
 
     if (!targetUserId && !targetEmail) {
       return res.status(400).json({
