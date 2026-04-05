@@ -25,6 +25,8 @@ const auditLogSchema = new mongoose.Schema(
         'EMAIL_PASSWORD_RESET_SENT',
         'EMAIL_ACCOUNT_READY_SENT',
         'EMAIL_DELIVERY_FAILED',
+        'GROUP_CREATED',
+        'GROUP_RETRIEVED',
       ],
     },
     actorId: {

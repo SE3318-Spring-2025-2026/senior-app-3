@@ -1,0 +1,34 @@
+/**
+ * Group Service — Process 2.5 forwarding (DFD flow f03: 2.2 → 2.5)
+ *
+ * After Process 2.2 validates and writes the group record to D2,
+ * the validated group data is forwarded to Process 2.5 (member request
+ * processing pipeline). This service initialises the member list by
+ * adding the leader as the first confirmed member, making the group
+ * ready to receive further membership requests.
+ */
+
+/**
+ * Forward validated group data to the member request processing pipeline.
+ * Adds the leader as an accepted member (initial state for Process 2.5).
+ *
+ * @param {object} group - Mongoose Group document (already saved to D2)
+ * @returns {object} Updated group document
+ */
+const forwardToMemberRequestPipeline = async (group) => {
+  const leaderAlreadyAdded = group.members.some((m) => m.userId === group.leaderId);
+
+  if (!leaderAlreadyAdded) {
+    group.members.push({
+      userId: group.leaderId,
+      role: 'leader',
+      status: 'accepted',
+      joinedAt: new Date(),
+    });
+    await group.save();
+  }
+
+  return group;
+};
+
+module.exports = { forwardToMemberRequestPipeline };
