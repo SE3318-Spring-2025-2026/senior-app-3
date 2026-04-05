@@ -5,6 +5,7 @@ const User = require('../models/User');
 const ScheduleWindow = require('../models/ScheduleWindow');
 const { createAuditLog } = require('../services/auditService');
 const { forwardToMemberRequestPipeline } = require('../services/groupService');
+const { sendMembershipDecisionEmail } = require('../services/emailService');
 
 const VALID_DECISIONS = new Set(['approved', 'rejected']);
 
@@ -346,4 +347,238 @@ const formatGroupResponse = (group) => ({
   updatedAt: group.updatedAt,
 });
 
-module.exports = { forwardApprovalResults, createGroup, getGroup };
+/**
+ * POST /groups/:groupId/member-requests
+ * Process 2.5: Student submits a membership request for a group (Issue #34).
+ *
+ * DFD flows:
+ *   f03 — valid group data already forwarded from 2.2; group must exist in D2
+ *   f20 — reads current group members from D2 to detect duplicates
+ *
+ * Creates a GroupMembership record (D2) with status `pending` and adds the
+ * student to Group.members so the group reflects the pending request.
+ */
+const createMemberRequest = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const { student_id } = req.body;
+
+    if (!student_id || typeof student_id !== 'string' || !student_id.trim()) {
+      return res.status(400).json({
+        code: 'MISSING_STUDENT_ID',
+        message: 'student_id is required',
+      });
+    }
+
+    const studentId = student_id.trim();
+
+    // Only the student themselves may create their own request
+    if (req.user.userId !== studentId) {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'You may only submit a membership request for yourself',
+      });
+    }
+
+    // f20: Read current group state from D2
+    const group = await Group.findOne({ groupId });
+    if (!group) {
+      return res.status(404).json({
+        code: 'GROUP_NOT_FOUND',
+        message: 'Group not found',
+      });
+    }
+
+    // Verify student exists and is active
+    const student = await User.findOne({ userId: studentId });
+    if (!student) {
+      return res.status(404).json({
+        code: 'STUDENT_NOT_FOUND',
+        message: 'Student not found',
+      });
+    }
+    if (student.accountStatus !== 'active') {
+      return res.status(400).json({
+        code: 'STUDENT_ACCOUNT_INACTIVE',
+        message: 'Student account must be active to request group membership',
+      });
+    }
+
+    // Check for existing membership record in D2 (GroupMembership collection)
+    const existing = await GroupMembership.findOne({ groupId, studentId });
+    if (existing) {
+      return res.status(409).json({
+        code: 'REQUEST_ALREADY_EXISTS',
+        message: `A membership request for this student already exists with status: ${existing.status}`,
+      });
+    }
+
+    // Create GroupMembership record in D2 with status `pending`
+    const membership = await GroupMembership.create({ groupId, studentId });
+
+    // Mirror the pending state in the embedded Group.members array (D2 denormalised copy)
+    const alreadyInMembers = group.members.some((m) => m.userId === studentId);
+    if (!alreadyInMembers) {
+      group.members.push({
+        userId: studentId,
+        role: 'member',
+        status: 'pending',
+        joinedAt: null,
+      });
+      await group.save();
+    }
+
+    // Audit log (non-fatal)
+    try {
+      await createAuditLog({
+        action: 'MEMBER_REQUEST_CREATED',
+        actorId: studentId,
+        targetId: group.groupId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed (non-fatal):', auditError.message);
+    }
+
+    return res.status(201).json({
+      membershipId: membership.membershipId,
+      groupId: membership.groupId,
+      studentId: membership.studentId,
+      status: membership.status,
+      createdAt: membership.createdAt,
+    });
+  } catch (err) {
+    console.error('createMemberRequest error:', err);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: 'An unexpected error occurred',
+    });
+  }
+};
+
+/**
+ * PATCH /groups/:groupId/member-requests/:requestId
+ * Process 2.5: Apply an approve/reject decision to a pending membership request.
+ *
+ * DFD flows:
+ *   f09 — approval result from 2.4 (normal flow; decision required)
+ *   f17 — override confirmation from 2.8 (is_override: true; skips re-approval gate)
+ *   f04 — on approval, sends group-created confirmation to the Student
+ *   f20 — reads group and membership records from D2
+ *
+ * Accepts:
+ *   { decision: 'approved'|'rejected', decided_by: userId, is_override?: bool }
+ */
+const decideMemberRequest = async (req, res) => {
+  try {
+    const { groupId, requestId } = req.params;
+    const { decision, decided_by, is_override } = req.body;
+
+    if (!decision || !VALID_DECISIONS.has(decision)) {
+      return res.status(400).json({
+        code: 'INVALID_DECISION',
+        message: "decision must be 'approved' or 'rejected'",
+      });
+    }
+
+    if (!decided_by || typeof decided_by !== 'string' || !decided_by.trim()) {
+      return res.status(400).json({
+        code: 'MISSING_DECIDED_BY',
+        message: 'decided_by is required',
+      });
+    }
+
+    // f20: Read group and membership record from D2
+    const group = await Group.findOne({ groupId });
+    if (!group) {
+      return res.status(404).json({
+        code: 'GROUP_NOT_FOUND',
+        message: 'Group not found',
+      });
+    }
+
+    const membership = await GroupMembership.findOne({ membershipId: requestId, groupId });
+    if (!membership) {
+      return res.status(404).json({
+        code: 'REQUEST_NOT_FOUND',
+        message: 'Member request not found',
+      });
+    }
+
+    if (membership.status !== 'pending') {
+      return res.status(409).json({
+        code: 'REQUEST_ALREADY_DECIDED',
+        message: `Request has already been ${membership.status}`,
+      });
+    }
+
+    const decidedAt = new Date();
+
+    // Update GroupMembership record in D2 — pending → approved/rejected
+    membership.status = decision;
+    membership.decidedBy = decided_by.trim();
+    membership.decidedAt = decidedAt;
+    await membership.save();
+
+    // Update Group.members embedded record in D2
+    const memberEntry = group.members.find((m) => m.userId === membership.studentId);
+    if (memberEntry) {
+      memberEntry.status = decision === 'approved' ? 'accepted' : 'rejected';
+      if (decision === 'approved') {
+        memberEntry.joinedAt = decidedAt;
+      }
+    }
+    await group.save();
+
+    // Determine audit action — override confirmations (f17: 2.8 → 2.5) are logged separately
+    const auditAction = is_override
+      ? 'MEMBER_REQUEST_OVERRIDE'
+      : decision === 'approved'
+        ? 'MEMBER_REQUEST_APPROVED'
+        : 'MEMBER_REQUEST_REJECTED';
+
+    // Audit log (non-fatal)
+    try {
+      await createAuditLog({
+        action: auditAction,
+        actorId: decided_by.trim(),
+        targetId: group.groupId,
+        changes: { studentId: membership.studentId, decision, is_override: !!is_override },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed (non-fatal):', auditError.message);
+    }
+
+    // f04: Group created confirmation → Student (non-fatal email)
+    // Look up student email to dispatch the confirmation
+    try {
+      const student = await User.findOne({ userId: membership.studentId });
+      if (student?.email) {
+        await sendMembershipDecisionEmail(student.email, group.groupName, decision, student.userId);
+      }
+    } catch (emailError) {
+      console.error('Membership decision email failed (non-fatal):', emailError.message);
+    }
+
+    return res.status(200).json({
+      membershipId: membership.membershipId,
+      groupId: membership.groupId,
+      studentId: membership.studentId,
+      status: membership.status,
+      decidedBy: membership.decidedBy,
+      decidedAt: membership.decidedAt,
+      is_override: !!is_override,
+    });
+  } catch (err) {
+    console.error('decideMemberRequest error:', err);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: 'An unexpected error occurred',
+    });
+  }
+};
+
+module.exports = { forwardApprovalResults, createGroup, getGroup, createMemberRequest, decideMemberRequest };

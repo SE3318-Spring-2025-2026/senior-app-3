@@ -27,6 +27,10 @@ const auditLogSchema = new mongoose.Schema(
         'EMAIL_DELIVERY_FAILED',
         'GROUP_CREATED',
         'GROUP_RETRIEVED',
+        'MEMBER_REQUEST_CREATED',
+        'MEMBER_REQUEST_APPROVED',
+        'MEMBER_REQUEST_REJECTED',
+        'MEMBER_REQUEST_OVERRIDE',
       ],
     },
     actorId: {
