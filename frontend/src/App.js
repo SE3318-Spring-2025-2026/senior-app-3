@@ -11,6 +11,7 @@ import ResetPasswordPage from './components/ResetPasswordPage';
 import ProfessorOnboardModal from './components/ProfessorOnboardModal';
 import AdminPasswordReset from './components/AdminPasswordReset';
 import AdminProfessorCreation from './components/AdminProfessorCreation';
+import GitHubCallbackHandler from './components/GitHubCallbackHandler';
 import './App.css';
 
 /**
@@ -43,6 +44,7 @@ function App() {
         <Route path="/auth/register" element={<RegisterForm />} />
         <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/auth/github/callback" element={<GitHubCallbackHandler />} />
         <Route path="/onboarding" element={<OnboardingStepper />} />
 
         {/* Professor first-login: dedicated route, protected */}
