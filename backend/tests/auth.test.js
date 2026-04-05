@@ -274,6 +274,27 @@ describe('Password Reset Flow (integration)', () => {
       expect(active).toHaveLength(0);
     });
 
+    it('password updated correctly: new password works for login', async () => {
+      const { plainToken, user } = await setupUserWithToken();
+      const newPassword = 'NewSecure@456';
+
+      const req = makeReq({ token: plainToken, newPassword });
+      const res = makeRes();
+      await confirmPasswordReset(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+
+      // Verify new password works
+      const updated = await User.findOne({ email: 'reset@example.com' });
+      const isValid = await comparePassword(newPassword, updated.hashedPassword);
+      expect(isValid).toBe(true);
+
+      // Verify old password no longer works
+      const oldPassword = 'Original#123';
+      const isOldValid = await comparePassword(oldPassword, updated.hashedPassword);
+      expect(isOldValid).toBe(false);
+    });
+
     it('creates PASSWORD_RESET_CONFIRMED audit log', async () => {
       const { plainToken } = await setupUserWithToken();
       const req = makeReq({ token: plainToken, newPassword: 'NewSecure@123' });
@@ -302,6 +323,24 @@ describe('Password Reset Flow (integration)', () => {
         role: 'student',
         accountStatus: 'active',
       }).save();
+
+    it('returns 403 when non-admin user attempts admin reset', async () => {
+      const student = await new User({
+        email: 'student@example.com',
+        hashedPassword: await hashPassword('Pass#123'),
+        role: 'student',
+      }).save();
+      const target = await setupTarget();
+
+      const req = makeReq({ userId: target.userId }, { userId: student.userId, role: 'student' });
+      const res = makeRes();
+      await adminInitiatePasswordReset(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'FORBIDDEN' })
+      );
+    });
 
     it('returns 400 when neither userId nor email provided', async () => {
       const admin = await setupAdmin();
