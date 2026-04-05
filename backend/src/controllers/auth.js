@@ -9,6 +9,17 @@ const axios = require('axios');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 
+// In-memory CSRF state store: state → { userId, expiresAt }
+const oauthStateStore = new Map();
+
+// Purge expired state tokens every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of oauthStateStore.entries()) {
+    if (val.expiresAt < now) oauthStateStore.delete(key);
+  }
+}, 5 * 60 * 1000).unref();
+
 /**
  * Login with email and password
  */
@@ -365,31 +376,29 @@ const logout = async (req, res) => {
 };
 
 /**
- * Initiate GitHub OAuth
+ * Initiate GitHub OAuth (1.3-A)
+ * Protected — requires authenticated user.
+ * Generates a CSRF state token, stores it in memory with a 10-minute TTL,
+ * and returns the GitHub authorization URL.
  */
 const initiateGithubOAuth = async (req, res) => {
   try {
-    const { redirectUri } = req.body;
-
-    if (!redirectUri) {
-      return res.status(400).json({
-        code: 'INVALID_INPUT',
-        message: 'Redirect URI is required',
-      });
-    }
-
-    // Generate state token for CSRF protection
     const state = crypto.randomBytes(32).toString('hex');
 
-    // TODO: Store state in Redis or database with expiration
-    // For now, we'll just generate it
-
-    const authorizationUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&redirect_uri=${redirectUri}&state=${state}&scope=user`;
-
-    return res.status(200).json({
-      authorizationUrl,
-      state,
+    oauthStateStore.set(state, {
+      userId: req.user.userId,
+      expiresAt: Date.now() + 10 * 60 * 1000,
     });
+
+    const redirectUri = process.env.GITHUB_REDIRECT_URI;
+    const authorizationUrl =
+      `https://github.com/login/oauth/authorize` +
+      `?client_id=${process.env.GITHUB_CLIENT_ID}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&state=${state}` +
+      `&scope=read:user`;
+
+    return res.status(200).json({ authorizationUrl, state });
   } catch (error) {
     console.error('GitHub OAuth initiation error:', error);
     res.status(500).json({
@@ -400,66 +409,133 @@ const initiateGithubOAuth = async (req, res) => {
 };
 
 /**
- * Handle GitHub OAuth callback
+ * Handle GitHub OAuth callback (1.3-B)
+ * Public GET — browser is redirected here by GitHub after authorization.
+ * Verifies CSRF state, exchanges code for GitHub access token, fetches
+ * the GitHub user, enforces uniqueness, and links the account.
+ * Always responds with a 302 redirect to the frontend callback handler.
  */
 const githubOAuthCallback = async (req, res) => {
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const callbackBase = `${frontendUrl}/auth/github/callback`;
+
+  const redirectError = (code) =>
+    res.redirect(`${callbackBase}?error=${encodeURIComponent(code)}`);
+
   try {
-    const { code, state } = req.query;
+    const { code, state, error: oauthError } = req.query;
+
+    // GitHub may send an error query param (e.g. user denied access)
+    if (oauthError) {
+      return redirectError(oauthError);
+    }
 
     if (!code || !state) {
-      return res.status(400).json({
-        code: 'INVALID_INPUT',
-        message: 'Code and state parameters are required',
-      });
+      return redirectError('MISSING_PARAMS');
     }
 
-    // TODO: Verify state token
-    // For now, we'll accept it
+    // Verify CSRF state token
+    const stateData = oauthStateStore.get(state);
+    if (!stateData || stateData.expiresAt < Date.now()) {
+      oauthStateStore.delete(state);
+      return redirectError('INVALID_STATE');
+    }
 
-    // Exchange code for access token
-    const tokenResponse = await axios.post(
-      'https://github.com/login/oauth/access_token',
-      {
-        client_id: process.env.GITHUB_CLIENT_ID,
-        client_secret: process.env.GITHUB_CLIENT_SECRET,
-        code,
-        redirect_uri: process.env.GITHUB_REDIRECT_URI,
-      },
-      {
-        headers: { Accept: 'application/json' },
+    // Consume state (one-time use)
+    const { userId } = stateData;
+    oauthStateStore.delete(state);
+
+    // Exchange authorization code for GitHub access token
+    let githubAccessToken;
+    try {
+      const tokenResponse = await axios.post(
+        'https://github.com/login/oauth/access_token',
+        {
+          client_id: process.env.GITHUB_CLIENT_ID,
+          client_secret: process.env.GITHUB_CLIENT_SECRET,
+          code,
+          redirect_uri: process.env.GITHUB_REDIRECT_URI,
+        },
+        { headers: { Accept: 'application/json' } }
+      );
+
+      if (tokenResponse.data.error) {
+        console.error('GitHub token exchange error:', tokenResponse.data.error_description);
+        return redirectError('TOKEN_EXCHANGE_FAILED');
       }
-    );
 
-    const { access_token } = tokenResponse.data;
-
-    if (!access_token) {
-      return res.status(400).json({
-        code: 'OAUTH_FAILED',
-        message: 'Failed to obtain GitHub access token',
-      });
+      githubAccessToken = tokenResponse.data.access_token;
+    } catch (exchangeError) {
+      console.error('GitHub token exchange request failed:', exchangeError.message);
+      return redirectError('TOKEN_EXCHANGE_FAILED');
     }
 
-    // Get GitHub user info
-    const userResponse = await axios.get('https://api.github.com/user', {
-      headers: { Authorization: `Bearer ${access_token}` },
+    if (!githubAccessToken) {
+      return redirectError('TOKEN_EXCHANGE_FAILED');
+    }
+
+    // Fetch GitHub user profile
+    let githubUsername, githubId;
+    try {
+      const userResponse = await axios.get('https://api.github.com/user', {
+        headers: { Authorization: `Bearer ${githubAccessToken}` },
+      });
+      githubUsername = userResponse.data.login;
+      githubId = String(userResponse.data.id);
+    } catch (userError) {
+      console.error('GitHub /user API failed:', userError.message);
+      return redirectError('GITHUB_API_FAILED');
+    }
+
+    if (!githubUsername || !githubId) {
+      return redirectError('GITHUB_API_FAILED');
+    }
+
+    // Load the authenticated user who initiated the OAuth flow
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return redirectError('USER_NOT_FOUND');
+    }
+
+    // Uniqueness check: reject if this GitHub ID is already linked to a different account
+    const conflictById = await User.findOne({ githubId, userId: { $ne: userId } });
+    if (conflictById) {
+      return redirectError('GITHUB_ALREADY_LINKED');
+    }
+
+    // Uniqueness check: reject if this GitHub username is already taken by a different account
+    const conflictByUsername = await User.findOne({
+      githubUsername: githubUsername.toLowerCase(),
+      userId: { $ne: userId },
     });
+    if (conflictByUsername) {
+      return redirectError('GITHUB_USERNAME_TAKEN');
+    }
 
-    const { login: githubUsername, id: githubId } = userResponse.data;
+    // Persist GitHub identity on the user record
+    user.githubUsername = githubUsername;
+    user.githubId = githubId;
+    await user.save();
 
-    // TODO: Link GitHub to current user or create new account
-    // For now, just return the GitHub info
+    // Best-effort audit log
+    try {
+      await createAuditLog({
+        action: 'GITHUB_OAUTH_LINKED',
+        actorId: userId,
+        targetId: userId,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed for GITHUB_OAUTH_LINKED (non-fatal):', auditError.message);
+    }
 
-    return res.status(200).json({
-      githubUsername,
-      githubId,
-      linkedUserId: req.user?.userId || null,
-    });
+    return res.redirect(
+      `${callbackBase}?status=linked&githubUsername=${encodeURIComponent(githubUsername)}`
+    );
   } catch (error) {
     console.error('GitHub OAuth callback error:', error);
-    res.status(500).json({
-      code: 'SERVER_ERROR',
-      message: 'GitHub OAuth callback failed',
-    });
+    return redirectError('SERVER_ERROR');
   }
 };
 

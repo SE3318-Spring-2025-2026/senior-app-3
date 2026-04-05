@@ -19,6 +19,7 @@ const auditLogSchema = new mongoose.Schema(
         'PASSWORD_RESET_REQUESTED',
         'PASSWORD_RESET_CONFIRMED',
         'PASSWORD_RESET_ADMIN_INITIATED',
+        'GITHUB_OAUTH_LINKED',
       ],
     },
     actorId: {
