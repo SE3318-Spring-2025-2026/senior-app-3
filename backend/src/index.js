@@ -4,7 +4,7 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const authRoutes = require('./routes/auth');
 const onboardingRoutes = require('./routes/onboarding');
-const groupsRoutes = require('./routes/groups');
+const groupRoutes = require('./routes/groups');
 const { errorHandler } = require('./middleware/auth');
 
 const app = express();
@@ -50,7 +50,7 @@ connectDB();
 // Routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/onboarding', onboardingRoutes);
-app.use('/api/v1/groups', groupsRoutes);
+app.use('/api/v1/groups', groupRoutes);
 
 // 404 handler
 app.use((req, res) => {

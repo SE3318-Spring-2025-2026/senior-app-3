@@ -38,7 +38,7 @@ describe('POST /groups/:groupId/approval-results — forwardApprovalResults', ()
   };
 
   const makeGroup = (overrides = {}) =>
-    Group.create({ name: 'Test Group', professorId: 'prof_1', ...overrides });
+    Group.create({ groupName: `Test Group ${Date.now()}-${Math.random()}`, leaderId: 'usr_test', ...overrides });
 
   const makeResults = (count = 1, decision = 'approved') =>
     Array.from({ length: count }, (_, i) => ({

@@ -1,6 +1,20 @@
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 
+const memberSchema = new mongoose.Schema(
+  {
+    userId: { type: String, required: true },
+    role: { type: String, enum: ['leader', 'member'], default: 'member' },
+    status: {
+      type: String,
+      enum: ['pending', 'accepted', 'rejected'],
+      default: 'pending',
+    },
+    joinedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
 const groupSchema = new mongoose.Schema(
   {
     groupId: {
@@ -9,25 +23,39 @@ const groupSchema = new mongoose.Schema(
       unique: true,
       required: true,
     },
-    name: {
+    groupName: {
       type: String,
       required: true,
       trim: true,
+      unique: true,
     },
-    professorId: {
+    leaderId: {
       type: String,
       required: true,
     },
+    advisor: {
+      type: String,
+      default: null,
+    },
     status: {
       type: String,
-      enum: ['active', 'inactive'],
-      default: 'active',
+      enum: ['pending_validation', 'active', 'inactive', 'archived'],
+      default: 'pending_validation',
+    },
+    members: [memberSchema],
+    githubOrg: {
+      type: String,
+      default: null,
+    },
+    jiraProject: {
+      type: String,
+      default: null,
     },
   },
   { timestamps: true }
 );
 
-groupSchema.index({ professorId: 1, status: 1 });
+groupSchema.index({ leaderId: 1 });
 
 const Group = mongoose.model('Group', groupSchema);
 
