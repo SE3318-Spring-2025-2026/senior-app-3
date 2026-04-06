@@ -54,6 +54,43 @@ export const getScheduleWindow = async () => {
 };
 
 /**
+ * Add members to a group (Process 2.3, flows f05, f06, f19, f32)
+ * @param {string} groupId
+ * @param {string[]} studentIds
+ * @returns {Promise<{added: object[], errors: object[], group_id: string, total_members: number}>}
+ */
+export const addGroupMembers = async (groupId, studentIds) => {
+  const response = await apiClient.post(`/groups/${groupId}/members`, {
+    student_ids: studentIds,
+  });
+  return response.data;
+};
+
+/**
+ * Get the current user's pending group invitation
+ * @returns {Promise<{invitation_id, group_id, group_name, invited_by, status, created_at}|null>}
+ */
+export const getMyPendingInvitation = async () => {
+  try {
+    const response = await apiClient.get('/groups/pending-invitation');
+    return response.data;
+  } catch (error) {
+    if (error.response?.status === 404) return null;
+    throw error;
+  }
+};
+
+/**
+ * Accept or reject a group invitation
+ * @param {string} groupId
+ * @param {'accepted'|'rejected'} decision
+ */
+export const submitMembershipDecision = async (groupId, decision) => {
+  const response = await apiClient.post(`/groups/${groupId}/membership-decisions`, { decision });
+  return response.data;
+};
+
+/**
  * Get group details
  * @param {string} groupId - The group ID
  * @returns {Promise} Group data
