@@ -355,7 +355,7 @@ const formatGroupResponse = (group) => ({
   groupId: group.groupId,
   groupName: group.groupName,
   leaderId: group.leaderId,
-  advisor: group.advisor,
+  advisorId: group.advisorId,
   status: group.status,
   members: group.members.map((m) => ({
     userId: m.userId,
@@ -364,8 +364,9 @@ const formatGroupResponse = (group) => ({
     joinedAt: m.joinedAt,
   })),
   githubOrg: group.githubOrg,
-  jiraProject: group.jiraProject,
-  projectKey: group.projectKey,
+  githubRepoUrl: group.githubRepoUrl,
+  jiraProjectKey: group.projectKey,
+  jiraBoardUrl: group.jiraBoardUrl,
   createdAt: group.createdAt,
   updatedAt: group.updatedAt,
 });
@@ -373,8 +374,9 @@ const formatGroupResponse = (group) => ({
 const VALID_OVERRIDE_ACTIONS = new Set(['add_member', 'remove_member', 'update_group']);
 
 const VALID_GROUP_FIELDS = new Set([
-  'groupName', 'leaderId', 'advisor', 'status',
-  'githubOrg', 'githubPat', 'jiraProject', 'jiraUrl',
+  'groupName', 'leaderId', 'advisorId', 'status',
+  'githubOrg', 'githubRepoUrl', 'githubPat',
+  'jiraProject', 'jiraUrl', 'jiraBoardUrl',
   'jiraUsername', 'jiraToken', 'projectKey',
 ]);
 
