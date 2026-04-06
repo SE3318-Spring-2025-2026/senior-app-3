@@ -5,6 +5,8 @@ import useAuthStore from '../store/authStore';
 import GitHubStatusCard from './GitHubStatusCard';
 import JiraStatusCard from './JiraStatusCard';
 import GroupMemberList from './GroupMemberList';
+import AddMemberForm from './AddMemberForm';
+import { submitMembershipDecision, getMyPendingInvitation } from '../api/groupService';
 import './GroupDashboard.css';
 
 /**
@@ -17,6 +19,9 @@ const GroupDashboard = () => {
   const user = useAuthStore((state) => state.user);
   const pollingIntervalRef = useRef(null);
   const [manualRefresh, setManualRefresh] = useState(false);
+  const [invitationInfo, setInvitationInfo] = useState(null);
+  const [decisionLoading, setDecisionLoading] = useState(false);
+  const [decisionMsg, setDecisionMsg] = useState('');
 
   // Group store state
   const {
@@ -43,17 +48,40 @@ const GroupDashboard = () => {
   // Initial load and polling setup
   useEffect(() => {
     if (groupId) {
-      // Start polling for real-time updates (refresh every 30 seconds)
       pollingIntervalRef.current = startPolling(groupId, 30000);
     }
 
     return () => {
-      // Cleanup polling on unmount
       if (pollingIntervalRef.current) {
         stopPolling(pollingIntervalRef.current);
       }
     };
   }, [groupId, startPolling, stopPolling]);
+
+  // Check if the current user has a pending invitation for this group
+  useEffect(() => {
+    if (!groupId || !user) return;
+    getMyPendingInvitation().then((inv) => {
+      if (inv && inv.group_id === groupId) {
+        setInvitationInfo(inv);
+      }
+    }).catch(() => {});
+  }, [groupId, user]);
+
+  const handleDecision = async (decision) => {
+    setDecisionLoading(true);
+    setDecisionMsg('');
+    try {
+      await submitMembershipDecision(groupId, decision);
+      setInvitationInfo(null);
+      setDecisionMsg(decision === 'accepted' ? 'You have joined the group!' : 'Invitation declined.');
+      if (decision === 'accepted') fetchGroupDashboard(groupId);
+    } catch (err) {
+      setDecisionMsg(err.response?.data?.message || 'Could not process your decision.');
+    } finally {
+      setDecisionLoading(false);
+    }
+  };
 
   // Handle manual refresh
   const handleRefresh = async () => {
@@ -67,6 +95,9 @@ const GroupDashboard = () => {
 
   // Check if user is coordinator (has coordinator role or is admin)
   const isCoordinator = user?.role === 'coordinator' || user?.role === 'admin';
+
+  // Check if current user is the group leader
+  const isLeader = groupData?.leaderId === user?.userId;
 
   // Handle coordinator panel navigation
   const handleCoordinatorPanel = () => {
@@ -126,6 +157,35 @@ const GroupDashboard = () => {
         <div className="loading">Loading group dashboard...</div>
       )}
 
+      {/* Invitation Banner — visible to invited users who haven't responded yet */}
+      {invitationInfo && (
+        <div className="invitation-banner">
+          <p>You have been invited to join <strong>{groupData?.groupName || invitationInfo.group_name}</strong>.</p>
+          <div className="invitation-actions">
+            <button
+              className="accept-btn"
+              onClick={() => handleDecision('accepted')}
+              disabled={decisionLoading}
+            >
+              {decisionLoading ? 'Processing…' : 'Accept'}
+            </button>
+            <button
+              className="reject-btn"
+              onClick={() => handleDecision('rejected')}
+              disabled={decisionLoading}
+            >
+              Decline
+            </button>
+          </div>
+          {decisionMsg && <p className="decision-msg">{decisionMsg}</p>}
+        </div>
+      )}
+      {!invitationInfo && decisionMsg && (
+        <div className="invitation-banner resolved">
+          <p>{decisionMsg}</p>
+        </div>
+      )}
+
       {/* Main Content */}
       {groupData && (
         <>
@@ -174,6 +234,14 @@ const GroupDashboard = () => {
             isLoading={isLoading}
             groupLeaderId={groupData?.leaderId}
           />
+
+          {/* Add Member — Team Leader only (Process 2.3) */}
+          {isLeader && (
+            <AddMemberForm
+              groupId={groupId}
+              onMemberAdded={() => fetchGroupDashboard(groupId)}
+            />
+          )}
 
           {/* Group Information Footer */}
           <div style={{ marginTop: '24px', fontSize: '12px', color: '#666', textAlign: 'center' }}>
