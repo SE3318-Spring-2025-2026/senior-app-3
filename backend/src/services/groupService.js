@@ -31,4 +31,18 @@ const forwardToMemberRequestPipeline = async (group) => {
   return group;
 };
 
-module.exports = { forwardToMemberRequestPipeline };
+/**
+ * Forward override confirmation to process 2.5 for reconciliation.
+ * (DFD flow f17: 2.8 → 2.5)
+ *
+ * @param {object} override - Mongoose Override document (already saved to D2)
+ * @returns {object} Updated override document
+ */
+const forwardOverrideToReconciliation = async (override) => {
+  override.status = 'reconciled';
+  override.reconciledAt = new Date();
+  await override.save();
+  return override;
+};
+
+module.exports = { forwardToMemberRequestPipeline, forwardOverrideToReconciliation };

@@ -1,11 +1,11 @@
 const Group = require('../models/Group');
 const ApprovalQueue = require('../models/ApprovalQueue');
 const GroupMembership = require('../models/GroupMembership');
+const Override = require('../models/Override');
 const User = require('../models/User');
 const ScheduleWindow = require('../models/ScheduleWindow');
 const { createAuditLog } = require('../services/auditService');
-const { forwardToMemberRequestPipeline } = require('../services/groupService');
-const { sendMembershipDecisionEmail } = require('../services/emailService');
+const { forwardToMemberRequestPipeline, forwardOverrideToReconciliation } = require('../services/groupService');
 
 const VALID_DECISIONS = new Set(['approved', 'rejected']);
 
@@ -347,40 +347,49 @@ const formatGroupResponse = (group) => ({
   updatedAt: group.updatedAt,
 });
 
+const VALID_OVERRIDE_ACTIONS = new Set(['add_member', 'remove_member', 'update_group']);
+
+const VALID_GROUP_FIELDS = new Set([
+  'groupName', 'leaderId', 'advisor', 'status',
+  'githubOrg', 'githubPat', 'jiraProject', 'jiraUrl',
+  'jiraUsername', 'jiraToken', 'projectKey',
+]);
+
+const VALID_GROUP_STATUSES = new Set(['pending_validation', 'active', 'inactive', 'archived']);
+
 /**
- * POST /groups/:groupId/member-requests
- * Process 2.5: Student submits a membership request for a group (Issue #34).
+ * PATCH /groups/:groupId/override
+ *
+ * Process 2.8 — Coordinator Override: forcibly add or remove a student from a group,
+ * bypassing the standard invitation/approval flow.
  *
  * DFD flows:
- *   f03 — valid group data already forwarded from 2.2; group must exist in D2
- *   f20 — reads current group members from D2 to detect duplicates
+ *   f16 — Coordinator → 2.8 (override request received)
+ *   f21 — 2.8 → D2  (member records updated immediately)
+ *   f17 — 2.8 → 2.5 (override confirmation forwarded for reconciliation)
  *
- * Creates a GroupMembership record (D2) with status `pending` and adds the
- * student to Group.members so the group reflects the pending request.
+ * Role guard: coordinator only (403 for all other roles).
+ * Not restricted by coordinator-defined schedule windows.
  */
-const createMemberRequest = async (req, res) => {
+const coordinatorOverride = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { student_id } = req.body;
+    const { action, target_student_id, updates, reason } = req.body;
 
-    if (!student_id || typeof student_id !== 'string' || !student_id.trim()) {
+    if (!action || !VALID_OVERRIDE_ACTIONS.has(action)) {
       return res.status(400).json({
-        code: 'MISSING_STUDENT_ID',
-        message: 'student_id is required',
+        code: 'INVALID_ACTION',
+        message: "action must be 'add_member', 'remove_member', or 'update_group'",
       });
     }
 
-    const studentId = student_id.trim();
-
-    // Only the student themselves may create their own request
-    if (req.user.userId !== studentId) {
-      return res.status(403).json({
-        code: 'FORBIDDEN',
-        message: 'You may only submit a membership request for yourself',
+    if (!reason || typeof reason !== 'string' || !reason.trim()) {
+      return res.status(400).json({
+        code: 'MISSING_REASON',
+        message: 'reason is required',
       });
     }
 
-    // f20: Read current group state from D2
     const group = await Group.findOne({ groupId });
     if (!group) {
       return res.status(404).json({
@@ -389,191 +398,170 @@ const createMemberRequest = async (req, res) => {
       });
     }
 
-    // Verify student exists and is active
-    const student = await User.findOne({ userId: studentId });
-    if (!student) {
+    const timestamp = new Date();
+
+    if (action === 'update_group') {
+      // Validate updates payload
+      if (
+        !updates ||
+        typeof updates !== 'object' ||
+        Array.isArray(updates) ||
+        Object.keys(updates).length === 0
+      ) {
+        return res.status(400).json({
+          code: 'MISSING_UPDATES',
+          message: 'updates must be a non-empty object',
+        });
+      }
+
+      const unknownFields = Object.keys(updates).filter((k) => !VALID_GROUP_FIELDS.has(k));
+      if (unknownFields.length > 0) {
+        return res.status(400).json({
+          code: 'UNKNOWN_FIELDS',
+          message: `Unknown field(s): ${unknownFields.join(', ')}`,
+        });
+      }
+
+      if (updates.status !== undefined && !VALID_GROUP_STATUSES.has(updates.status)) {
+        return res.status(400).json({
+          code: 'INVALID_STATUS',
+          message: `status must be one of: ${[...VALID_GROUP_STATUSES].join(', ')}`,
+        });
+      }
+
+      // f21: Apply partial update to D2 group record
+      Object.assign(group, updates);
+      await group.save();
+
+      const override = await Override.create({
+        groupId,
+        action,
+        updates,
+        reason: reason.trim(),
+        coordinatorId: req.user.userId,
+        status: 'applied',
+      });
+
+      await forwardOverrideToReconciliation(override);
+
+      try {
+        await createAuditLog({
+          action: 'COORDINATOR_OVERRIDE',
+          actorId: req.user.userId,
+          targetId: groupId,
+          changes: { action, updates, reason: reason.trim() },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      } catch (auditError) {
+        console.error('Audit log failed (non-fatal):', auditError.message);
+      }
+
+      return res.status(200).json({
+        override_id: override.overrideId,
+        action: override.action,
+        status: 'applied',
+        confirmation: `Group ${groupId} fields updated by coordinator override`,
+        timestamp: override.createdAt.toISOString(),
+      });
+    }
+
+    // add_member / remove_member
+    if (!target_student_id || typeof target_student_id !== 'string' || !target_student_id.trim()) {
+      return res.status(400).json({
+        code: 'MISSING_TARGET_STUDENT',
+        message: 'target_student_id is required',
+      });
+    }
+
+    const targetStudent = await User.findOne({ userId: target_student_id.trim() });
+    if (!targetStudent) {
       return res.status(404).json({
         code: 'STUDENT_NOT_FOUND',
-        message: 'Student not found',
-      });
-    }
-    if (student.accountStatus !== 'active') {
-      return res.status(400).json({
-        code: 'STUDENT_ACCOUNT_INACTIVE',
-        message: 'Student account must be active to request group membership',
+        message: 'Target student not found',
       });
     }
 
-    // Check for existing membership record in D2 (GroupMembership collection)
-    const existing = await GroupMembership.findOne({ groupId, studentId });
-    if (existing) {
-      return res.status(409).json({
-        code: 'REQUEST_ALREADY_EXISTS',
-        message: `A membership request for this student already exists with status: ${existing.status}`,
-      });
-    }
+    const studentId = target_student_id.trim();
 
-    // Create GroupMembership record in D2 with status `pending`
-    const membership = await GroupMembership.create({ groupId, studentId });
+    // f21: Update D2 member records immediately
+    if (action === 'add_member') {
+      const alreadyMember = group.members.some((m) => m.userId === studentId && m.status === 'accepted');
+      if (!alreadyMember) {
+        group.members = group.members.filter((m) => m.userId !== studentId);
+        group.members.push({
+          userId: studentId,
+          role: 'member',
+          status: 'accepted',
+          joinedAt: timestamp,
+        });
+        await group.save();
+      }
 
-    // Mirror the pending state in the embedded Group.members array (D2 denormalised copy)
-    const alreadyInMembers = group.members.some((m) => m.userId === studentId);
-    if (!alreadyInMembers) {
-      group.members.push({
-        userId: studentId,
-        role: 'member',
-        status: 'pending',
-        joinedAt: null,
-      });
+      await GroupMembership.findOneAndUpdate(
+        { groupId, studentId },
+        {
+          $set: {
+            status: 'approved',
+            decidedBy: req.user.userId,
+            decidedAt: timestamp,
+          },
+          $setOnInsert: {
+            membershipId: `mem_${require('uuid').v4().split('-')[0]}`,
+          },
+        },
+        { upsert: true, new: true }
+      );
+    } else {
+      // remove_member
+      group.members = group.members.filter((m) => m.userId !== studentId);
       await group.save();
+
+      await GroupMembership.findOneAndUpdate(
+        { groupId, studentId },
+        {
+          $set: {
+            status: 'rejected',
+            decidedBy: req.user.userId,
+            decidedAt: timestamp,
+          },
+        }
+      );
     }
 
-    // Audit log (non-fatal)
+    const override = await Override.create({
+      groupId,
+      action,
+      targetStudentId: studentId,
+      reason: reason.trim(),
+      coordinatorId: req.user.userId,
+      status: 'applied',
+    });
+
+    await forwardOverrideToReconciliation(override);
+
     try {
       await createAuditLog({
-        action: 'MEMBER_REQUEST_CREATED',
-        actorId: studentId,
-        targetId: group.groupId,
+        action: 'COORDINATOR_OVERRIDE',
+        actorId: req.user.userId,
+        targetId: groupId,
+        changes: { action, targetStudentId: studentId, reason: reason.trim() },
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
       });
     } catch (auditError) {
       console.error('Audit log failed (non-fatal):', auditError.message);
-    }
-
-    return res.status(201).json({
-      membershipId: membership.membershipId,
-      groupId: membership.groupId,
-      studentId: membership.studentId,
-      status: membership.status,
-      createdAt: membership.createdAt,
-    });
-  } catch (err) {
-    console.error('createMemberRequest error:', err);
-    return res.status(500).json({
-      code: 'INTERNAL_ERROR',
-      message: 'An unexpected error occurred',
-    });
-  }
-};
-
-/**
- * PATCH /groups/:groupId/member-requests/:requestId
- * Process 2.5: Apply an approve/reject decision to a pending membership request.
- *
- * DFD flows:
- *   f09 — approval result from 2.4 (normal flow; decision required)
- *   f17 — override confirmation from 2.8 (is_override: true; skips re-approval gate)
- *   f04 — on approval, sends group-created confirmation to the Student
- *   f20 — reads group and membership records from D2
- *
- * Accepts:
- *   { decision: 'approved'|'rejected', decided_by: userId, is_override?: bool }
- */
-const decideMemberRequest = async (req, res) => {
-  try {
-    const { groupId, requestId } = req.params;
-    const { decision, decided_by, is_override } = req.body;
-
-    if (!decision || !VALID_DECISIONS.has(decision)) {
-      return res.status(400).json({
-        code: 'INVALID_DECISION',
-        message: "decision must be 'approved' or 'rejected'",
-      });
-    }
-
-    if (!decided_by || typeof decided_by !== 'string' || !decided_by.trim()) {
-      return res.status(400).json({
-        code: 'MISSING_DECIDED_BY',
-        message: 'decided_by is required',
-      });
-    }
-
-    // f20: Read group and membership record from D2
-    const group = await Group.findOne({ groupId });
-    if (!group) {
-      return res.status(404).json({
-        code: 'GROUP_NOT_FOUND',
-        message: 'Group not found',
-      });
-    }
-
-    const membership = await GroupMembership.findOne({ membershipId: requestId, groupId });
-    if (!membership) {
-      return res.status(404).json({
-        code: 'REQUEST_NOT_FOUND',
-        message: 'Member request not found',
-      });
-    }
-
-    if (membership.status !== 'pending') {
-      return res.status(409).json({
-        code: 'REQUEST_ALREADY_DECIDED',
-        message: `Request has already been ${membership.status}`,
-      });
-    }
-
-    const decidedAt = new Date();
-
-    // Update GroupMembership record in D2 — pending → approved/rejected
-    membership.status = decision;
-    membership.decidedBy = decided_by.trim();
-    membership.decidedAt = decidedAt;
-    await membership.save();
-
-    // Update Group.members embedded record in D2
-    const memberEntry = group.members.find((m) => m.userId === membership.studentId);
-    if (memberEntry) {
-      memberEntry.status = decision === 'approved' ? 'accepted' : 'rejected';
-      if (decision === 'approved') {
-        memberEntry.joinedAt = decidedAt;
-      }
-    }
-    await group.save();
-
-    // Determine audit action — override confirmations (f17: 2.8 → 2.5) are logged separately
-    const auditAction = is_override
-      ? 'MEMBER_REQUEST_OVERRIDE'
-      : decision === 'approved'
-        ? 'MEMBER_REQUEST_APPROVED'
-        : 'MEMBER_REQUEST_REJECTED';
-
-    // Audit log (non-fatal)
-    try {
-      await createAuditLog({
-        action: auditAction,
-        actorId: decided_by.trim(),
-        targetId: group.groupId,
-        changes: { studentId: membership.studentId, decision, is_override: !!is_override },
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent'],
-      });
-    } catch (auditError) {
-      console.error('Audit log failed (non-fatal):', auditError.message);
-    }
-
-    // f04: Group created confirmation → Student (non-fatal email)
-    // Look up student email to dispatch the confirmation
-    try {
-      const student = await User.findOne({ userId: membership.studentId });
-      if (student?.email) {
-        await sendMembershipDecisionEmail(student.email, group.groupName, decision, student.userId);
-      }
-    } catch (emailError) {
-      console.error('Membership decision email failed (non-fatal):', emailError.message);
     }
 
     return res.status(200).json({
-      membershipId: membership.membershipId,
-      groupId: membership.groupId,
-      studentId: membership.studentId,
-      status: membership.status,
-      decidedBy: membership.decidedBy,
-      decidedAt: membership.decidedAt,
-      is_override: !!is_override,
+      override_id: override.overrideId,
+      action: override.action,
+      status: 'applied',
+      confirmation: `${action === 'add_member' ? 'Student added to' : 'Student removed from'} group ${groupId} by coordinator override`,
+      timestamp: override.createdAt.toISOString(),
     });
   } catch (err) {
-    console.error('decideMemberRequest error:', err);
+    console.error('coordinatorOverride error:', err);
     return res.status(500).json({
       code: 'INTERNAL_ERROR',
       message: 'An unexpected error occurred',
@@ -581,4 +569,4 @@ const decideMemberRequest = async (req, res) => {
   }
 };
 
-module.exports = { forwardApprovalResults, createGroup, getGroup, createMemberRequest, decideMemberRequest };
+module.exports = { forwardApprovalResults, createGroup, getGroup, coordinatorOverride };
