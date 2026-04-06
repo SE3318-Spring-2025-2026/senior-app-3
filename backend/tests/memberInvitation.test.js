@@ -101,26 +101,64 @@ describe('groupMembers controller', () => {
     jest.clearAllMocks();
   });
 
-  // ── addMember (f05, f19) ───────────────────────────────────────────────────────
+  // ── addMember (f05, f06, f19, f32) ───────────────────────────────────────────
 
-  describe('POST /groups/:groupId/members — addMember (f05, f19)', () => {
-    it('returns 201 with invitation_id, group_id, invitee_id, invited_by, status pending', async () => {
+  describe('POST /groups/:groupId/members — addMember (f05, f06, f19, f32)', () => {
+    beforeEach(() => {
+      // Default: notification service succeeds
+      notificationService.dispatchInvitationNotification = jest.fn().mockResolvedValue({ notification_id: 'notif_test' });
+    });
+
+    it('returns 201 with added[], group_id, total_members for a single valid student', async () => {
       const group = await makeGroup();
       const student = await makeStudent();
 
-      const req = makeReq({ groupId: group.groupId }, { invitee_id: student.userId });
+      const req = makeReq({ groupId: group.groupId }, { student_ids: [student.userId] });
       const res = makeRes();
 
       await addMember(req, res);
 
       expect(res.status).toHaveBeenCalledWith(201);
       const body = res.json.mock.calls[0][0];
-      expect(body.invitation_id).toMatch(/^inv_/);
       expect(body.group_id).toBe(group.groupId);
-      expect(body.invitee_id).toBe(student.userId);
-      expect(body.invited_by).toBe('usr_leader');
-      expect(body.status).toBe('pending');
-      expect(body.created_at).toBeDefined();
+      expect(body.total_members).toBeDefined();
+      expect(Array.isArray(body.added)).toBe(true);
+      expect(body.added).toHaveLength(1);
+      expect(body.added[0].invitation_id).toMatch(/^inv_/);
+      expect(body.added[0].invitee_id).toBe(student.userId);
+      expect(body.added[0].status).toBe('pending');
+    });
+
+    it('returns 201 with added[] for multiple valid students', async () => {
+      const group = await makeGroup();
+      const s1 = await makeStudent();
+      const s2 = await makeStudent();
+
+      const res = makeRes();
+      await addMember(
+        makeReq({ groupId: group.groupId }, { student_ids: [s1.userId, s2.userId] }),
+        res
+      );
+
+      expect(res.status).toHaveBeenCalledWith(201);
+      const body = res.json.mock.calls[0][0];
+      expect(body.added).toHaveLength(2);
+      expect(body.total_members).toBe(group.members.length + 2);
+    });
+
+    it('f32: reads current group data from D2 before processing', async () => {
+      const group = await makeGroup();
+      const student = await makeStudent();
+
+      const res = makeRes();
+      await addMember(
+        makeReq({ groupId: group.groupId }, { student_ids: [student.userId] }),
+        res
+      );
+
+      // total_members reflects group.members.length at time of request
+      const body = res.json.mock.calls[0][0];
+      expect(body.total_members).toBe(group.members.length + 1);
     });
 
     it('f19: writes a pending MemberInvitation record to D2', async () => {
@@ -128,7 +166,7 @@ describe('groupMembers controller', () => {
       const student = await makeStudent();
 
       await addMember(
-        makeReq({ groupId: group.groupId }, { invitee_id: student.userId }),
+        makeReq({ groupId: group.groupId }, { student_ids: [student.userId] }),
         makeRes()
       );
 
@@ -143,7 +181,7 @@ describe('groupMembers controller', () => {
       const student = await makeStudent();
 
       await addMember(
-        makeReq({ groupId: group.groupId }, { invitee_id: student.userId }),
+        makeReq({ groupId: group.groupId }, { student_ids: [student.userId] }),
         makeRes()
       );
 
@@ -152,24 +190,68 @@ describe('groupMembers controller', () => {
       expect(mem.status).toBe('pending');
     });
 
-    it('returns 400 MISSING_INVITEE_ID when invitee_id is absent', async () => {
+    it('f06: dispatches invitation notification for each added student', async () => {
+      const group = await makeGroup();
+      const s1 = await makeStudent();
+      const s2 = await makeStudent();
+
+      await addMember(
+        makeReq({ groupId: group.groupId }, { student_ids: [s1.userId, s2.userId] }),
+        makeRes()
+      );
+
+      expect(notificationService.dispatchInvitationNotification).toHaveBeenCalledTimes(2);
+    });
+
+    it('f06: marks added entry notified:true when dispatch succeeds', async () => {
+      const group = await makeGroup();
+      const student = await makeStudent();
+
+      const res = makeRes();
+      await addMember(
+        makeReq({ groupId: group.groupId }, { student_ids: [student.userId] }),
+        res
+      );
+
+      const body = res.json.mock.calls[0][0];
+      expect(body.added[0].notified).toBe(true);
+    });
+
+    it('f06: still adds member and marks notified:false when notification service fails', async () => {
+      notificationService.dispatchInvitationNotification = jest.fn().mockRejectedValue(new Error('service down'));
+      const group = await makeGroup();
+      const student = await makeStudent();
+
+      const res = makeRes();
+      await addMember(
+        makeReq({ groupId: group.groupId }, { student_ids: [student.userId] }),
+        res
+      );
+
+      expect(res.status).toHaveBeenCalledWith(201);
+      const body = res.json.mock.calls[0][0];
+      expect(body.added).toHaveLength(1);
+      expect(body.added[0].notified).toBe(false);
+    });
+
+    it('returns 400 MISSING_STUDENT_IDS when student_ids is absent', async () => {
       const group = await makeGroup();
       const res = makeRes();
 
       await addMember(makeReq({ groupId: group.groupId }, {}), res);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json.mock.calls[0][0].code).toBe('MISSING_INVITEE_ID');
+      expect(res.json.mock.calls[0][0].code).toBe('MISSING_STUDENT_IDS');
     });
 
-    it('returns 400 MISSING_INVITEE_ID when invitee_id is whitespace only', async () => {
+    it('returns 400 MISSING_STUDENT_IDS when student_ids is an empty array', async () => {
       const group = await makeGroup();
       const res = makeRes();
 
-      await addMember(makeReq({ groupId: group.groupId }, { invitee_id: '   ' }), res);
+      await addMember(makeReq({ groupId: group.groupId }, { student_ids: [] }), res);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json.mock.calls[0][0].code).toBe('MISSING_INVITEE_ID');
+      expect(res.json.mock.calls[0][0].code).toBe('MISSING_STUDENT_IDS');
     });
 
     it('returns 403 FORBIDDEN when caller is not the group leader', async () => {
@@ -178,7 +260,7 @@ describe('groupMembers controller', () => {
       const res = makeRes();
 
       await addMember(
-        makeReq({ groupId: group.groupId }, { invitee_id: student.userId }, { userId: 'usr_leader' }),
+        makeReq({ groupId: group.groupId }, { student_ids: [student.userId] }, { userId: 'usr_leader' }),
         res
       );
 
@@ -190,47 +272,50 @@ describe('groupMembers controller', () => {
       const student = await makeStudent();
       const res = makeRes();
 
-      await addMember(makeReq({ groupId: 'grp_nonexistent' }, { invitee_id: student.userId }), res);
+      await addMember(makeReq({ groupId: 'grp_nonexistent' }, { student_ids: [student.userId] }), res);
 
       expect(res.status).toHaveBeenCalledWith(404);
       expect(res.json.mock.calls[0][0].code).toBe('GROUP_NOT_FOUND');
     });
 
-    it('returns 404 STUDENT_NOT_FOUND when invitee does not exist', async () => {
+    it('returns 201 with STUDENT_NOT_FOUND in errors[] when invitee does not exist', async () => {
       const group = await makeGroup();
       const res = makeRes();
 
-      await addMember(makeReq({ groupId: group.groupId }, { invitee_id: 'usr_ghost' }), res);
+      await addMember(makeReq({ groupId: group.groupId }, { student_ids: ['usr_ghost'] }), res);
 
-      expect(res.status).toHaveBeenCalledWith(404);
-      expect(res.json.mock.calls[0][0].code).toBe('STUDENT_NOT_FOUND');
+      expect(res.status).toHaveBeenCalledWith(201);
+      const body = res.json.mock.calls[0][0];
+      expect(body.added).toHaveLength(0);
+      expect(body.errors[0].code).toBe('STUDENT_NOT_FOUND');
     });
 
-    it('returns 409 ALREADY_INVITED when the student has already been invited', async () => {
+    it('returns 201 with ALREADY_INVITED in errors[] when student was already invited', async () => {
       const group = await makeGroup();
       const student = await makeStudent();
 
       await addMember(
-        makeReq({ groupId: group.groupId }, { invitee_id: student.userId }),
+        makeReq({ groupId: group.groupId }, { student_ids: [student.userId] }),
         makeRes()
       );
 
       const res = makeRes();
       await addMember(
-        makeReq({ groupId: group.groupId }, { invitee_id: student.userId }),
+        makeReq({ groupId: group.groupId }, { student_ids: [student.userId] }),
         res
       );
 
-      expect(res.status).toHaveBeenCalledWith(409);
-      expect(res.json.mock.calls[0][0].code).toBe('ALREADY_INVITED');
+      expect(res.status).toHaveBeenCalledWith(201);
+      const body = res.json.mock.calls[0][0];
+      expect(body.added).toHaveLength(0);
+      expect(body.errors[0].code).toBe('ALREADY_INVITED');
     });
 
-    it('returns 409 STUDENT_ALREADY_IN_GROUP when the student is approved in another group', async () => {
+    it('returns 201 with STUDENT_ALREADY_IN_GROUP in errors[] when student is approved elsewhere', async () => {
       const group = await makeGroup();
       const otherGroup = await makeGroup({ leaderId: 'usr_leader', groupName: `Other ${Date.now()}` });
       const student = await makeStudent();
 
-      // Student already approved in another group
       await GroupMembership.create({
         groupId: otherGroup.groupId,
         studentId: student.userId,
@@ -239,12 +324,32 @@ describe('groupMembers controller', () => {
 
       const res = makeRes();
       await addMember(
-        makeReq({ groupId: group.groupId }, { invitee_id: student.userId }),
+        makeReq({ groupId: group.groupId }, { student_ids: [student.userId] }),
         res
       );
 
-      expect(res.status).toHaveBeenCalledWith(409);
-      expect(res.json.mock.calls[0][0].code).toBe('STUDENT_ALREADY_IN_GROUP');
+      expect(res.status).toHaveBeenCalledWith(201);
+      const body = res.json.mock.calls[0][0];
+      expect(body.added).toHaveLength(0);
+      expect(body.errors[0].code).toBe('STUDENT_ALREADY_IN_GROUP');
+    });
+
+    it('partial batch: adds valid students and collects errors for invalid ones', async () => {
+      const group = await makeGroup();
+      const validStudent = await makeStudent();
+
+      const res = makeRes();
+      await addMember(
+        makeReq({ groupId: group.groupId }, { student_ids: [validStudent.userId, 'usr_ghost'] }),
+        res
+      );
+
+      expect(res.status).toHaveBeenCalledWith(201);
+      const body = res.json.mock.calls[0][0];
+      expect(body.added).toHaveLength(1);
+      expect(body.added[0].invitee_id).toBe(validStudent.userId);
+      expect(body.errors).toHaveLength(1);
+      expect(body.errors[0].code).toBe('STUDENT_NOT_FOUND');
     });
   });
 

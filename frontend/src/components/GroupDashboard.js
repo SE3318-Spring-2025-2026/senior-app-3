@@ -5,6 +5,7 @@ import useAuthStore from '../store/authStore';
 import GitHubStatusCard from './GitHubStatusCard';
 import JiraStatusCard from './JiraStatusCard';
 import GroupMemberList from './GroupMemberList';
+import AddMemberForm from './AddMemberForm';
 import './GroupDashboard.css';
 
 /**
@@ -67,6 +68,9 @@ const GroupDashboard = () => {
 
   // Check if user is coordinator (has coordinator role or is admin)
   const isCoordinator = user?.role === 'coordinator' || user?.role === 'admin';
+
+  // Check if current user is the group leader
+  const isLeader = groupData?.leaderId === user?.userId;
 
   // Handle coordinator panel navigation
   const handleCoordinatorPanel = () => {
@@ -174,6 +178,14 @@ const GroupDashboard = () => {
             isLoading={isLoading}
             groupLeaderId={groupData?.leaderId}
           />
+
+          {/* Add Member — Team Leader only (Process 2.3) */}
+          {isLeader && (
+            <AddMemberForm
+              groupId={groupId}
+              onMemberAdded={() => fetchGroupDashboard(groupId)}
+            />
+          )}
 
           {/* Group Information Footer */}
           <div style={{ marginTop: '24px', fontSize: '12px', color: '#666', textAlign: 'center' }}>

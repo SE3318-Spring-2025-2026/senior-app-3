@@ -54,6 +54,19 @@ export const getScheduleWindow = async () => {
 };
 
 /**
+ * Add members to a group (Process 2.3, flows f05, f06, f19, f32)
+ * @param {string} groupId
+ * @param {string[]} studentIds
+ * @returns {Promise<{added: object[], errors: object[], group_id: string, total_members: number}>}
+ */
+export const addGroupMembers = async (groupId, studentIds) => {
+  const response = await apiClient.post(`/groups/${groupId}/members`, {
+    student_ids: studentIds,
+  });
+  return response.data;
+};
+
+/**
  * Get group details
  * @param {string} groupId - The group ID
  * @returns {Promise} Group data
