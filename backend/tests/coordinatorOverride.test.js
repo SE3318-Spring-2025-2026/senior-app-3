@@ -268,6 +268,162 @@ describe('PATCH /groups/:groupId/override — coordinatorOverride', () => {
     });
   });
 
+  // ── Happy path: update_group ──────────────────────────────────────────────────
+
+  describe('action: update_group', () => {
+    it('returns 200 with override_id, action: update_group, status applied, confirmation, timestamp', async () => {
+      const group = await makeGroup();
+
+      const req = makeReq(
+        { groupId: group.groupId },
+        { action: 'update_group', updates: { status: 'active' }, reason: 'Coordinator approval' }
+      );
+      const res = makeRes();
+
+      await coordinatorOverride(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const body = res.json.mock.calls[0][0];
+      expect(body.override_id).toMatch(/^ovr_/);
+      expect(body.action).toBe('update_group');
+      expect(body.status).toBe('applied');
+      expect(body.confirmation).toBeDefined();
+      expect(body.timestamp).toBeDefined();
+    });
+
+    it('applies partial update to D2 group record (f21)', async () => {
+      const group = await makeGroup();
+
+      await coordinatorOverride(
+        makeReq(
+          { groupId: group.groupId },
+          {
+            action: 'update_group',
+            updates: { status: 'active', advisor: 'usr_advisor_1' },
+            reason: 'Coordinator setting advisor',
+          }
+        ),
+        makeRes()
+      );
+
+      const updated = await Group.findOne({ groupId: group.groupId });
+      expect(updated.status).toBe('active');
+      expect(updated.advisor).toBe('usr_advisor_1');
+    });
+
+    it('creates override log entry with override_id, action, updates, reason, coordinatorId (f16→D2)', async () => {
+      const group = await makeGroup();
+
+      await coordinatorOverride(
+        makeReq(
+          { groupId: group.groupId },
+          {
+            action: 'update_group',
+            updates: { githubOrg: 'my-org' },
+            reason: 'Setting GitHub org',
+          }
+        ),
+        makeRes()
+      );
+
+      const override = await Override.findOne({ groupId: group.groupId, action: 'update_group' });
+      expect(override).not.toBeNull();
+      expect(override.overrideId).toMatch(/^ovr_/);
+      expect(override.reason).toBe('Setting GitHub org');
+      expect(override.coordinatorId).toBe('usr_coordinator');
+      expect(override.updates).toMatchObject({ githubOrg: 'my-org' });
+    });
+
+    it('forwards override to process 2.5 — Override record has status reconciled (f17)', async () => {
+      const group = await makeGroup();
+
+      await coordinatorOverride(
+        makeReq(
+          { groupId: group.groupId },
+          { action: 'update_group', updates: { status: 'inactive' }, reason: 'Deactivating group' }
+        ),
+        makeRes()
+      );
+
+      const override = await Override.findOne({ groupId: group.groupId, action: 'update_group' });
+      expect(override.status).toBe('reconciled');
+      expect(override.reconciledAt).toBeDefined();
+    });
+
+    it('returns 400 MISSING_UPDATES when updates is missing', async () => {
+      const group = await makeGroup();
+      const res = makeRes();
+
+      await coordinatorOverride(
+        makeReq({ groupId: group.groupId }, { action: 'update_group', reason: 'test' }),
+        res
+      );
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json.mock.calls[0][0].code).toBe('MISSING_UPDATES');
+    });
+
+    it('returns 400 MISSING_UPDATES when updates is an empty object', async () => {
+      const group = await makeGroup();
+      const res = makeRes();
+
+      await coordinatorOverride(
+        makeReq({ groupId: group.groupId }, { action: 'update_group', updates: {}, reason: 'test' }),
+        res
+      );
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json.mock.calls[0][0].code).toBe('MISSING_UPDATES');
+    });
+
+    it('returns 400 UNKNOWN_FIELDS when updates contains an unknown field', async () => {
+      const group = await makeGroup();
+      const res = makeRes();
+
+      await coordinatorOverride(
+        makeReq(
+          { groupId: group.groupId },
+          { action: 'update_group', updates: { fakeField: 'value' }, reason: 'test' }
+        ),
+        res
+      );
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json.mock.calls[0][0].code).toBe('UNKNOWN_FIELDS');
+    });
+
+    it('returns 400 INVALID_STATUS when status value is not a valid enum', async () => {
+      const group = await makeGroup();
+      const res = makeRes();
+
+      await coordinatorOverride(
+        makeReq(
+          { groupId: group.groupId },
+          { action: 'update_group', updates: { status: 'deleted' }, reason: 'test' }
+        ),
+        res
+      );
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json.mock.calls[0][0].code).toBe('INVALID_STATUS');
+    });
+
+    it('returns 404 GROUP_NOT_FOUND when group does not exist', async () => {
+      const res = makeRes();
+
+      await coordinatorOverride(
+        makeReq(
+          { groupId: 'grp_nonexistent' },
+          { action: 'update_group', updates: { status: 'active' }, reason: 'test' }
+        ),
+        res
+      );
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.json.mock.calls[0][0].code).toBe('GROUP_NOT_FOUND');
+    });
+  });
+
   // ── 400 Bad Request ───────────────────────────────────────────────────────────
 
   describe('400 Bad Request', () => {
