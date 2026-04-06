@@ -232,6 +232,29 @@ const createGroup = async (req, res) => {
       });
     }
 
+    // --- One-active-group constraint: student may not lead or belong to another group ---
+    const existingMembership = await GroupMembership.findOne({
+      studentId: leader.userId,
+      status: 'approved',
+    });
+    if (existingMembership) {
+      return res.status(409).json({
+        code: 'STUDENT_ALREADY_IN_GROUP',
+        message: 'You already belong to an active group and cannot create another.',
+      });
+    }
+
+    const existingLeadership = await Group.findOne({
+      leaderId: leader.userId,
+      status: { $nin: ['disbanded', 'rejected'] },
+    });
+    if (existingLeadership) {
+      return res.status(409).json({
+        code: 'STUDENT_ALREADY_LEADER',
+        message: 'You are already the leader of an existing group.',
+      });
+    }
+
     // --- f18: Write validated group record to D2 with status pending_validation ---
     const group = new Group({
       groupName: normalizedName,

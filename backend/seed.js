@@ -9,6 +9,7 @@ const mongoose = require('mongoose');
 const StudentIdRegistry = require('./src/models/StudentIdRegistry');
 const User = require('./src/models/User');
 const Group = require('./src/models/Group');
+const ScheduleWindow = require('./src/models/ScheduleWindow');
 const { hashPassword } = require('./src/utils/password');
 const { forwardToMemberRequestPipeline } = require('./src/services/groupService');
 
@@ -242,6 +243,26 @@ async function seed() {
   }
 
   console.log(`Done (groups): ${groupInserted} inserted, ${groupSkipped} skipped.`);
+
+  // ── Schedule Window ───────────────────────────────────────────────────────
+  console.log('\nSeeding schedule window...');
+  const existingWindow = await ScheduleWindow.findOne({ isActive: true });
+  if (existingWindow) {
+    console.log('  skip  active schedule window already exists');
+  } else {
+    const coordinator = await User.findOne({ role: 'coordinator' });
+    const now = new Date();
+    const endsAt = new Date(now);
+    endsAt.setFullYear(endsAt.getFullYear() + 1);
+    await ScheduleWindow.create({
+      startsAt: now,
+      endsAt,
+      isActive: true,
+      createdBy: coordinator?.userId ?? 'seed',
+      label: 'Seed — Group Creation Open',
+    });
+    console.log('  added active schedule window (open for 1 year)');
+  }
 
   // ── Save ────────────────────────────────────────────────────────────────
 
