@@ -347,7 +347,15 @@ const formatGroupResponse = (group) => ({
   updatedAt: group.updatedAt,
 });
 
-const VALID_OVERRIDE_ACTIONS = new Set(['add_member', 'remove_member']);
+const VALID_OVERRIDE_ACTIONS = new Set(['add_member', 'remove_member', 'update_group']);
+
+const VALID_GROUP_FIELDS = new Set([
+  'groupName', 'leaderId', 'advisor', 'status',
+  'githubOrg', 'githubPat', 'jiraProject', 'jiraUrl',
+  'jiraUsername', 'jiraToken', 'projectKey',
+]);
+
+const VALID_GROUP_STATUSES = new Set(['pending_validation', 'active', 'inactive', 'archived']);
 
 /**
  * PATCH /groups/:groupId/override
@@ -366,19 +374,12 @@ const VALID_OVERRIDE_ACTIONS = new Set(['add_member', 'remove_member']);
 const coordinatorOverride = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { action, target_student_id, reason } = req.body;
+    const { action, target_student_id, updates, reason } = req.body;
 
     if (!action || !VALID_OVERRIDE_ACTIONS.has(action)) {
       return res.status(400).json({
         code: 'INVALID_ACTION',
-        message: "action must be 'add_member' or 'remove_member'",
-      });
-    }
-
-    if (!target_student_id || typeof target_student_id !== 'string' || !target_student_id.trim()) {
-      return res.status(400).json({
-        code: 'MISSING_TARGET_STUDENT',
-        message: 'target_student_id is required',
+        message: "action must be 'add_member', 'remove_member', or 'update_group'",
       });
     }
 
@@ -397,6 +398,82 @@ const coordinatorOverride = async (req, res) => {
       });
     }
 
+    const timestamp = new Date();
+
+    if (action === 'update_group') {
+      // Validate updates payload
+      if (
+        !updates ||
+        typeof updates !== 'object' ||
+        Array.isArray(updates) ||
+        Object.keys(updates).length === 0
+      ) {
+        return res.status(400).json({
+          code: 'MISSING_UPDATES',
+          message: 'updates must be a non-empty object',
+        });
+      }
+
+      const unknownFields = Object.keys(updates).filter((k) => !VALID_GROUP_FIELDS.has(k));
+      if (unknownFields.length > 0) {
+        return res.status(400).json({
+          code: 'UNKNOWN_FIELDS',
+          message: `Unknown field(s): ${unknownFields.join(', ')}`,
+        });
+      }
+
+      if (updates.status !== undefined && !VALID_GROUP_STATUSES.has(updates.status)) {
+        return res.status(400).json({
+          code: 'INVALID_STATUS',
+          message: `status must be one of: ${[...VALID_GROUP_STATUSES].join(', ')}`,
+        });
+      }
+
+      // f21: Apply partial update to D2 group record
+      Object.assign(group, updates);
+      await group.save();
+
+      const override = await Override.create({
+        groupId,
+        action,
+        updates,
+        reason: reason.trim(),
+        coordinatorId: req.user.userId,
+        status: 'applied',
+      });
+
+      await forwardOverrideToReconciliation(override);
+
+      try {
+        await createAuditLog({
+          action: 'COORDINATOR_OVERRIDE',
+          actorId: req.user.userId,
+          targetId: groupId,
+          changes: { action, updates, reason: reason.trim() },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      } catch (auditError) {
+        console.error('Audit log failed (non-fatal):', auditError.message);
+      }
+
+      return res.status(200).json({
+        override_id: override.overrideId,
+        action: override.action,
+        status: 'applied',
+        confirmation: `Group ${groupId} fields updated by coordinator override`,
+        timestamp: override.createdAt.toISOString(),
+      });
+    }
+
+    // add_member / remove_member
+    if (!target_student_id || typeof target_student_id !== 'string' || !target_student_id.trim()) {
+      return res.status(400).json({
+        code: 'MISSING_TARGET_STUDENT',
+        message: 'target_student_id is required',
+      });
+    }
+
     const targetStudent = await User.findOne({ userId: target_student_id.trim() });
     if (!targetStudent) {
       return res.status(404).json({
@@ -406,13 +483,11 @@ const coordinatorOverride = async (req, res) => {
     }
 
     const studentId = target_student_id.trim();
-    const timestamp = new Date();
 
     // f21: Update D2 member records immediately
     if (action === 'add_member') {
       const alreadyMember = group.members.some((m) => m.userId === studentId && m.status === 'accepted');
       if (!alreadyMember) {
-        // Remove any existing non-accepted entry for this student first
         group.members = group.members.filter((m) => m.userId !== studentId);
         group.members.push({
           userId: studentId,
@@ -454,7 +529,6 @@ const coordinatorOverride = async (req, res) => {
       );
     }
 
-    // Persist override record to D2
     const override = await Override.create({
       groupId,
       action,
@@ -464,10 +538,8 @@ const coordinatorOverride = async (req, res) => {
       status: 'applied',
     });
 
-    // f17: Forward override confirmation to process 2.5 for reconciliation
     await forwardOverrideToReconciliation(override);
 
-    // Audit log (non-fatal)
     try {
       await createAuditLog({
         action: 'COORDINATOR_OVERRIDE',

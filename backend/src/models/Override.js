@@ -15,12 +15,16 @@ const overrideSchema = new mongoose.Schema(
     },
     action: {
       type: String,
-      enum: ['add_member', 'remove_member'],
+      enum: ['add_member', 'remove_member', 'update_group'],
       required: true,
     },
     targetStudentId: {
       type: String,
-      required: true,
+      default: null,
+    },
+    updates: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
     },
     reason: {
       type: String,
