@@ -28,6 +28,11 @@ const auditLogSchema = new mongoose.Schema(
         'GROUP_CREATED',
         'GROUP_RETRIEVED',
         'COORDINATOR_OVERRIDE',
+        'MEMBER_INVITED',
+        'NOTIFICATION_DISPATCHED',
+        'MEMBERSHIP_DECISION_MADE',
+        'GITHUB_CONFIGURED',
+        'JIRA_CONFIGURED',
       ],
     },
     actorId: {
