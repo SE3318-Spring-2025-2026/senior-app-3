@@ -83,6 +83,8 @@ const GroupCreationPage = () => {
         setFieldErrors({ groupName: 'A group with this name already exists. Please choose a different name.' });
       } else if (data?.code === 'OUTSIDE_SCHEDULE_WINDOW') {
         setSubmitError('Group creation is currently closed. Please check the coordinator-defined schedule.');
+      } else if (data?.code === 'STUDENT_ALREADY_IN_GROUP' || data?.code === 'STUDENT_ALREADY_LEADER') {
+        setSubmitError('You already belong to an active group and cannot create another.');
       } else {
         setSubmitError(data?.message || 'An unexpected error occurred. Please try again.');
       }

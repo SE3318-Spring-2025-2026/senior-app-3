@@ -1,12 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
-const { forwardApprovalResults, createGroup, getGroup, coordinatorOverride } = require('../controllers/groups');
+const { forwardApprovalResults, createGroup, getGroup, createMemberRequest, decideMemberRequest, coordinatorOverride } = require('../controllers/groups');
 const { addMember, getMembers, dispatchNotification, membershipDecision } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
-router.post('/', authMiddleware, createGroup);
+router.post('/', authMiddleware, roleMiddleware(['student']), createGroup);
 
 // GET /api/v1/groups/:groupId — Process 2.2: retrieve validated group record from D2
 router.get('/:groupId', authMiddleware, getGroup);

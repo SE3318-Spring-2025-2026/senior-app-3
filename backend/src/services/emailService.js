@@ -221,6 +221,37 @@ const templates = {
     `),
   }),
 
+  membershipApproved: (groupName) => ({
+    subject: `You've been added to group "${groupName}"`,
+    text: [
+      `Your request to join the group "${groupName}" has been approved.`,
+      '',
+      'You are now an active member. Log in to the Senior Project Management System to view your group details.',
+      '',
+      'If you did not expect this, please contact your coordinator.',
+    ].join('\n'),
+    html: baseHtml('Group Membership Approved', `
+      <h2>You've been added to a group!</h2>
+      <p>Your request to join <strong>${groupName}</strong> has been <strong>approved</strong>.</p>
+      <p>You are now an active member. Log in to the Senior Project Management System to view your group details and start collaborating.</p>
+      <p class="note">If you did not expect this notification, please contact your coordinator.</p>
+    `),
+  }),
+
+  membershipRejected: (groupName) => ({
+    subject: `Group membership request for "${groupName}" was not approved`,
+    text: [
+      `Your request to join the group "${groupName}" was not approved.`,
+      '',
+      'Please contact your coordinator if you believe this is an error.',
+    ].join('\n'),
+    html: baseHtml('Group Membership Not Approved', `
+      <h2>Membership request not approved</h2>
+      <p>Your request to join <strong>${groupName}</strong> was <strong>not approved</strong>.</p>
+      <p>Please contact your coordinator if you believe this is an error.</p>
+    `),
+  }),
+
   accountReady: {
     student: () => ({
       subject: 'Your student account is ready!',
@@ -451,11 +482,64 @@ const sendProfessorCredentialsEmail = async (email, tempPassword) => {
   }
 };
 
+/**
+ * Send group membership approved/rejected confirmation to student (DFD flow f04: 2.5 → Student).
+ *
+ * @param {string} email     - Recipient email address
+ * @param {string} groupName - Group name for the notification
+ * @param {'approved'|'rejected'} decision
+ * @param {string} [userId]  - User ID for delivery audit log
+ * @returns {{ messageId, recipient, status, attempts }}
+ */
+const sendMembershipDecisionEmail = async (email, groupName, decision, userId) => {
+  const templateFn = decision === 'approved' ? templates.membershipApproved : templates.membershipRejected;
+  const { subject, text, html } = templateFn(groupName);
+
+  console.log('\n[EMAIL] ── Membership Decision Email ───────────');
+  console.log(`[EMAIL] To:       ${email}`);
+  console.log(`[EMAIL] Group:    ${groupName}`);
+  console.log(`[EMAIL] Decision: ${decision}`);
+  console.log('[EMAIL] ────────────────────────────────────────\n');
+
+  const transporter = createTransporter();
+  if (!transporter) {
+    await logDelivery({ action: 'EMAIL_ACCOUNT_READY_SENT', userId, email, extra: { mode: 'dev', decision, groupName } });
+    return { messageId: 'dev-mode', recipient: email, status: 'sent', attempts: 0 };
+  }
+
+  const result = await sendWithRetry(transporter, {
+    from: `"Senior Project System" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject,
+    text,
+    html,
+  });
+
+  if (result.success) {
+    await logDelivery({
+      action: 'EMAIL_ACCOUNT_READY_SENT',
+      userId,
+      email,
+      extra: { decision, groupName, messageId: result.messageId, attempts: result.attempts },
+    });
+    return { messageId: result.messageId, recipient: email, status: 'sent', attempts: result.attempts };
+  }
+
+  await logDelivery({
+    action: 'EMAIL_DELIVERY_FAILED',
+    userId,
+    email,
+    extra: { type: 'membership_decision', decision, groupName, error: result.error, attempts: result.attempts, permanent: result.permanent },
+  });
+  return { messageId: null, recipient: email, status: 'failed', attempts: result.attempts, permanent: result.permanent };
+};
+
 module.exports = {
   sendVerificationEmail,
   sendPasswordResetEmail,
   sendAccountReadyEmail,
   sendProfessorCredentialsEmail,
+  sendMembershipDecisionEmail,
   // Exported for unit testing
   _internal: { sendWithRetry, isTransientError, isDevMode, createTransporter },
 };
