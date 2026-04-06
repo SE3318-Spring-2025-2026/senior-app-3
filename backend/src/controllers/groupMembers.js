@@ -63,7 +63,7 @@ const addMember = async (req, res) => {
       }
 
       const existingApproved = await GroupMembership.findOne({
-        studentId: inviteeId,
+        studentId: invitee.userId,
         status: 'approved',
         groupId: { $ne: groupId },
       });
@@ -72,7 +72,7 @@ const addMember = async (req, res) => {
         continue;
       }
 
-      const existing = await MemberInvitation.findOne({ groupId, inviteeId });
+      const existing = await MemberInvitation.findOne({ groupId, inviteeId: invitee.userId });
       if (existing) {
         errors.push({ student_id: inviteeId, code: 'ALREADY_INVITED', message: 'Student has already been invited to this group' });
         continue;
@@ -81,13 +81,13 @@ const addMember = async (req, res) => {
       // f19: write pending member record to D2
       const invitation = await MemberInvitation.create({
         groupId,
-        inviteeId,
+        inviteeId: invitee.userId,
         invitedBy: req.user.userId,
       });
 
       await GroupMembership.create({
         groupId,
-        studentId: inviteeId,
+        studentId: invitee.userId,
         status: 'pending',
       });
 
@@ -126,7 +126,7 @@ const addMember = async (req, res) => {
 
       added.push({
         invitation_id: invitation.invitationId,
-        invitee_id: inviteeId,
+        invitee_id: invitee.userId,
         status: 'pending',
         notified: !!notificationId,
       });
@@ -355,4 +355,38 @@ const membershipDecision = async (req, res) => {
   }
 };
 
-module.exports = { addMember, getMembers, dispatchNotification, membershipDecision };
+/**
+ * GET /groups/pending-invitation
+ *
+ * Returns the current user's pending group invitation with group details.
+ * Used by invited students to discover and navigate to their group.
+ */
+const getMyPendingInvitation = async (req, res) => {
+  try {
+    const studentId = req.user.userId;
+
+    const invitation = await MemberInvitation.findOne({ inviteeId: studentId, status: 'pending' });
+    if (!invitation) {
+      return res.status(404).json({ code: 'NO_PENDING_INVITATION', message: 'No pending invitation found' });
+    }
+
+    const group = await Group.findOne({ groupId: invitation.groupId });
+    if (!group) {
+      return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
+    }
+
+    return res.status(200).json({
+      invitation_id: invitation.invitationId,
+      group_id: invitation.groupId,
+      group_name: group.groupName,
+      invited_by: invitation.invitedBy,
+      status: invitation.status,
+      created_at: invitation.createdAt,
+    });
+  } catch (err) {
+    console.error('getMyPendingInvitation error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
+  }
+};
+
+module.exports = { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation };

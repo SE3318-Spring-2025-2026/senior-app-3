@@ -67,6 +67,30 @@ export const addGroupMembers = async (groupId, studentIds) => {
 };
 
 /**
+ * Get the current user's pending group invitation
+ * @returns {Promise<{invitation_id, group_id, group_name, invited_by, status, created_at}|null>}
+ */
+export const getMyPendingInvitation = async () => {
+  try {
+    const response = await apiClient.get('/groups/pending-invitation');
+    return response.data;
+  } catch (error) {
+    if (error.response?.status === 404) return null;
+    throw error;
+  }
+};
+
+/**
+ * Accept or reject a group invitation
+ * @param {string} groupId
+ * @param {'accepted'|'rejected'} decision
+ */
+export const submitMembershipDecision = async (groupId, decision) => {
+  const response = await apiClient.post(`/groups/${groupId}/membership-decisions`, { decision });
+  return response.data;
+};
+
+/**
  * Get group details
  * @param {string} groupId - The group ID
  * @returns {Promise} Group data

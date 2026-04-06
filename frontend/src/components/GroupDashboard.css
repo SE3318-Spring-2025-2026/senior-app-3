@@ -457,3 +457,76 @@
     text-align: left;
   }
 }
+
+.invitation-banner {
+  background: #fff8e1;
+  border: 1px solid #f9a825;
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.invitation-banner p {
+  margin: 0;
+  flex: 1;
+  color: #5d4037;
+}
+
+.invitation-banner.resolved {
+  background: #e8f5e9;
+  border-color: #43a047;
+}
+
+.invitation-banner.resolved p {
+  color: #2e7d32;
+}
+
+.invitation-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.accept-btn {
+  padding: 8px 20px;
+  background: #43a047;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.accept-btn:hover:not(:disabled) {
+  background: #388e3c;
+}
+
+.reject-btn {
+  padding: 8px 20px;
+  background: white;
+  color: #c62828;
+  border: 1px solid #c62828;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.reject-btn:hover:not(:disabled) {
+  background: #ffebee;
+}
+
+.accept-btn:disabled,
+.reject-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.decision-msg {
+  width: 100%;
+  margin: 8px 0 0 0;
+  font-size: 13px;
+  color: #555;
+}
