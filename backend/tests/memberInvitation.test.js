@@ -106,7 +106,7 @@ describe('groupMembers controller', () => {
   describe('POST /groups/:groupId/members — addMember (f05, f06, f19, f32)', () => {
     beforeEach(() => {
       // Default: notification service succeeds
-      notificationService.dispatchInvitationNotification = jest.fn().mockResolvedValue({ notification_id: 'notif_test' });
+      notificationService.dispatchInvitationNotification.mockResolvedValue({ notification_id: 'notif_test' });
     });
 
     it('returns 201 with added[], group_id, total_members for a single valid student', async () => {
@@ -218,7 +218,7 @@ describe('groupMembers controller', () => {
     });
 
     it('f06: still adds member and marks notified:false when notification service fails', async () => {
-      notificationService.dispatchInvitationNotification = jest.fn().mockRejectedValue(new Error('service down'));
+      notificationService.dispatchInvitationNotification.mockRejectedValue(new Error('service down'));
       const group = await makeGroup();
       const student = await makeStudent();
 
