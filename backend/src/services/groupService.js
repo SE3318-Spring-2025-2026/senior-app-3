@@ -8,9 +8,14 @@
  * ready to receive further membership requests.
  */
 
+const { activateGroup } = require('./groupStatusTransition');
+
 /**
  * Forward validated group data to the member request processing pipeline.
  * Adds the leader as an accepted member (initial state for Process 2.5).
+ *
+ * After this function completes, the group can optionally transition to
+ * ACTIVE status once validation + processing is complete (Issue #52).
  *
  * @param {object} group - Mongoose Group document (already saved to D2)
  * @returns {object} Updated group document
@@ -45,4 +50,9 @@ const forwardOverrideToReconciliation = async (override) => {
   return override;
 };
 
-module.exports = { forwardToMemberRequestPipeline, forwardOverrideToReconciliation };
+module.exports = {
+  forwardToMemberRequestPipeline,
+  forwardOverrideToReconciliation,
+  // Issue #52: Export transition functions for group lifecycle management
+  activateGroup,
+};

@@ -5,6 +5,7 @@ const User = require('../models/User');
 const ScheduleWindow = require('../models/ScheduleWindow');
 const { createAuditLog } = require('../services/auditService');
 const { dispatchInvitationNotification, dispatchMembershipDecisionNotification } = require('../services/notificationService');
+const { INACTIVE_GROUP_STATUSES } = require('../utils/groupStatusEnum');
 const SyncErrorLog = require('../models/SyncErrorLog');
 
 const VALID_DECISIONS = new Set(['accepted', 'rejected']);
@@ -56,6 +57,15 @@ const addMember = async (req, res) => {
     const group = await Group.findOne({ groupId });
     if (!group) {
       return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
+    }
+
+    // Issue #52: Check if group is inactive (cannot receive new members)
+    if (INACTIVE_GROUP_STATUSES.has(group.status)) {
+      return res.status(409).json({
+        code: 'GROUP_INACTIVE',
+        message: `Cannot add members to group with status '${group.status}'`,
+        current_status: group.status,
+      });
     }
 
     if (group.leaderId !== req.user.userId) {

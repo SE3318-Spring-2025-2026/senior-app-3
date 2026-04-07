@@ -5,6 +5,7 @@ const { checkScheduleWindow } = require('../middleware/scheduleWindow');
 const { forwardApprovalResults, createGroup, getGroup, createMemberRequest, decideMemberRequest, coordinatorOverride } = require('../controllers/groups');
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
+const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
 router.post('/', authMiddleware, roleMiddleware(['student']), checkScheduleWindow('group_creation'), createGroup);
@@ -61,6 +62,22 @@ router.patch(
   authMiddleware,
   roleMiddleware(['coordinator']),
   coordinatorOverride
+);
+
+// GET /api/v1/groups/:groupId/status — Issue #52: Retrieve current group status
+router.get(
+  '/:groupId/status',
+  authMiddleware,
+  getStatus
+);
+
+// PATCH /api/v1/groups/:groupId/status — Issue #52: Transition group to new status
+// Allowed transitions: pending_validation→active/rejected, active→inactive/rejected, inactive→active/rejected
+router.patch(
+  '/:groupId/status',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'committee_member', 'professor', 'admin']),
+  transitionStatus
 );
 
 module.exports = router;
