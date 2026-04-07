@@ -332,7 +332,7 @@ const dispatchNotification = async (req, res) => {
 const membershipDecision = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { decision } = req.body;
+    const { decision, message } = req.body;
 
     if (!decision || !VALID_DECISIONS.has(decision)) {
       return res.status(400).json({
@@ -403,6 +403,9 @@ const membershipDecision = async (req, res) => {
     const decidedAt = new Date();
     invitation.status = decision;
     invitation.decidedAt = decidedAt;
+    if (message && typeof message === 'string' && message.trim()) {
+      invitation.decisionMessage = message.trim();
+    }
     await invitation.save();
 
     const membershipStatus = decision === 'accepted' ? 'approved' : 'rejected';
@@ -533,6 +536,39 @@ const membershipDecision = async (req, res) => {
 };
 
 /**
+ * GET /groups/pending-invitation
+ *
+ * Returns the current user's pending group invitation with group details.
+ * Used by invited students to discover and navigate to their group.
+ */
+const getMyPendingInvitation = async (req, res) => {
+  try {
+    const studentId = req.user.userId;
+
+    const invitations = await MemberInvitation.find({ inviteeId: studentId, status: 'pending' });
+
+    for (const invitation of invitations) {
+      const group = await Group.findOne({ groupId: invitation.groupId });
+      if (!group) continue; // stale invitation — group was deleted, skip it
+
+      return res.status(200).json({
+        invitation_id: invitation.invitationId,
+        group_id: invitation.groupId,
+        group_name: group.groupName,
+        invited_by: invitation.invitedBy,
+        status: invitation.status,
+        created_at: invitation.createdAt,
+      });
+    }
+
+    return res.status(404).json({ code: 'NO_PENDING_INVITATION', message: 'No pending invitation found' });
+  } catch (err) {
+    console.error('getMyPendingInvitation error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
+  }
+};
+
+/**
  * GET /groups/:groupId/approvals
  *
  * Process 2.4 — Returns all membership decisions for a group.
@@ -541,10 +577,10 @@ const membershipDecision = async (req, res) => {
  * can see per-reviewer status and a rolled-up overall_status.
  *
  * overall_status values:
- *   'pending'      — at least one invitation is still awaiting a decision
- *   'all_accepted' — every invited student accepted
- *   'all_rejected' — every invited student rejected
- *   'all_decided'  — mix of accepted + rejected, none pending
+ *   'pending'        — at least one invitation is still awaiting a decision
+ *   'all_accepted'   — every invited student accepted
+ *   'all_rejected'   — every invited student rejected
+ *   'all_decided'    — mix of accepted + rejected, none pending
  *   'no_invitations' — no invitations exist for this group
  */
 const getApprovals = async (req, res) => {
@@ -561,7 +597,7 @@ const getApprovals = async (req, res) => {
     const approvals = invitations.map((inv) => ({
       invitation_id: inv.invitationId,
       student_id: inv.inviteeId,
-      status: inv.status,          // 'pending' | 'accepted' | 'rejected'
+      status: inv.status,
       decided_at: inv.decidedAt || null,
       notification_id: inv.notificationId || null,
     }));
@@ -592,39 +628,6 @@ const getApprovals = async (req, res) => {
     });
   } catch (err) {
     console.error('getApprovals error:', err);
-    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
-  }
-};
-
-/**
- * GET /groups/pending-invitation
- *
- * Returns the current user's pending group invitation with group details.
- * Used by invited students to discover and navigate to their group.
- */
-const getMyPendingInvitation = async (req, res) => {
-  try {
-    const studentId = req.user.userId;
-
-    const invitations = await MemberInvitation.find({ inviteeId: studentId, status: 'pending' });
-
-    for (const invitation of invitations) {
-      const group = await Group.findOne({ groupId: invitation.groupId });
-      if (!group) continue; // stale invitation — group was deleted, skip it
-
-      return res.status(200).json({
-        invitation_id: invitation.invitationId,
-        group_id: invitation.groupId,
-        group_name: group.groupName,
-        invited_by: invitation.invitedBy,
-        status: invitation.status,
-        created_at: invitation.createdAt,
-      });
-    }
-
-    return res.status(404).json({ code: 'NO_PENDING_INVITATION', message: 'No pending invitation found' });
-  } catch (err) {
-    console.error('getMyPendingInvitation error:', err);
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
   }
 };

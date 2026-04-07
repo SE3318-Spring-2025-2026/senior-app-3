@@ -126,9 +126,13 @@ export const getMyPendingInvitation = async () => {
  * Accept or reject a group invitation
  * @param {string} groupId
  * @param {'accepted'|'rejected'} decision
+ * @param {string} studentId - Must match the authenticated user
+ * @param {string} [message] - Optional message accompanying the decision
  */
-export const submitMembershipDecision = async (groupId, decision) => {
-  const response = await apiClient.post(`/groups/${groupId}/membership-decisions`, { decision });
+export const submitMembershipDecision = async (groupId, decision, studentId, message) => {
+  const body = { decision, student_id: studentId };
+  if (message) body.message = message;
+  const response = await apiClient.post(`/groups/${groupId}/membership-decisions`, body);
   return response.data;
 };
 

@@ -8,7 +8,7 @@ const { configureGithub, getGithub, configureJira, getJira } = require('../contr
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
-router.post('/', authMiddleware, roleMiddleware(['student']), checkScheduleWindow('group_creation'), createGroup);
+router.post('/', authMiddleware, roleMiddleware(['student']), createGroup);
 
 // GET /api/v1/groups/pending-invitation — return current user's pending invitation with group info
 router.get('/pending-invitation', authMiddleware, getMyPendingInvitation);
