@@ -47,9 +47,18 @@ const groupSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    githubRepoName: {
+      type: String,
+      default: null,
+    },
     githubRepoUrl: {
       type: String,
       default: null,
+    },
+    githubVisibility: {
+      type: String,
+      enum: ['private', 'public', 'internal'],
+      default: 'private',
     },
     githubPat: {
       type: String,

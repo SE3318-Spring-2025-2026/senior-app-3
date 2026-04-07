@@ -38,10 +38,21 @@ const withRetry = async (fn, maxAttempts = MAX_RETRY_ATTEMPTS) => {
  * Process 2.6 — Validate GitHub PAT + org and store config in D2.
  *
  * DFD flows:
- *   f10 — Team Leader → 2.6 (submit GitHub PAT + org)
+ *   f10 — Team Leader → 2.6 (submit GitHub PAT + org + repo_name + visibility)
  *   f11 — 2.6 → GitHub API (validate PAT, retrieve org data)
  *   f12 — GitHub API → 2.6 (return org data)
  *   f24 — 2.6 → D2 (store validated GitHub config)
+ *
+ * Request body:
+ *   - pat (required): GitHub Personal Access Token
+ *   - org_name (required): GitHub organization name
+ *   - repo_name (required): Repository name
+ *   - visibility (optional): Visibility setting (private, public, internal); default: private
+ *
+ * Response (201 Created):
+ *   - repo_url: Full GitHub repository URL
+ *   - status: "success"
+ *   - org_data: { id, login, name } from GitHub API
  *
  * Error codes:
  *   422 INVALID_PAT         — GitHub API rejects the token (401/403)
@@ -51,13 +62,20 @@ const withRetry = async (fn, maxAttempts = MAX_RETRY_ATTEMPTS) => {
 const configureGithub = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { pat, org } = req.body;
+    const { pat, org_name, repo_name, visibility = 'private' } = req.body;
 
+    // Validate required fields
     if (!pat || typeof pat !== 'string' || !pat.trim()) {
       return res.status(400).json({ code: 'MISSING_PAT', message: 'pat is required' });
     }
-    if (!org || typeof org !== 'string' || !org.trim()) {
-      return res.status(400).json({ code: 'MISSING_ORG', message: 'org is required' });
+    if (!org_name || typeof org_name !== 'string' || !org_name.trim()) {
+      return res.status(400).json({ code: 'MISSING_ORG', message: 'org_name is required' });
+    }
+    if (!repo_name || typeof repo_name !== 'string' || !repo_name.trim()) {
+      return res.status(400).json({ code: 'MISSING_REPO', message: 'repo_name is required' });
+    }
+    if (!['private', 'public', 'internal'].includes(visibility)) {
+      return res.status(400).json({ code: 'INVALID_VISIBILITY', message: 'visibility must be one of: private, public, internal' });
     }
 
     const group = await Group.findOne({ groupId });
@@ -114,7 +132,7 @@ const configureGithub = async (req, res) => {
     // f12: retrieve org data
     try {
       const orgResponse = await withRetry(() =>
-        axios.get(`https://api.github.com/orgs/${org.trim()}`, {
+        axios.get(`https://api.github.com/orgs/${org_name.trim()}`, {
           headers: { Authorization: `Bearer ${pat.trim()}`, 'User-Agent': 'senior-app' },
           timeout: 5000,
         })
@@ -154,8 +172,10 @@ const configureGithub = async (req, res) => {
 
     // f24: store config in D2
     group.githubPat = pat.trim();
-    group.githubOrg = org.trim();
-    group.githubRepoUrl = `https://github.com/${org.trim()}`;
+    group.githubOrg = org_name.trim();
+    group.githubRepoName = repo_name.trim();
+    group.githubVisibility = visibility;
+    group.githubRepoUrl = `https://github.com/${org_name.trim()}/${repo_name.trim()}`;
     await group.save();
 
     // Audit log: github_integration_setup (non-fatal)
@@ -167,7 +187,9 @@ const configureGithub = async (req, res) => {
         groupId,
         payload: {
           status: 'success',
-          org: org.trim(),
+          org_name: org_name.trim(),
+          repo_name: repo_name.trim(),
+          visibility: visibility,
           github_repo_url: group.githubRepoUrl,
         },
         ipAddress: req.ip,
@@ -178,10 +200,13 @@ const configureGithub = async (req, res) => {
     }
 
     return res.status(201).json({
-      github_org: group.githubOrg,
-      github_repo_url: group.githubRepoUrl,
-      validated: true,
-      org_data: { login: orgData.login, id: orgData.id, name: orgData.name },
+      repo_url: group.githubRepoUrl,
+      status: 'success',
+      org_data: { 
+        id: orgData.id, 
+        login: orgData.login, 
+        name: orgData.name 
+      },
     });
   } catch (err) {
     console.error('configureGithub error:', err);
