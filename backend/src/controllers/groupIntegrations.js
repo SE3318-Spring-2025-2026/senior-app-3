@@ -116,7 +116,7 @@ const configureGithub = async (req, res) => {
     group.githubRepoUrl = `https://github.com/${org.trim()}`;
     await group.save();
 
-    return res.status(200).json({
+    return res.status(201).json({
       github_org: group.githubOrg,
       github_repo_url: group.githubRepoUrl,
       validated: true,
@@ -256,7 +256,7 @@ const configureJira = async (req, res) => {
     group.jiraBoardUrl = `${baseUrl}/jira/software/projects/${project_key.trim()}/boards`;
     await group.save();
 
-    return res.status(200).json({
+    return res.status(201).json({
       jira_url: group.jiraUrl,
       jira_project: group.jiraProject,
       jira_project_key: group.projectKey,
