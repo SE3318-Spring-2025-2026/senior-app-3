@@ -41,16 +41,58 @@ export const createGroup = async ({
 };
 
 /**
- * Check if the group creation schedule window is currently open
+ * Check if a schedule window is currently open for a given operation type
+ * @param {'group_creation'|'member_addition'} operationType
  * @returns {Promise<{open: boolean, window: object|null}>}
  */
-export const getScheduleWindow = async () => {
+export const getScheduleWindow = async (operationType = 'group_creation') => {
   try {
-    const response = await apiClient.get('/schedule-window/active');
+    const response = await apiClient.get('/schedule-window/active', {
+      params: { operationType },
+    });
     return response.data;
   } catch {
     return { open: false, window: null };
   }
+};
+
+/**
+ * List all schedule windows (coordinator/admin only)
+ * @param {'group_creation'|'member_addition'|undefined} operationType — optional filter
+ * @returns {Promise<{windows: object[]}>}
+ */
+export const listScheduleWindows = async (operationType) => {
+  const params = operationType ? { operationType } : {};
+  const response = await apiClient.get('/schedule-window', { params });
+  return response.data;
+};
+
+/**
+ * Create a new schedule window (coordinator/admin only)
+ * @param {'group_creation'|'member_addition'} operationType
+ * @param {string} startsAt - ISO date string
+ * @param {string} endsAt - ISO date string
+ * @param {string} [label]
+ * @returns {Promise<object>} Created window
+ */
+export const createScheduleWindow = async (operationType, startsAt, endsAt, label = '') => {
+  const response = await apiClient.post('/schedule-window', {
+    operationType,
+    startsAt,
+    endsAt,
+    label,
+  });
+  return response.data;
+};
+
+/**
+ * Deactivate a schedule window (coordinator/admin only)
+ * @param {string} windowId
+ * @returns {Promise<{windowId: string, isActive: false}>}
+ */
+export const deactivateScheduleWindow = async (windowId) => {
+  const response = await apiClient.delete(`/schedule-window/${windowId}`);
+  return response.data;
 };
 
 /**
