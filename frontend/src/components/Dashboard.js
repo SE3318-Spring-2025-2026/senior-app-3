@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
 import { getMyPendingInvitation } from '../api/groupService';
+import './Dashboard.css';
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -24,39 +25,35 @@ const Dashboard = () => {
   const isStudent = user?.role === 'student';
 
   return (
-    <div className="page" style={{ maxWidth: 600, margin: '40px auto', padding: '0 24px' }}>
-      <h2>Dashboard</h2>
+    <div className="dashboard-page">
+      <div className="dashboard-inner">
+        <div className="dashboard-welcome">
+          <h1>Welcome{user?.name ? `, ${user.name}` : ''}!</h1>
+          <p>Manage your group, track invitations, and monitor integrations.</p>
+        </div>
 
-      {isStudent && (
-        <div style={{ marginTop: 24 }}>
-          {loading && <p style={{ color: '#666' }}>Checking for pending invitations…</p>}
+        {isStudent && (
+          <div className="dashboard-card">
+            <h2 className="dashboard-card-title">Group Invitation</h2>
 
-          {!loading && invitation && (
-            <div style={{
-              background: '#fff8e1',
-              border: '1px solid #f9a825',
-              borderRadius: 8,
-              padding: '16px 20px',
-            }}>
-              <p style={{ margin: '0 0 12px', color: '#5d4037' }}>
-                You have a pending invitation to join <strong>{invitation.group_name}</strong>.
-              </p>
-              <button
-                onClick={() => navigate(`/groups/${invitation.group_id}`)}
-                style={{
-                  padding: '8px 20px',
-                  background: '#1976d2',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  fontWeight: 500,
-                }}
-              >
-                View Group &amp; Respond
-              </button>
-            </div>
-          )}
+            {loading && (
+              <div className="dashboard-loading">Checking for invitations</div>
+            )}
+
+            {!loading && invitation && (
+              <div className="invitation-notice">
+                <p>
+                  You have a pending invitation to join{' '}
+                  <strong>{invitation.group_name}</strong>.
+                </p>
+                <button
+                  className="btn-primary"
+                  onClick={() => navigate(`/groups/${invitation.group_id}`)}
+                >
+                  View Group &amp; Respond
+                </button>
+              </div>
+            )}
 
             {!loading && invitationError && (
               <p className="dashboard-error">{invitationError}</p>
@@ -72,6 +69,7 @@ const Dashboard = () => {
             )}
           </div>
         )}
+      </div>
     </div>
   );
 };
