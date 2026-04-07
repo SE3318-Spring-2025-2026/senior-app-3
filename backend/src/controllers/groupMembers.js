@@ -244,10 +244,11 @@ const dispatchNotification = async (req, res) => {
     invitation.notificationId = notifResult.notification_id || null;
     await invitation.save();
 
-    return res.status(200).json({
+    return res.status(201).json({
       notification_id: invitation.notificationId,
       invitee_id: invitation.inviteeId,
       notified_at: invitation.notifiedAt,
+      delivered_to: notifResult.delivered_to || [invitation.inviteeId],
     });
   } catch (err) {
     console.error('dispatchNotification error:', err);
