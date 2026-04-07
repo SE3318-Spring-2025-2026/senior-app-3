@@ -396,6 +396,14 @@ const VALID_GROUP_STATUSES = new Set(['pending_validation', 'active', 'inactive'
  */
 const coordinatorOverride = async (req, res) => {
   try {
+    // --- Role validation: Only coordinators can perform overrides ---
+    if (req.user.role !== 'coordinator') {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'This action requires coordinator role',
+      });
+    }
+
     const { groupId } = req.params;
     const { action, target_student_id, updates, reason } = req.body;
 
