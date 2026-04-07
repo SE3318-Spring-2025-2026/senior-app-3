@@ -3,7 +3,7 @@ const GroupMembership = require('../models/GroupMembership');
 const MemberInvitation = require('../models/MemberInvitation');
 const User = require('../models/User');
 const ScheduleWindow = require('../models/ScheduleWindow');
-const { dispatchInvitationNotification } = require('../services/notificationService');
+const { dispatchInvitationNotification, dispatchMembershipDecisionNotification } = require('../services/notificationService');
 const SyncErrorLog = require('../models/SyncErrorLog');
 
 const VALID_DECISIONS = new Set(['accepted', 'rejected']);
@@ -357,6 +357,33 @@ const membershipDecision = async (req, res) => {
         group.members.push({ userId: studentId, role: 'member', status: 'accepted', joinedAt: decidedAt });
         await group.save();
       }
+    }
+
+    // Dispatch membership decision notification (non-fatal, 3-attempt retry)
+    let notifLastError;
+    for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        await dispatchMembershipDecisionNotification({
+          groupId,
+          groupName: group.groupName,
+          studentId,
+          decision,
+          decidedAt,
+        });
+        notifLastError = null;
+        break;
+      } catch (err) {
+        notifLastError = err;
+      }
+    }
+    if (notifLastError) {
+      await SyncErrorLog.create({
+        service: 'notification',
+        groupId,
+        actorId: studentId,
+        attempts: MAX_RETRY_ATTEMPTS,
+        lastError: notifLastError.message,
+      });
     }
 
     return res.status(200).json({
