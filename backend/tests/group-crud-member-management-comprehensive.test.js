@@ -45,6 +45,8 @@ describe('Group CRUD, Member Management & Override Endpoints — Issue #55', () 
   let getGroup;
   let forwardApprovalResults;
   let coordinatorOverride;
+  let createMemberRequest;
+  let decideMemberRequest;
   let addMember;
   let getMembers;
   let membershipDecision;
@@ -113,7 +115,7 @@ describe('Group CRUD, Member Management & Override Endpoints — Issue #55', () 
     Override = require('../src/models/Override');
     ApprovalQueue = require('../src/models/ApprovalQueue');
 
-    ({ createGroup, getGroup, forwardApprovalResults, coordinatorOverride } =
+    ({ createGroup, getGroup, forwardApprovalResults, coordinatorOverride, createMemberRequest, decideMemberRequest } =
       require('../src/controllers/groups'));
     ({ addMember, getMembers, membershipDecision } = require('../src/controllers/groupMembers'));
   });
@@ -1900,6 +1902,530 @@ describe('Group CRUD, Member Management & Override Endpoints — Issue #55', () 
 
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json.mock.calls[0][0].groupId).toBeDefined();
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // POST /groups/:groupId/member-requests — Create Member Request
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('POST /groups/:groupId/member-requests — Create Member Request', () => {
+    beforeEach(async () => {
+      await createActiveScheduleWindow();
+    });
+
+    it('should return 201 when student creates member request to existing group', async () => {
+      const group = await makeGroup();
+      const student = await createUser();
+
+      const req = makeReq(
+        { groupId: group.groupId },
+        {},
+        { userId: student.userId }
+      );
+      const res = makeRes();
+
+      await createMemberRequest(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(201);
+      const body = res.json.mock.calls[0][0];
+      expect(body.request_id).toBeDefined();
+      expect(body.group_id).toBe(group.groupId);
+      expect(body.student_id).toBe(student.userId);
+      expect(body.status).toBe('pending');
+      expect(body.created_at).toBeDefined();
+    });
+
+    it('should return 409 when student requests to join same group twice (duplicate)', async () => {
+      const group = await makeGroup();
+      const student = await createUser();
+
+      // First request succeeds
+      const req1 = makeReq(
+        { groupId: group.groupId },
+        {},
+        { userId: student.userId }
+      );
+      const res1 = makeRes();
+
+      await createMemberRequest(req1, res1);
+      expect(res1.status).toHaveBeenCalledWith(201);
+
+      // Second request should fail with 409 (duplicate)
+      const req2 = makeReq(
+        { groupId: group.groupId },
+        {},
+        { userId: student.userId }
+      );
+      const res2 = makeRes();
+
+      await createMemberRequest(req2, res2);
+
+      expect(res2.status).toHaveBeenCalledWith(409);
+      expect(res2.json.mock.calls[0][0].code).toBe('DUPLICATE_REQUEST');
+    });
+
+    it('should return 404 when group does not exist', async () => {
+      const student = await createUser();
+
+      const req = makeReq(
+        { groupId: 'grp_unknown' },
+        {},
+        { userId: student.userId }
+      );
+      const res = makeRes();
+
+      await createMemberRequest(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.json.mock.calls[0][0].code).toBe('GROUP_NOT_FOUND');
+    });
+
+    it('should return 400 when student already belongs to another active group', async () => {
+      const group1 = await makeGroup();
+      const group2 = await makeGroup();
+      const student = await createUser();
+
+      // Student already approved in another group
+      await GroupMembership.create({
+        groupId: group2.groupId,
+        studentId: student.userId,
+        status: 'approved',
+      });
+
+      const req = makeReq(
+        { groupId: group1.groupId },
+        {},
+        { userId: student.userId }
+      );
+      const res = makeRes();
+
+      await createMemberRequest(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json.mock.calls[0][0].code).toBe('ALREADY_IN_GROUP');
+    });
+
+    it('should create MemberInvitation record with status pending', async () => {
+      const group = await makeGroup();
+      const student = await createUser();
+
+      const req = makeReq(
+        { groupId: group.groupId },
+        {},
+        { userId: student.userId }
+      );
+      const res = makeRes();
+
+      await createMemberRequest(req, res);
+
+      const invitation = await MemberInvitation.findOne({
+        groupId: group.groupId,
+        inviteeId: student.userId,
+      });
+      expect(invitation).toBeDefined();
+      expect(invitation.status).toBe('pending');
+      expect(invitation.invitedBy).toBe('self');
+    });
+
+    it('should create GroupMembership record with status pending', async () => {
+      const group = await makeGroup();
+      const student = await createUser();
+
+      const req = makeReq(
+        { groupId: group.groupId },
+        {},
+        { userId: student.userId }
+      );
+      const res = makeRes();
+
+      await createMemberRequest(req, res);
+
+      const membership = await GroupMembership.findOne({
+        groupId: group.groupId,
+        studentId: student.userId,
+      });
+      expect(membership).toBeDefined();
+      expect(membership.status).toBe('pending');
+    });
+
+    it('should create MEMBER_REQUESTED audit log', async () => {
+      const group = await makeGroup();
+      const student = await createUser();
+
+      const req = makeReq(
+        { groupId: group.groupId },
+        {},
+        { userId: student.userId }
+      );
+      const res = makeRes();
+
+      await createMemberRequest(req, res);
+
+      const log = await AuditLog.findOne({ action: 'MEMBER_REQUESTED' });
+      expect(log).toBeDefined();
+      expect(log.actorId).toBe(student.userId);
+      expect(log.targetId).toBe(group.groupId);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PATCH /groups/:groupId/member-requests/:requestId — Decide Member Request
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('PATCH /groups/:groupId/member-requests/:requestId — Decide Member Request', () => {
+    it('should return 200 when leader approves member request', async () => {
+      const group = await makeGroup();
+      const student = await createUser();
+
+      // Create a pending member request
+      const memberRequest = await MemberInvitation.create({
+        groupId: group.groupId,
+        inviteeId: student.userId,
+        invitedBy: 'self',
+        status: 'pending',
+      });
+
+      await GroupMembership.create({
+        groupId: group.groupId,
+        studentId: student.userId,
+        status: 'pending',
+      });
+
+      const req = makeReq(
+        { groupId: group.groupId, requestId: memberRequest.invitationId },
+        { decision: 'approved' },
+        { userId: group.leaderId }
+      );
+      const res = makeRes();
+
+      await decideMemberRequest(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const body = res.json.mock.calls[0][0];
+      expect(body.request_id).toBe(memberRequest.invitationId);
+      expect(body.decision).toBe('approved');
+      expect(body.decided_at).toBeDefined();
+    });
+
+    it('should return 200 when leader rejects member request', async () => {
+      const group = await makeGroup();
+      const student = await createUser();
+
+      // Create a pending member request
+      const memberRequest = await MemberInvitation.create({
+        groupId: group.groupId,
+        inviteeId: student.userId,
+        invitedBy: 'self',
+        status: 'pending',
+      });
+
+      await GroupMembership.create({
+        groupId: group.groupId,
+        studentId: student.userId,
+        status: 'pending',
+      });
+
+      const req = makeReq(
+        { groupId: group.groupId, requestId: memberRequest.invitationId },
+        { decision: 'rejected' },
+        { userId: group.leaderId }
+      );
+      const res = makeRes();
+
+      await decideMemberRequest(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const body = res.json.mock.calls[0][0];
+      expect(body.request_id).toBe(memberRequest.invitationId);
+      expect(body.decision).toBe('rejected');
+      expect(body.decided_at).toBeDefined();
+    });
+
+    it('should return 404 when request does not exist', async () => {
+      const group = await makeGroup();
+
+      const req = makeReq(
+        { groupId: group.groupId, requestId: 'inv_unknown' },
+        { decision: 'approved' },
+        { userId: group.leaderId }
+      );
+      const res = makeRes();
+
+      await decideMemberRequest(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.json.mock.calls[0][0].code).toBe('REQUEST_NOT_FOUND');
+    });
+
+    it('should return 404 when group does not exist', async () => {
+      const req = makeReq(
+        { groupId: 'grp_unknown', requestId: 'inv_test' },
+        { decision: 'approved' },
+        { userId: 'usr_test' }
+      );
+      const res = makeRes();
+
+      await decideMemberRequest(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.json.mock.calls[0][0].code).toBe('GROUP_NOT_FOUND');
+    });
+
+    it('should return 403 when non-leader tries to decide on request', async () => {
+      const group = await makeGroup();
+      const nonLeader = await createUser();
+      const student = await createUser();
+
+      // Create a pending member request
+      const memberRequest = await MemberInvitation.create({
+        groupId: group.groupId,
+        inviteeId: student.userId,
+        invitedBy: 'self',
+        status: 'pending',
+      });
+
+      await GroupMembership.create({
+        groupId: group.groupId,
+        studentId: student.userId,
+        status: 'pending',
+      });
+
+      const req = makeReq(
+        { groupId: group.groupId, requestId: memberRequest.invitationId },
+        { decision: 'approved' },
+        { userId: nonLeader.userId }
+      );
+      const res = makeRes();
+
+      await decideMemberRequest(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json.mock.calls[0][0].code).toBe('FORBIDDEN');
+    });
+
+    it('should return 400 when decision is invalid', async () => {
+      const group = await makeGroup();
+      const student = await createUser();
+
+      // Create a pending member request
+      const memberRequest = await MemberInvitation.create({
+        groupId: group.groupId,
+        inviteeId: student.userId,
+        invitedBy: 'self',
+        status: 'pending',
+      });
+
+      await GroupMembership.create({
+        groupId: group.groupId,
+        studentId: student.userId,
+        status: 'pending',
+      });
+
+      const req = makeReq(
+        { groupId: group.groupId, requestId: memberRequest.invitationId },
+        { decision: 'invalid_decision' },
+        { userId: group.leaderId }
+      );
+      const res = makeRes();
+
+      await decideMemberRequest(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json.mock.calls[0][0].code).toBe('INVALID_DECISION');
+    });
+
+    it('should update MemberInvitation status to accepted when approved', async () => {
+      const group = await makeGroup();
+      const student = await createUser();
+
+      const memberRequest = await MemberInvitation.create({
+        groupId: group.groupId,
+        inviteeId: student.userId,
+        invitedBy: 'self',
+        status: 'pending',
+      });
+
+      await GroupMembership.create({
+        groupId: group.groupId,
+        studentId: student.userId,
+        status: 'pending',
+      });
+
+      const req = makeReq(
+        { groupId: group.groupId, requestId: memberRequest.invitationId },
+        { decision: 'approved' },
+        { userId: group.leaderId }
+      );
+      const res = makeRes();
+
+      await decideMemberRequest(req, res);
+
+      const updated = await MemberInvitation.findOne({ invitationId: memberRequest.invitationId });
+      expect(updated.status).toBe('accepted');
+      expect(updated.decidedAt).toBeDefined();
+    });
+
+    it('should update MemberInvitation status to rejected when rejected', async () => {
+      const group = await makeGroup();
+      const student = await createUser();
+
+      const memberRequest = await MemberInvitation.create({
+        groupId: group.groupId,
+        inviteeId: student.userId,
+        invitedBy: 'self',
+        status: 'pending',
+      });
+
+      await GroupMembership.create({
+        groupId: group.groupId,
+        studentId: student.userId,
+        status: 'pending',
+      });
+
+      const req = makeReq(
+        { groupId: group.groupId, requestId: memberRequest.invitationId },
+        { decision: 'rejected' },
+        { userId: group.leaderId }
+      );
+      const res = makeRes();
+
+      await decideMemberRequest(req, res);
+
+      const updated = await MemberInvitation.findOne({ invitationId: memberRequest.invitationId });
+      expect(updated.status).toBe('rejected');
+      expect(updated.decidedAt).toBeDefined();
+    });
+
+    it('should update GroupMembership status to approved when request approved', async () => {
+      const group = await makeGroup();
+      const student = await createUser();
+
+      const memberRequest = await MemberInvitation.create({
+        groupId: group.groupId,
+        inviteeId: student.userId,
+        invitedBy: 'self',
+        status: 'pending',
+      });
+
+      await GroupMembership.create({
+        groupId: group.groupId,
+        studentId: student.userId,
+        status: 'pending',
+      });
+
+      const req = makeReq(
+        { groupId: group.groupId, requestId: memberRequest.invitationId },
+        { decision: 'approved' },
+        { userId: group.leaderId }
+      );
+      const res = makeRes();
+
+      await decideMemberRequest(req, res);
+
+      const membership = await GroupMembership.findOne({
+        groupId: group.groupId,
+        studentId: student.userId,
+      });
+      expect(membership.status).toBe('approved');
+    });
+
+    it('should update GroupMembership status to rejected when request rejected', async () => {
+      const group = await makeGroup();
+      const student = await createUser();
+
+      const memberRequest = await MemberInvitation.create({
+        groupId: group.groupId,
+        inviteeId: student.userId,
+        invitedBy: 'self',
+        status: 'pending',
+      });
+
+      await GroupMembership.create({
+        groupId: group.groupId,
+        studentId: student.userId,
+        status: 'pending',
+      });
+
+      const req = makeReq(
+        { groupId: group.groupId, requestId: memberRequest.invitationId },
+        { decision: 'rejected' },
+        { userId: group.leaderId }
+      );
+      const res = makeRes();
+
+      await decideMemberRequest(req, res);
+
+      const membership = await GroupMembership.findOne({
+        groupId: group.groupId,
+        studentId: student.userId,
+      });
+      expect(membership.status).toBe('rejected');
+    });
+
+    it('should create MEMBERSHIP_DECISION audit log when approving', async () => {
+      const group = await makeGroup();
+      const student = await createUser();
+
+      const memberRequest = await MemberInvitation.create({
+        groupId: group.groupId,
+        inviteeId: student.userId,
+        invitedBy: 'self',
+        status: 'pending',
+      });
+
+      await GroupMembership.create({
+        groupId: group.groupId,
+        studentId: student.userId,
+        status: 'pending',
+      });
+
+      const req = makeReq(
+        { groupId: group.groupId, requestId: memberRequest.invitationId },
+        { decision: 'approved' },
+        { userId: group.leaderId }
+      );
+      const res = makeRes();
+
+      await decideMemberRequest(req, res);
+
+      const log = await AuditLog.findOne({ action: 'MEMBERSHIP_DECISION' });
+      expect(log).toBeDefined();
+      expect(log.targetId).toBe(group.groupId);
+      expect(log.details.studentId).toBe(student.userId);
+      expect(log.details.decision).toBe('approved');
+    });
+
+    it('should create MEMBERSHIP_DECISION audit log when rejecting', async () => {
+      const group = await makeGroup();
+      const student = await createUser();
+
+      const memberRequest = await MemberInvitation.create({
+        groupId: group.groupId,
+        inviteeId: student.userId,
+        invitedBy: 'self',
+        status: 'pending',
+      });
+
+      await GroupMembership.create({
+        groupId: group.groupId,
+        studentId: student.userId,
+        status: 'pending',
+      });
+
+      const req = makeReq(
+        { groupId: group.groupId, requestId: memberRequest.invitationId },
+        { decision: 'rejected' },
+        { userId: group.leaderId }
+      );
+      const res = makeRes();
+
+      await decideMemberRequest(req, res);
+
+      const log = await AuditLog.findOne({ action: 'MEMBERSHIP_DECISION' });
+      expect(log).toBeDefined();
+      expect(log.targetId).toBe(group.groupId);
+      expect(log.details.decision).toBe('rejected');
     });
   });
 });

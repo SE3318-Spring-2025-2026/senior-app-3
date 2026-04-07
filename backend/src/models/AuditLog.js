@@ -31,6 +31,7 @@ const auditLogSchema = new mongoose.Schema(
         'MEMBER_INVITED',
         'MEMBER_ADDED',
         'MEMBER_REMOVED',
+        'MEMBER_REQUESTED',
         'NOTIFICATION_DISPATCHED',
         'MEMBERSHIP_DECISION',
         'MEMBERSHIP_DECISION_MADE',
