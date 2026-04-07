@@ -1,6 +1,7 @@
 const axios = require('axios');
 const Group = require('../models/Group');
 const SyncErrorLog = require('../models/SyncErrorLog');
+const { createAuditLog } = require('../services/auditService');
 
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 100;
@@ -83,13 +84,30 @@ const configureGithub = async (req, res) => {
         return res.status(422).json({ code: 'INVALID_PAT', message: 'GitHub PAT is invalid or has insufficient permissions' });
       }
       // Network/timeout failures — log sync error
-      await SyncErrorLog.create({
+      const syncErr = await SyncErrorLog.create({
         service: 'github',
         groupId,
         actorId: req.user.userId,
         attempts: MAX_RETRY_ATTEMPTS,
         lastError: err.message,
       });
+      try {
+        await createAuditLog({
+          action: 'sync_error',
+          actorId: req.user.userId,
+          groupId,
+          payload: {
+            api_type: 'github',
+            retry_count: MAX_RETRY_ATTEMPTS,
+            last_error: err.message,
+            sync_error_id: syncErr.errorId,
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      } catch (auditError) {
+        console.error('Audit log failed (non-fatal):', auditError.message);
+      }
       return res.status(503).json({ code: 'GITHUB_API_UNAVAILABLE', message: 'GitHub API unavailable after maximum retry attempts' });
     }
 
@@ -107,13 +125,30 @@ const configureGithub = async (req, res) => {
       if (status === 404) {
         return res.status(422).json({ code: 'ORG_NOT_FOUND', message: 'GitHub organisation not found or PAT lacks access' });
       }
-      await SyncErrorLog.create({
+      const syncErr2 = await SyncErrorLog.create({
         service: 'github',
         groupId,
         actorId: req.user.userId,
         attempts: MAX_RETRY_ATTEMPTS,
         lastError: err.message,
       });
+      try {
+        await createAuditLog({
+          action: 'sync_error',
+          actorId: req.user.userId,
+          groupId,
+          payload: {
+            api_type: 'github',
+            retry_count: MAX_RETRY_ATTEMPTS,
+            last_error: err.message,
+            sync_error_id: syncErr2.errorId,
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      } catch (auditError) {
+        console.error('Audit log failed (non-fatal):', auditError.message);
+      }
       return res.status(503).json({ code: 'GITHUB_API_UNAVAILABLE', message: 'GitHub API unavailable after maximum retry attempts' });
     }
 
@@ -122,6 +157,25 @@ const configureGithub = async (req, res) => {
     group.githubOrg = org.trim();
     group.githubRepoUrl = `https://github.com/${org.trim()}`;
     await group.save();
+
+    // Audit log: github_integration_setup (non-fatal)
+    try {
+      await createAuditLog({
+        action: 'github_integration_setup',
+        actorId: req.user.userId,
+        targetId: groupId,
+        groupId,
+        payload: {
+          status: 'success',
+          org: org.trim(),
+          github_repo_url: group.githubRepoUrl,
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed (non-fatal):', auditError.message);
+    }
 
     return res.status(201).json({
       github_org: group.githubOrg,
@@ -233,13 +287,30 @@ const configureJira = async (req, res) => {
       if (status === 401 || status === 403) {
         return res.status(422).json({ code: 'INVALID_JIRA_CREDENTIALS', message: 'JIRA credentials are invalid' });
       }
-      await SyncErrorLog.create({
+      const jiraSyncErr1 = await SyncErrorLog.create({
         service: 'jira',
         groupId,
         actorId: req.user.userId,
         attempts: MAX_RETRY_ATTEMPTS,
         lastError: err.message,
       });
+      try {
+        await createAuditLog({
+          action: 'sync_error',
+          actorId: req.user.userId,
+          groupId,
+          payload: {
+            api_type: 'jira',
+            retry_count: MAX_RETRY_ATTEMPTS,
+            last_error: err.message,
+            sync_error_id: jiraSyncErr1.errorId,
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      } catch (auditError) {
+        console.error('Audit log failed (non-fatal):', auditError.message);
+      }
       return res.status(503).json({ code: 'JIRA_API_UNAVAILABLE', message: 'JIRA API unavailable after maximum retry attempts' });
     }
 
@@ -258,13 +329,30 @@ const configureJira = async (req, res) => {
       if (status === 404) {
         return res.status(422).json({ code: 'INVALID_PROJECT_KEY', message: 'JIRA project key not found' });
       }
-      await SyncErrorLog.create({
+      const jiraSyncErr2 = await SyncErrorLog.create({
         service: 'jira',
         groupId,
         actorId: req.user.userId,
         attempts: MAX_RETRY_ATTEMPTS,
         lastError: err.message,
       });
+      try {
+        await createAuditLog({
+          action: 'sync_error',
+          actorId: req.user.userId,
+          groupId,
+          payload: {
+            api_type: 'jira',
+            retry_count: MAX_RETRY_ATTEMPTS,
+            last_error: err.message,
+            sync_error_id: jiraSyncErr2.errorId,
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      } catch (auditError) {
+        console.error('Audit log failed (non-fatal):', auditError.message);
+      }
       return res.status(503).json({ code: 'JIRA_API_UNAVAILABLE', message: 'JIRA API unavailable after maximum retry attempts' });
     }
 
@@ -276,6 +364,26 @@ const configureJira = async (req, res) => {
     group.jiraProject = projectData.name || project_key.trim();
     group.jiraBoardUrl = `${baseUrl}/jira/software/projects/${project_key.trim()}/boards`;
     await group.save();
+
+    // Audit log: jira_integration_setup (non-fatal)
+    try {
+      await createAuditLog({
+        action: 'jira_integration_setup',
+        actorId: req.user.userId,
+        targetId: groupId,
+        groupId,
+        payload: {
+          status: 'success',
+          jira_url: baseUrl,
+          project_key: project_key.trim(),
+          jira_board_url: group.jiraBoardUrl,
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed (non-fatal):', auditError.message);
+    }
 
     return res.status(201).json({
       jira_url: group.jiraUrl,

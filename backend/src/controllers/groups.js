@@ -296,24 +296,43 @@ const createGroup = async (req, res) => {
     }
     if (notifLastError) {
       try {
-        await SyncErrorLog.create({
+        const notifSyncErr = await SyncErrorLog.create({
           service: 'notification',
           groupId: group.groupId,
           actorId: leader.userId,
           attempts: 3,
           lastError: notifLastError.message,
         });
+        await createAuditLog({
+          action: 'sync_error',
+          actorId: leader.userId,
+          groupId: group.groupId,
+          payload: {
+            api_type: 'notification',
+            retry_count: 3,
+            last_error: notifLastError.message,
+            sync_error_id: notifSyncErr.errorId,
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
       } catch (logErr) {
-        console.error('SyncErrorLog write failed (non-fatal):', logErr.message);
+        console.error('SyncErrorLog/audit write failed (non-fatal):', logErr.message);
       }
     }
 
     // Audit log (non-fatal)
     try {
       await createAuditLog({
-        action: 'GROUP_CREATED',
+        action: 'group_created',
         actorId: leader.userId,
         targetId: group.groupId,
+        groupId: group.groupId,
+        payload: {
+          group_name: group.groupName,
+          leader_id: leader.userId,
+          status: group.status,
+        },
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
       });
@@ -538,10 +557,15 @@ const coordinatorOverride = async (req, res) => {
 
       try {
         await createAuditLog({
-          action: 'COORDINATOR_OVERRIDE',
+          action: 'coordinator_override',
           actorId: req.user.userId,
           targetId: groupId,
-          changes: { action, updates, reason: reason.trim() },
+          groupId,
+          payload: {
+            action,
+            updates,
+            reason: reason.trim(),
+          },
           ipAddress: req.ip,
           userAgent: req.headers['user-agent'],
         });
@@ -624,6 +648,25 @@ const coordinatorOverride = async (req, res) => {
         },
         { upsert: true, new: true }
       );
+
+      // Audit log: member_added via coordinator override
+      try {
+        await createAuditLog({
+          action: 'member_added',
+          actorId: req.user.userId,
+          targetId: groupId,
+          groupId,
+          payload: {
+            student_id: studentId,
+            via: 'coordinator_override',
+            reason: reason.trim(),
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      } catch (auditError) {
+        console.error('MEMBER_ADDED audit log failed (non-fatal):', auditError.message);
+      }
     } else {
       // remove_member
       group.members = group.members.filter((m) => m.userId !== studentId);
@@ -640,21 +683,23 @@ const coordinatorOverride = async (req, res) => {
         }
       );
 
-      // Log MEMBER_REMOVED action separately
+      // Log member_removed action
       try {
         await createAuditLog({
-          action: 'MEMBER_REMOVED',
+          action: 'member_removed',
           actorId: req.user.userId,
           targetId: groupId,
-          details: {
-            studentId,
+          groupId,
+          payload: {
+            student_id: studentId,
+            via: 'coordinator_override',
             reason: reason.trim(),
           },
           ipAddress: req.ip,
           userAgent: req.headers['user-agent'],
         });
       } catch (auditError) {
-        console.error('MEMBER_REMOVED audit log failed (non-fatal):', auditError.message);
+        console.error('member_removed audit log failed (non-fatal):', auditError.message);
       }
     }
 
@@ -671,10 +716,15 @@ const coordinatorOverride = async (req, res) => {
 
     try {
       await createAuditLog({
-        action: 'COORDINATOR_OVERRIDE',
+        action: 'coordinator_override',
         actorId: req.user.userId,
         targetId: groupId,
-        changes: { action, targetStudentId: studentId, reason: reason.trim() },
+        groupId,
+        payload: {
+          action,
+          target_student_id: studentId,
+          reason: reason.trim(),
+        },
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
       });

@@ -113,15 +113,14 @@ const addMember = async (req, res) => {
 
       // Create audit log for member addition
       await createAuditLog({
-        action: 'MEMBER_ADDED',
+        action: 'member_added',
         actorId: req.user.userId,
-        actorRole: req.user.role,
         targetId: groupId,
-        targetType: 'group',
-        details: {
-          inviteeId: invitee.userId,
+        groupId,
+        payload: {
+          student_id: invitee.userId,
           status: 'pending',
-          sourceProcess: 'direct_invitation',
+          via: 'leader_invitation',
         },
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
@@ -147,13 +146,30 @@ const addMember = async (req, res) => {
       }
 
       if (lastError) {
-        await SyncErrorLog.create({
+        const notifSyncErr = await SyncErrorLog.create({
           service: 'notification',
           groupId,
           actorId: req.user.userId,
           attempts: MAX_RETRY_ATTEMPTS,
           lastError: lastError.message,
         });
+        try {
+          await createAuditLog({
+            action: 'sync_error',
+            actorId: req.user.userId,
+            groupId,
+            payload: {
+              api_type: 'notification',
+              retry_count: MAX_RETRY_ATTEMPTS,
+              last_error: lastError.message,
+              sync_error_id: notifSyncErr.errorId,
+            },
+            ipAddress: req.ip,
+            userAgent: req.headers['user-agent'],
+          });
+        } catch (auditError) {
+          console.error('sync_error audit log failed (non-fatal):', auditError.message);
+        }
       } else if (notificationId) {
         invitation.notifiedAt = new Date();
         invitation.notificationId = notificationId;
@@ -353,14 +369,13 @@ const membershipDecision = async (req, res) => {
 
         // Create audit log for auto-deny
         await createAuditLog({
-          action: 'MEMBERSHIP_DECISION_AUTO_DENIED',
+          action: 'membership_decision',
           actorId: studentId,
-          actorRole: req.user.role,
           targetId: groupId,
-          targetType: 'group',
-          details: {
-            reason: 'student_already_in_approved_group',
+          groupId,
+          payload: {
             decision: 'auto_rejected',
+            reason: 'student_already_in_approved_group',
           },
           ipAddress: req.ip,
           userAgent: req.headers['user-agent'],
@@ -414,14 +429,14 @@ const membershipDecision = async (req, res) => {
 
         // Create audit log for each auto-denied invitation
         await createAuditLog({
-          action: 'MEMBERSHIP_DECISION_AUTO_DENIED',
+          action: 'membership_decision',
           actorId: studentId,
-          actorRole: req.user.role,
           targetId: otherInv.groupId,
-          targetType: 'group',
-          details: {
+          groupId: otherInv.groupId,
+          payload: {
+            decision: 'auto_rejected',
             reason: 'student_accepted_another_group',
-            acceptedGroupId: groupId,
+            accepted_group_id: groupId,
           },
           ipAddress: req.ip,
           userAgent: req.headers['user-agent'],
@@ -431,12 +446,11 @@ const membershipDecision = async (req, res) => {
 
     // Create audit log for membership decision
     await createAuditLog({
-      action: 'MEMBERSHIP_DECISION',
+      action: 'membership_decision',
       actorId: studentId,
-      actorRole: req.user.role,
       targetId: groupId,
-      targetType: 'group',
-      details: {
+      groupId,
+      payload: {
         decision,
         status: membershipStatus,
       },
@@ -464,13 +478,30 @@ const membershipDecision = async (req, res) => {
       }
     }
     if (notifLastError) {
-      await SyncErrorLog.create({
+      const decisionSyncErr = await SyncErrorLog.create({
         service: 'notification',
         groupId,
         actorId: studentId,
         attempts: MAX_RETRY_ATTEMPTS,
         lastError: notifLastError.message,
       });
+      try {
+        await createAuditLog({
+          action: 'sync_error',
+          actorId: studentId,
+          groupId,
+          payload: {
+            api_type: 'notification',
+            retry_count: MAX_RETRY_ATTEMPTS,
+            last_error: notifLastError.message,
+            sync_error_id: decisionSyncErr.errorId,
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      } catch (auditError) {
+        console.error('sync_error audit log failed (non-fatal):', auditError.message);
+      }
     } else if (decisionNotifId) {
       invitation.notificationId = decisionNotifId;
       invitation.notifiedAt = new Date();
