@@ -4,7 +4,7 @@ const MemberInvitation = require('../models/MemberInvitation');
 const User = require('../models/User');
 const ScheduleWindow = require('../models/ScheduleWindow');
 const { createAuditLog } = require('../services/auditService');
-const { dispatchInvitationNotification, dispatchMembershipDecisionNotification } = require('../services/notificationService');
+const { dispatchInvitationNotification, dispatchMembershipDecisionNotification, dispatchBatchInvitationNotification } = require('../services/notificationService');
 const { INACTIVE_GROUP_STATUSES } = require('../utils/groupStatusEnum');
 const SyncErrorLog = require('../models/SyncErrorLog');
 
@@ -246,13 +246,39 @@ const getMembers = async (req, res) => {
  * Calls the external Notification Service (mocked in tests).
  * On 3 consecutive failures, logs a SyncErrorLog entry and returns 503.
  */
+/**
+ * POST /groups/:groupId/notifications
+ *
+ * Process 2.4 — Construct and dispatch approval_request notifications to
+ * invited students, then write pending member records to D2.
+ *
+ * DFD flows:
+ *   f06 — 2.3 → 2.4 (invitee IDs + groupId forwarded from addMember)
+ *   f07 — 2.4 → Notification Service (batch approval_request dispatch)
+ *   f19 — 2.4 → D2 (write/update pending MemberInvitation + GroupMembership)
+ *
+ * Request body:
+ *   recipients (string[]) — student IDs to notify
+ *
+ * Response (201):
+ *   notification_id — ID returned by the Notification Service
+ *   delivered_to    — list of student IDs successfully notified
+ *   sent_at         — timestamp of dispatch
+ *
+ * Error behaviour:
+ *   503 NOTIFICATION_SERVICE_UNAVAILABLE — after MAX_RETRY_ATTEMPTS failures;
+ *       a SyncErrorLog entry is written so the failure is never silent.
+ */
 const dispatchNotification = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { invitee_id } = req.body;
+    const { recipients } = req.body;
 
-    if (!invitee_id || typeof invitee_id !== 'string' || !invitee_id.trim()) {
-      return res.status(400).json({ code: 'MISSING_INVITEE_ID', message: 'invitee_id is required' });
+    if (!Array.isArray(recipients) || recipients.length === 0) {
+      return res.status(400).json({
+        code: 'MISSING_RECIPIENTS',
+        message: 'recipients must be a non-empty array of student IDs',
+      });
     }
 
     const group = await Group.findOne({ groupId });
@@ -261,23 +287,51 @@ const dispatchNotification = async (req, res) => {
     }
 
     if (group.leaderId !== req.user.userId) {
-      return res.status(403).json({ code: 'FORBIDDEN', message: 'Only the group leader can dispatch notifications' });
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'Only the group leader can dispatch notifications',
+      });
     }
 
-    const invitation = await MemberInvitation.findOne({ groupId, inviteeId: invitee_id.trim() });
-    if (!invitation) {
-      return res.status(404).json({ code: 'INVITATION_NOT_FOUND', message: 'No pending invitation found for this student' });
+    // f19: Write pending member records to D2 for each recipient
+    const validRecipients = [];
+    for (const rawId of recipients) {
+      const inviteeId = typeof rawId === 'string' ? rawId.trim() : '';
+      if (!inviteeId) continue;
+
+      let invitation = await MemberInvitation.findOne({ groupId, inviteeId });
+      if (!invitation) {
+        invitation = await MemberInvitation.create({
+          groupId,
+          inviteeId,
+          invitedBy: req.user.userId,
+        });
+      }
+
+      const existingMembership = await GroupMembership.findOne({ groupId, studentId: inviteeId });
+      if (!existingMembership) {
+        await GroupMembership.create({ groupId, studentId: inviteeId, status: 'pending' });
+      }
+
+      validRecipients.push({ inviteeId, invitation });
     }
 
-    // Retry up to MAX_RETRY_ATTEMPTS times
+    if (validRecipients.length === 0) {
+      return res.status(400).json({
+        code: 'NO_VALID_RECIPIENTS',
+        message: 'No valid recipients found in the provided list',
+      });
+    }
+
+    // f07: Dispatch batch notification to Notification Service with retry
     let notifResult;
     let lastError;
     for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
       try {
-        notifResult = await dispatchInvitationNotification({
+        notifResult = await dispatchBatchInvitationNotification({
           groupId,
           groupName: group.groupName,
-          inviteeId: invitee_id.trim(),
+          recipients: validRecipients.map((r) => r.inviteeId),
           invitedBy: req.user.userId,
         });
         lastError = null;
@@ -301,15 +355,20 @@ const dispatchNotification = async (req, res) => {
       });
     }
 
-    invitation.notifiedAt = new Date();
-    invitation.notificationId = notifResult.notification_id || null;
-    await invitation.save();
+    // Update each invitation with the notification metadata
+    const sentAt = new Date();
+    const deliveredTo = [];
+    for (const { inviteeId, invitation } of validRecipients) {
+      invitation.notifiedAt = sentAt;
+      invitation.notificationId = notifResult.notification_id || null;
+      await invitation.save();
+      deliveredTo.push(inviteeId);
+    }
 
     return res.status(201).json({
-      notification_id: invitation.notificationId,
-      invitee_id: invitation.inviteeId,
-      notified_at: invitation.notifiedAt,
-      delivered_to: notifResult.delivered_to || [invitation.inviteeId],
+      notification_id: notifResult.notification_id,
+      delivered_to: deliveredTo,
+      sent_at: sentAt,
     });
   } catch (err) {
     console.error('dispatchNotification error:', err);
