@@ -1,6 +1,7 @@
 const Group = require('../models/Group');
 const ApprovalQueue = require('../models/ApprovalQueue');
 const GroupMembership = require('../models/GroupMembership');
+const MemberInvitation = require('../models/MemberInvitation');
 const Override = require('../models/Override');
 const User = require('../models/User');
 const ScheduleWindow = require('../models/ScheduleWindow');
@@ -383,6 +384,14 @@ const VALID_GROUP_FIELDS = new Set([
 
 const VALID_GROUP_STATUSES = new Set(['pending_validation', 'active', 'inactive', 'archived']);
 
+// State machine: valid status transitions
+const VALID_STATUS_TRANSITIONS = {
+  'pending_validation': new Set(['active', 'archived']),
+  'active': new Set(['inactive', 'archived']),
+  'inactive': new Set(['active', 'archived']),
+  'archived': new Set([]),
+};
+
 /**
  * PATCH /groups/:groupId/override
  *
@@ -399,6 +408,14 @@ const VALID_GROUP_STATUSES = new Set(['pending_validation', 'active', 'inactive'
  */
 const coordinatorOverride = async (req, res) => {
   try {
+    // --- Role validation: Only coordinators can perform overrides ---
+    if (req.user.role !== 'coordinator') {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'This action requires coordinator role',
+      });
+    }
+
     const { groupId } = req.params;
     const { action, target_student_id, updates, reason } = req.body;
 
@@ -455,6 +472,22 @@ const coordinatorOverride = async (req, res) => {
         });
       }
 
+      // State machine validation: check if status transition is legal
+      if (updates.status !== undefined && updates.status !== group.status) {
+        const currentStatus = group.status;
+        const nextStatus = updates.status;
+        const allowedTransitions = VALID_STATUS_TRANSITIONS[currentStatus];
+        if (!allowedTransitions || !allowedTransitions.has(nextStatus)) {
+          return res.status(409).json({
+            code: 'INVALID_STATUS_TRANSITION',
+            message: `Cannot transition from '${currentStatus}' to '${nextStatus}'. Allowed transitions: ${[...allowedTransitions].join(', ') || 'none'}`,
+          });
+        }
+      }
+
+      // Capture old status for audit log
+      const oldStatus = group.status;
+
       // f21: Apply partial update to D2 group record
       Object.assign(group, updates);
       await group.save();
@@ -481,6 +514,26 @@ const coordinatorOverride = async (req, res) => {
         });
       } catch (auditError) {
         console.error('Audit log failed (non-fatal):', auditError.message);
+      }
+
+      // If status was updated, also log STATUS_TRANSITION
+      if (updates.status !== undefined && updates.status !== oldStatus) {
+        try {
+          await createAuditLog({
+            action: 'STATUS_TRANSITION',
+            actorId: req.user.userId,
+            targetId: groupId,
+            details: {
+              previousStatus: oldStatus,
+              newStatus: updates.status,
+              reason: reason.trim(),
+            },
+            ipAddress: req.ip,
+            userAgent: req.headers['user-agent'],
+          });
+        } catch (auditError) {
+          console.error('STATUS_TRANSITION audit log failed (non-fatal):', auditError.message);
+        }
       }
 
       return res.status(200).json({
@@ -553,6 +606,23 @@ const coordinatorOverride = async (req, res) => {
           },
         }
       );
+
+      // Log MEMBER_REMOVED action separately
+      try {
+        await createAuditLog({
+          action: 'MEMBER_REMOVED',
+          actorId: req.user.userId,
+          targetId: groupId,
+          details: {
+            studentId,
+            reason: reason.trim(),
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      } catch (auditError) {
+        console.error('MEMBER_REMOVED audit log failed (non-fatal):', auditError.message);
+      }
     }
 
     const override = await Override.create({
@@ -595,4 +665,208 @@ const coordinatorOverride = async (req, res) => {
   }
 };
 
-module.exports = { forwardApprovalResults, createGroup, getGroup, coordinatorOverride };
+/**
+ * POST /groups/:groupId/member-requests
+ *
+ * Student creates a member request to join a group.
+ * The leader can then approve or reject the request.
+ *
+ * Returns 201 if request created successfully.
+ * Returns 409 if duplicate request already exists.
+ * Returns 404 if group not found.
+ * Returns 400 if group is full or student already in group.
+ */
+const createMemberRequest = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const studentId = req.user.userId;
+
+    // Find the group
+    const group = await Group.findOne({ groupId });
+    if (!group) {
+      return res.status(404).json({
+        code: 'GROUP_NOT_FOUND',
+        message: 'Group not found',
+      });
+    }
+
+    // Check if student already has a pending or approved membership in this group
+    const existingMembership = await GroupMembership.findOne({
+      groupId,
+      studentId,
+    });
+    if (existingMembership && ['pending', 'approved'].includes(existingMembership.status)) {
+      return res.status(409).json({
+        code: 'DUPLICATE_REQUEST',
+        message: 'You have already requested to join this group or are already a member',
+      });
+    }
+
+    // Check if student is already in another active group
+    const otherGroupMembership = await GroupMembership.findOne({
+      groupId: { $ne: groupId },
+      studentId,
+      status: 'approved',
+    });
+    if (otherGroupMembership) {
+      return res.status(400).json({
+        code: 'ALREADY_IN_GROUP',
+        message: 'You already belong to another active group',
+      });
+    }
+
+    // Create the member request using MemberInvitation model
+    const memberRequest = await MemberInvitation.create({
+      groupId,
+      inviteeId: studentId,
+      invitedBy: 'self', // Student is requesting themselves
+      status: 'pending',
+    });
+
+    // Create associated GroupMembership
+    if (!existingMembership) {
+      await GroupMembership.create({
+        groupId,
+        studentId,
+        status: 'pending',
+      });
+    }
+
+    // Audit log
+    try {
+      await createAuditLog({
+        action: 'MEMBER_REQUESTED',
+        actorId: studentId,
+        targetId: groupId,
+        details: {
+          invitationId: memberRequest.invitationId,
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed (non-fatal):', auditError.message);
+    }
+
+    return res.status(201).json({
+      request_id: memberRequest.invitationId,
+      group_id: groupId,
+      student_id: studentId,
+      status: 'pending',
+      created_at: memberRequest.createdAt.toISOString(),
+    });
+  } catch (err) {
+    console.error('createMemberRequest error:', err);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: 'An unexpected error occurred',
+    });
+  }
+};
+
+/**
+ * PATCH /groups/:groupId/member-requests/:requestId
+ *
+ * Leader approves or rejects a member request.
+ *
+ * Returns 200 if decision recorded successfully.
+ * Returns 404 if request not found.
+ * Returns 403 if user is not the group leader.
+ * Returns 400 if invalid decision.
+ */
+const decideMemberRequest = async (req, res) => {
+  try {
+    const { groupId, requestId } = req.params;
+    const { decision } = req.body;
+
+    // Validate decision
+    if (!decision || !['approved', 'rejected'].includes(decision)) {
+      return res.status(400).json({
+        code: 'INVALID_DECISION',
+        message: 'decision must be "approved" or "rejected"',
+      });
+    }
+
+    // Find the group
+    const group = await Group.findOne({ groupId });
+    if (!group) {
+      return res.status(404).json({
+        code: 'GROUP_NOT_FOUND',
+        message: 'Group not found',
+      });
+    }
+
+    // Check if user is the group leader
+    if (group.leaderId !== req.user.userId) {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'Only the group leader can decide on member requests',
+      });
+    }
+
+    // Find the member request
+    const memberRequest = await MemberInvitation.findOne({
+      invitationId: requestId,
+      groupId,
+    });
+
+    if (!memberRequest) {
+      return res.status(404).json({
+        code: 'REQUEST_NOT_FOUND',
+        message: 'Member request not found',
+      });
+    }
+
+    // Update the request status
+    const timestamp = new Date();
+    memberRequest.status = decision === 'approved' ? 'accepted' : 'rejected';
+    memberRequest.decidedAt = timestamp;
+    await memberRequest.save();
+
+    // Update GroupMembership status
+    await GroupMembership.findOneAndUpdate(
+      {
+        groupId,
+        studentId: memberRequest.inviteeId,
+      },
+      {
+        status: decision === 'approved' ? 'approved' : 'rejected',
+        decidedAt: timestamp,
+      }
+    );
+
+    // Audit log
+    try {
+      await createAuditLog({
+        action: 'MEMBERSHIP_DECISION',
+        actorId: req.user.userId,
+        targetId: groupId,
+        details: {
+          studentId: memberRequest.inviteeId,
+          decision: decision === 'approved' ? 'approved' : 'rejected',
+          invitationId: requestId,
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed (non-fatal):', auditError.message);
+    }
+
+    return res.status(200).json({
+      request_id: requestId,
+      group_id: groupId,
+      student_id: memberRequest.inviteeId,
+      decision: decision === 'approved' ? 'approved' : 'rejected',
+      decided_at: timestamp.toISOString(),
+    });
+  } catch (err) {
+    console.error('decideMemberRequest error:', err);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: 'An unexpected error occurred',
+    });
+  }
+};
+
+module.exports = { forwardApprovalResults, createGroup, getGroup, createMemberRequest, decideMemberRequest, coordinatorOverride };
