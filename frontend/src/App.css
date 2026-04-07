@@ -94,3 +94,21 @@ body {
     font-size: 1.5rem;
   }
 }
+
+/* App Layout with Sidebar */
+.app-layout {
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+}
+
+.app-layout-sidebar {
+  flex-shrink: 0;
+}
+
+.app-layout-content {
+  flex-grow: 1;
+  width: 100%;
+  overflow-y: auto;
+}
+

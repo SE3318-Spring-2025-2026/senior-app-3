@@ -239,3 +239,57 @@ export const getGroupDashboardData = async (groupId) => {
     throw error;
   }
 };
+
+/**
+ * Get all groups (coordinator only)
+ * @returns {Promise<{groups: object[], total: number}>} List of all groups with status and integration info
+ */
+export const getAllGroups = async () => {
+  const response = await apiClient.get('/groups');
+  return response.data;
+};
+
+/**
+ * Coordinator override: add or remove member, or update group fields
+ * @param {string} groupId - The group ID
+ * @param {object} payload
+ * @param {'add_member'|'remove_member'|'update_group'} payload.action
+ * @param {string} [payload.target_student_id] - Required for add_member / remove_member
+ * @param {object} [payload.updates] - Required for update_group
+ * @param {string} payload.reason - Required reason for override
+ * @returns {Promise<{override_id, action, status, confirmation, timestamp}>}
+ */
+export const coordinatorOverride = async (groupId, payload) => {
+  const response = await apiClient.patch(`/groups/${groupId}/override`, payload);
+  return response.data;
+};
+
+/**
+ * Get group status
+ * @param {string} groupId - The group ID
+ * @returns {Promise<{groupId, status, lastTransitionAt, lastTransitionBy}>}
+ */
+export const getGroupStatus = async (groupId) => {
+  try {
+    const response = await apiClient.get(`/groups/${groupId}/status`);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching group status:', error);
+    throw error;
+  }
+};
+
+/**
+ * Transition group to a new status
+ * @param {string} groupId - The group ID
+ * @param {string} newStatus - The new status ('active', 'inactive', 'rejected', etc.)
+ * @param {string} reason - Reason for status transition
+ * @returns {Promise}
+ */
+export const transitionGroupStatus = async (groupId, newStatus, reason) => {
+  const response = await apiClient.patch(`/groups/${groupId}/status`, {
+    newStatus,
+    reason,
+  });
+  return response.data;
+};

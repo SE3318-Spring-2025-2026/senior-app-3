@@ -963,4 +963,88 @@ const decideMemberRequest = async (req, res) => {
   }
 };
 
-module.exports = { forwardApprovalResults, createGroup, getGroup, createMemberRequest, decideMemberRequest, coordinatorOverride };
+/**
+ * GET /api/v1/groups
+ * Coordinator-only endpoint: List all groups with status, member count, and integration health
+ * 
+ * Returns array of groups with:
+ * - groupId, groupName, leaderId, status, members (count + details)
+ * - githubConnected: boolean (based on githubOrg and githubRepoUrl existence)
+ * - jiraConnected: boolean (based on projectKey and jiraBoardUrl existence)
+ * - integrationErrors: array of sync error logs for this group
+ */
+const getAllGroups = async (req, res) => {
+  try {
+    if (req.user.role !== 'coordinator') {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'This action requires coordinator role',
+      });
+    }
+
+    // Get all groups, sorted by createdAt (newest first)
+    const groups = await Group.find().sort({ createdAt: -1 }).lean();
+
+    // For each group, fetch integration errors from SyncErrorLog
+    const enrichedGroups = await Promise.all(
+      groups.map(async (group) => {
+        const syncErrors = await SyncErrorLog.find({ groupId: group.groupId })
+          .sort({ createdAt: -1 })
+          .limit(5)
+          .lean();
+
+        return {
+          groupId: group.groupId,
+          groupName: group.groupName,
+          leaderId: group.leaderId,
+          status: group.status,
+          memberCount: group.members.length,
+          members: group.members.map((m) => ({
+            userId: m.userId,
+            role: m.role,
+            status: m.status,
+            joinedAt: m.joinedAt,
+          })),
+          githubConnected: !!(group.githubOrg && group.githubRepoUrl),
+          jiraConnected: !!(group.projectKey && group.jiraBoardUrl),
+          integrationErrors: syncErrors.map((err) => ({
+            service: err.service,
+            lastError: err.lastError,
+            attempts: err.attempts,
+            createdAt: err.createdAt,
+          })),
+          createdAt: group.createdAt,
+          updatedAt: group.updatedAt,
+        };
+      })
+    );
+
+    // Audit log (non-fatal)
+    try {
+      await createAuditLog({
+        action: 'groups_listed',
+        actorId: req.user.userId,
+        payload: {
+          total_groups: enrichedGroups.length,
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed (non-fatal):', auditError.message);
+    }
+
+    return res.status(200).json({
+      groups: enrichedGroups,
+      total: enrichedGroups.length,
+    });
+  } catch (error) {
+    console.error('getAllGroups error:', error);
+    return res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'An unexpected error occurred while retrieving groups.',
+    });
+  }
+};
+
+module.exports = { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride };

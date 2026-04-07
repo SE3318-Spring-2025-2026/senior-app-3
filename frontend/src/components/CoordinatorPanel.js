@@ -4,6 +4,10 @@ import {
   listScheduleWindows,
   createScheduleWindow,
   deactivateScheduleWindow,
+  getAllGroups,
+  coordinatorOverride,
+  getGroupStatus,
+  transitionGroupStatus,
 } from '../api/groupService';
 
 const OPERATION_TYPES = [
@@ -11,108 +15,240 @@ const OPERATION_TYPES = [
   { value: 'member_addition', label: 'Member Addition' },
 ];
 
-const toLocalDatetimeValue = (date) => {
-  if (!date) return '';
-  const d = new Date(date);
-  // Format as YYYY-MM-DDTHH:MM for datetime-local input
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
+const GROUP_STATUSES = [
+  { value: 'pending_validation', label: 'Pending Validation' },
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive' },
+];
+
+
 
 /**
  * Coordinator Panel
- * Allows coordinators to configure schedule windows per operation type.
+ * Manages all coordinator functions:
+ * - View all groups with status and integration health
+ * - Perform overrides (add members, remove members, update group fields)
+ * - Configure schedule windows
+ * - Monitor integration health
  */
 const CoordinatorPanel = () => {
   const navigate = useNavigate();
 
-  const [windows, setWindows] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [successMsg, setSuccessMsg] = useState(null);
+  // Tab management
+  const [activeTab, setActiveTab] = useState('groups'); // groups | overrides | schedule | health
 
-  const [form, setForm] = useState({
+  // Groups data
+  const [groups, setGroups] = useState([]);
+  const [groupsLoading, setGroupsLoading] = useState(true);
+  const [groupsError, setGroupsError] = useState(null);
+
+  // Schedule windows data
+  const [windows, setWindows] = useState([]);
+  const [windowsLoading, setWindowsLoading] = useState(true);
+  const [windowsError, setWindowsError] = useState(null);
+
+  // Selected group for override actions
+  const [selectedGroupId, setSelectedGroupId] = useState(null);
+
+  // Override form state
+  const [overrideForm, setOverrideForm] = useState({
+    action: 'add_member',
+    targetStudentId: '',
+    updates: {},
+    reason: '',
+  });
+  const [overrideError, setOverrideError] = useState(null);
+  const [overrideSuccess, setOverrideSuccess] = useState(null);
+  const [overrideSubmitting, setOverrideSubmitting] = useState(false);
+
+  // Schedule window form state
+  const [scheduleForm, setScheduleForm] = useState({
     operationType: 'group_creation',
     startsAt: '',
     endsAt: '',
     label: '',
   });
-  const [formError, setFormError] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [scheduleError, setScheduleError] = useState(null);
+  const [scheduleSuccess, setScheduleSuccess] = useState(null);
+  const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
 
-  const loadWindows = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  // Load groups
+  const loadGroups = useCallback(async () => {
+    setGroupsLoading(true);
+    setGroupsError(null);
     try {
-      const data = await listScheduleWindows();
-      setWindows(data.windows);
-    } catch {
-      setError('Failed to load schedule windows.');
+      const data = await getAllGroups();
+      setGroups(data.groups || []);
+    } catch (err) {
+      setGroupsError('Failed to load groups.');
+      console.error('Error loading groups:', err);
     } finally {
-      setLoading(false);
+      setGroupsLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    loadWindows();
-  }, [loadWindows]);
+  // Load schedule windows
+  const loadWindows = useCallback(async () => {
+    setWindowsLoading(true);
+    setWindowsError(null);
+    try {
+      const data = await listScheduleWindows();
+      setWindows(data.windows || []);
+    } catch (err) {
+      setWindowsError('Failed to load schedule windows.');
+    } finally {
+      setWindowsLoading(false);
+    }
+  }, []);
 
-  const handleFormChange = (e) => {
-    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
-    setFormError(null);
+  // Initial load
+  useEffect(() => {
+    loadGroups();
+    loadWindows();
+  }, [loadGroups, loadWindows]);
+
+  // Handle override form change
+  const handleOverrideFormChange = (e) => {
+    const { name, value } = e.target;
+    setOverrideForm((prev) => ({ ...prev, [name]: value }));
+    setOverrideError(null);
   };
 
-  const handleSubmit = async (e) => {
+  // Handle override submission
+  const handleOverrideSubmit = async (e) => {
     e.preventDefault();
-    setFormError(null);
-    setSuccessMsg(null);
+    setOverrideError(null);
+    setOverrideSuccess(null);
 
-    if (!form.startsAt || !form.endsAt) {
-      setFormError('Both open and close times are required.');
-      return;
-    }
-    if (new Date(form.endsAt) <= new Date(form.startsAt)) {
-      setFormError('Close time must be after open time.');
+    if (!selectedGroupId) {
+      setOverrideError('Please select a group.');
       return;
     }
 
-    setSubmitting(true);
+    if (!overrideForm.reason.trim()) {
+      setOverrideError('Reason is required.');
+      return;
+    }
+
+    if (
+      (overrideForm.action === 'add_member' || overrideForm.action === 'remove_member') &&
+      !overrideForm.targetStudentId.trim()
+    ) {
+      setOverrideError('Student ID is required.');
+      return;
+    }
+
+    if (overrideForm.action === 'update_group' && Object.keys(overrideForm.updates).length === 0) {
+      setOverrideError('Please specify at least one field to update.');
+      return;
+    }
+
+    setOverrideSubmitting(true);
+    try {
+      const payload = {
+        action: overrideForm.action,
+        reason: overrideForm.reason.trim(),
+      };
+
+      if (overrideForm.action === 'add_member' || overrideForm.action === 'remove_member') {
+        payload.target_student_id = overrideForm.targetStudentId.trim();
+      } else if (overrideForm.action === 'update_group') {
+        payload.updates = overrideForm.updates;
+      }
+
+      const result = await coordinatorOverride(selectedGroupId, payload);
+      setOverrideSuccess(`✓ ${result.confirmation}`);
+      setOverrideForm({ action: 'add_member', targetStudentId: '', updates: {}, reason: '' });
+      await loadGroups();
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to perform override.';
+      setOverrideError(msg);
+    } finally {
+      setOverrideSubmitting(false);
+    }
+  };
+
+  // Handle schedule form change
+  const handleScheduleFormChange = (e) => {
+    const { name, value } = e.target;
+    setScheduleForm((prev) => ({ ...prev, [name]: value }));
+    setScheduleError(null);
+  };
+
+  // Handle schedule submission
+  const handleScheduleSubmit = async (e) => {
+    e.preventDefault();
+    setScheduleError(null);
+    setScheduleSuccess(null);
+
+    if (!scheduleForm.startsAt || !scheduleForm.endsAt) {
+      setScheduleError('Both open and close times are required.');
+      return;
+    }
+
+    if (new Date(scheduleForm.endsAt) <= new Date(scheduleForm.startsAt)) {
+      setScheduleError('Close time must be after open time.');
+      return;
+    }
+
+    setScheduleSubmitting(true);
     try {
       await createScheduleWindow(
-        form.operationType,
-        new Date(form.startsAt).toISOString(),
-        new Date(form.endsAt).toISOString(),
-        form.label
+        scheduleForm.operationType,
+        new Date(scheduleForm.startsAt).toISOString(),
+        new Date(scheduleForm.endsAt).toISOString(),
+        scheduleForm.label
       );
-      setSuccessMsg(`Schedule window for "${OPERATION_TYPES.find((t) => t.value === form.operationType)?.label}" created.`);
-      setForm((prev) => ({ ...prev, startsAt: '', endsAt: '', label: '' }));
+      setScheduleSuccess(`✓ Schedule window created.`);
+      setScheduleForm((prev) => ({ ...prev, startsAt: '', endsAt: '', label: '' }));
       await loadWindows();
     } catch (err) {
       const msg = err.response?.data?.message || 'Failed to create schedule window.';
-      setFormError(msg);
+      setScheduleError(msg);
     } finally {
-      setSubmitting(false);
+      setScheduleSubmitting(false);
     }
   };
 
-  const handleDeactivate = async (windowId) => {
-    setSuccessMsg(null);
-    setError(null);
+  const handleDeactivateWindow = async (windowId) => {
     try {
       await deactivateScheduleWindow(windowId);
-      setSuccessMsg('Schedule window deactivated.');
+      setScheduleSuccess('✓ Schedule window deactivated.');
       await loadWindows();
-    } catch {
-      setError('Failed to deactivate window.');
+    } catch (err) {
+      setScheduleError('Failed to deactivate window.');
     }
   };
 
   const activeWindows = windows.filter((w) => w.isActive);
   const inactiveWindows = windows.filter((w) => !w.isActive);
 
+  // Integration health helper
+  const getIntegrationHealthClass = (group) => {
+    const hasErrors = group.integrationErrors && group.integrationErrors.length > 0;
+    if (hasErrors) return 'error';
+    if (group.githubConnected && group.jiraConnected) return 'healthy';
+    if (group.githubConnected || group.jiraConnected) return 'partial';
+    return 'none';
+  };
+
+  const labelStyle = { display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '14px' };
+  const inputStyle = { width: '100%', padding: '8px 12px', border: '1px solid #d1d5da', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' };
+  const tabButtonStyle = (isActive) => ({
+    padding: '10px 16px',
+    backgroundColor: isActive ? '#0366d6' : '#fafbfc',
+    color: isActive ? 'white' : '#24292e',
+    border: isActive ? 'none' : '1px solid #d1d5da',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    marginRight: '8px',
+    fontSize: '14px',
+    fontWeight: '500',
+  });
+
   return (
     <div className="page" style={{ padding: '24px' }}>
-      <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         <button
           onClick={() => navigate(-1)}
           style={{
@@ -130,23 +266,239 @@ const CoordinatorPanel = () => {
 
         <h1 style={{ marginTop: 0 }}>Coordinator Panel</h1>
 
-        {/* ── Schedule Window Configuration ─────────────────────────── */}
-        <section style={{ background: 'white', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '24px' }}>
-          <h2 style={{ marginTop: 0, fontSize: '18px' }}>Configure Schedule Window</h2>
-          <p style={{ color: '#666', fontSize: '14px', marginTop: 0 }}>
-            Set the open and close times for group formation operations. Creating a new window for an
-            operation type will deactivate any overlapping existing windows of that type.
-          </p>
+        {/* Tab Navigation */}
+        <div style={{ marginBottom: '24px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button style={tabButtonStyle(activeTab === 'groups')} onClick={() => setActiveTab('groups')}>
+            Groups ({groups.length})
+          </button>
+          <button style={tabButtonStyle(activeTab === 'overrides')} onClick={() => setActiveTab('overrides')}>
+            Overrides
+          </button>
+          <button style={tabButtonStyle(activeTab === 'schedule')} onClick={() => setActiveTab('schedule')}>
+            Schedule Windows
+          </button>
+          <button style={tabButtonStyle(activeTab === 'health')} onClick={() => setActiveTab('health')}>
+            Integration Health
+          </button>
+        </div>
 
-          <form onSubmit={handleSubmit}>
+        {/* ──── GROUPS TAB ──── */}
+        {activeTab === 'groups' && (
+          <section style={{ background: 'white', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+            <h2 style={{ marginTop: 0, fontSize: '18px' }}>All Groups</h2>
+            {groupsLoading && <p style={{ color: '#666' }}>Loading groups…</p>}
+            {groupsError && <p style={{ color: '#d73a49' }}>{groupsError}</p>}
+
+            {!groupsLoading && groups.length === 0 && (
+              <p style={{ color: '#666', fontSize: '14px' }}>No groups found.</p>
+            )}
+
+            {!groupsLoading && groups.length > 0 && (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #e1e4e8', backgroundColor: '#f6f8fa' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Group ID</th>
+                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Group Name</th>
+                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Leader</th>
+                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Status</th>
+                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Members</th>
+                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>GitHub</th>
+                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>JIRA</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groups.map((group) => (
+                      <tr key={group.groupId} style={{ borderBottom: '1px solid #e1e4e8' }}>
+                        <td style={{ padding: '12px', fontFamily: '\"SF Mono\", Monaco, monospace', fontSize: '12px', color: '#444' }}>
+                          {group.groupId}
+                        </td>
+                        <td style={{ padding: '12px', color: '#24292e' }}>{group.groupName}</td>
+                        <td style={{ padding: '12px', fontSize: '12px', color: '#444' }}>{group.leaderId}</td>
+                        <td style={{ padding: '12px' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '4px 8px',
+                            borderRadius: '12px',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            backgroundColor: group.status === 'active' ? '#dcffe4' : group.status === 'pending_validation' ? '#fff3cd' : '#f1f8ff',
+                            color: group.status === 'active' ? '#22863a' : group.status === 'pending_validation' ? '#856404' : '#0366d6',
+                          }}>
+                            {group.status}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px', color: '#444' }}>{group.memberCount}</td>
+                        <td style={{ padding: '12px' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '3px 6px',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: '600',
+                            backgroundColor: group.githubConnected ? '#28a745' : '#e0e0e0',
+                            color: group.githubConnected ? 'white' : '#666',
+                          }}>
+                            {group.githubConnected ? '✓' : '✗'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '3px 6px',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: '600',
+                            backgroundColor: group.jiraConnected ? '#0366d6' : '#e0e0e0',
+                            color: group.jiraConnected ? 'white' : '#666',
+                          }}>
+                            {group.jiraConnected ? '✓' : '✗'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ──── OVERRIDES TAB ──── */}
+        {activeTab === 'overrides' && (
+          <section style={{ background: 'white', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+            <h2 style={{ marginTop: 0, fontSize: '18px' }}>Override Actions</h2>
+            <p style={{ color: '#666', fontSize: '14px', marginTop: 0 }}>
+              Perform administrative overrides: add/remove members or update group fields.
+            </p>
+
+            <form onSubmit={handleOverrideSubmit}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                <div>
+                  <label htmlFor="ov-group" style={labelStyle}>Select Group</label>
+                  <select
+                    id="ov-group"
+                    value={selectedGroupId}
+                    onChange={(e) => setSelectedGroupId(e.target.value)}
+                    style={inputStyle}
+                    required
+                  >
+                    <option value="">-- Choose a group --</option>
+                    {groups.map((g) => (
+                      <option key={g.groupId} value={g.groupId}>
+                        {g.groupName} ({g.groupId})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="ov-action" style={labelStyle}>Action Type</label>
+                  <select
+                    id="ov-action"
+                    name="action"
+                    value={overrideForm.action}
+                    onChange={handleOverrideFormChange}
+                    style={inputStyle}
+                  >
+                    <option value="add_member">Add Member</option>
+                    <option value="remove_member">Remove Member</option>
+                    <option value="update_group">Update Group</option>
+                  </select>
+                </div>
+              </div>
+
+              {(overrideForm.action === 'add_member' || overrideForm.action === 'remove_member') && (
+                <div style={{ marginBottom: '16px' }}>
+                  <label htmlFor="ov-student" style={labelStyle}>Student ID</label>
+                  <input
+                    id="ov-student"
+                    name="targetStudentId"
+                    type="text"
+                    value={overrideForm.targetStudentId}
+                    onChange={handleOverrideFormChange}
+                    placeholder="Enter student user ID"
+                    style={inputStyle}
+                    required={overrideForm.action === 'add_member' || overrideForm.action === 'remove_member'}
+                  />
+                </div>
+              )}
+
+              {overrideForm.action === 'update_group' && (
+                <div style={{ marginBottom: '16px' }}>
+                  <label htmlFor="ov-updates" style={labelStyle}>Updates (JSON format)</label>
+                  <textarea
+                    id="ov-updates"
+                    placeholder='{"groupName": "New Name"}'
+                    style={{ ...inputStyle, fontFamily: '\"SF Mono\", Monaco, monospace', fontSize: '12px' }}
+                    rows="4"
+                    onChange={(e) => {
+                      try {
+                        const updates = e.target.value.trim() ? JSON.parse(e.target.value) : {};
+                        setOverrideForm((prev) => ({ ...prev, updates }));
+                      } catch (err) {
+                        // Invalid JSON, don't update
+                      }
+                    }}
+                  />
+                </div>
+              )}
+
+              <div style={{ marginBottom: '16px' }}>
+                <label htmlFor="ov-reason" style={labelStyle}>Reason</label>
+                <textarea
+                  id="ov-reason"
+                  name="reason"
+                  value={overrideForm.reason}
+                  onChange={handleOverrideFormChange}
+                  placeholder="Explain the reason for this override"
+                  style={{ ...inputStyle, fontFamily: 'inherit' }}
+                  rows="3"
+                  required
+                />
+              </div>
+
+              {overrideError && <p style={{ color: '#d73a49', fontSize: '14px', marginBottom: '12px' }}>{overrideError}</p>}
+              {overrideSuccess && <p style={{ color: '#22863a', fontSize: '14px', marginBottom: '12px' }}>{overrideSuccess}</p>}
+
+              <button
+                type="submit"
+                disabled={overrideSubmitting}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: overrideSubmitting ? '#ccc' : '#0366d6',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: overrideSubmitting ? 'not-allowed' : 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                }}
+              >
+                {overrideSubmitting ? 'Processing…' : 'Execute Override'}
+              </button>
+            </form>
+          </section>
+        )}
+
+        {/* ──── SCHEDULE WINDOWS TAB ──── */}
+        {activeTab === 'schedule' && (
+          <>
+            <section style={{ background: 'white', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '24px' }}>
+              <h2 style={{ marginTop: 0, fontSize: '18px' }}>Configure Schedule Window</h2>
+              <p style={{ color: '#666', fontSize: '14px', marginTop: 0 }}>
+                Set the open and close times for group formation operations.
+              </p>
+
+              <form onSubmit={handleScheduleSubmit}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
               <div>
                 <label htmlFor="sw-operationType" style={labelStyle}>Operation Type</label>
                 <select
                   id="sw-operationType"
                   name="operationType"
-                  value={form.operationType}
-                  onChange={handleFormChange}
+                  value={scheduleForm.operationType}
+                  onChange={handleScheduleFormChange}
                   style={inputStyle}
                 >
                   {OPERATION_TYPES.map((t) => (
@@ -161,8 +513,8 @@ const CoordinatorPanel = () => {
                   id="sw-label"
                   name="label"
                   type="text"
-                  value={form.label}
-                  onChange={handleFormChange}
+                  value={scheduleForm.label}
+                  onChange={handleScheduleFormChange}
                   placeholder="e.g. Spring 2026 – Group Creation"
                   style={inputStyle}
                 />
@@ -174,8 +526,8 @@ const CoordinatorPanel = () => {
                   id="sw-startsAt"
                   name="startsAt"
                   type="datetime-local"
-                  value={form.startsAt}
-                  onChange={handleFormChange}
+                  value={scheduleForm.startsAt}
+                  onChange={handleScheduleFormChange}
                   style={inputStyle}
                   required
                 />
@@ -187,137 +539,218 @@ const CoordinatorPanel = () => {
                   id="sw-endsAt"
                   name="endsAt"
                   type="datetime-local"
-                  value={form.endsAt}
-                  onChange={handleFormChange}
+                  value={scheduleForm.endsAt}
+                  onChange={handleScheduleFormChange}
                   style={inputStyle}
                   required
                 />
               </div>
             </div>
 
-            {formError && <p style={{ color: '#d73a49', fontSize: '14px', marginBottom: '12px' }}>{formError}</p>}
-            {successMsg && <p style={{ color: '#22863a', fontSize: '14px', marginBottom: '12px' }}>{successMsg}</p>}
+            {scheduleError && <p style={{ color: '#d73a49', fontSize: '14px', marginBottom: '12px' }}>{scheduleError}</p>}
+            {scheduleSuccess && <p style={{ color: '#22863a', fontSize: '14px', marginBottom: '12px' }}>{scheduleSuccess}</p>}
 
             <button
               type="submit"
-              disabled={submitting}
+              disabled={scheduleSubmitting}
               style={{
                 padding: '10px 20px',
-                backgroundColor: submitting ? '#ccc' : '#0366d6',
+                backgroundColor: scheduleSubmitting ? '#ccc' : '#0366d6',
                 color: 'white',
                 border: 'none',
                 borderRadius: '6px',
-                cursor: submitting ? 'not-allowed' : 'pointer',
+                cursor: scheduleSubmitting ? 'not-allowed' : 'pointer',
                 fontSize: '14px',
                 fontWeight: '600',
               }}
             >
-              {submitting ? 'Saving…' : 'Create Window'}
+              {scheduleSubmitting ? 'Saving…' : 'Create Window'}
             </button>
-          </form>
-        </section>
+              </form>
+            </section>
 
-        {/* ── Active Windows ─────────────────────────────────────────── */}
-        <section style={{ background: 'white', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '24px' }}>
-          <h2 style={{ marginTop: 0, fontSize: '18px' }}>Active Windows</h2>
+            <section style={{ background: 'white', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '24px' }}>
+              <h2 style={{ marginTop: 0, fontSize: '18px' }}>Active Windows</h2>
 
-          {loading && <p style={{ color: '#666' }}>Loading…</p>}
-          {error && <p style={{ color: '#d73a49' }}>{error}</p>}
+              {windowsLoading && <p style={{ color: '#666' }}>Loading…</p>}
+              {windowsError && <p style={{ color: '#d73a49' }}>{windowsError}</p>}
 
-          {!loading && activeWindows.length === 0 && (
-            <p style={{ color: '#666', fontSize: '14px' }}>No active schedule windows. All operations are currently blocked.</p>
-          )}
+              {!windowsLoading && activeWindows.length === 0 && (
+                <p style={{ color: '#666', fontSize: '14px' }}>No active schedule windows. All operations are currently blocked.</p>
+              )}
 
-          {activeWindows.map((w) => (
-            <WindowRow key={w.windowId} window={w} onDeactivate={handleDeactivate} />
-          ))}
-        </section>
+              {activeWindows.map((w) => {
+                const typeLabel = OPERATION_TYPES.find((t) => t.value === w.operationType)?.label ?? w.operationType;
+                const now = new Date();
+                const isOpen = w.isActive && new Date(w.startsAt) <= now && new Date(w.endsAt) >= now;
 
-        {/* ── Inactive Windows ───────────────────────────────────────── */}
-        {inactiveWindows.length > 0 && (
+                return (
+                  <div key={w.windowId} style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px 0',
+                    borderBottom: '1px solid #e1e4e8',
+                  }}>
+                    <div>
+                      <span style={{
+                        display: 'inline-block',
+                        padding: '2px 8px',
+                        borderRadius: '12px',
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        marginRight: '10px',
+                        backgroundColor: isOpen ? '#dcffe4' : '#f1f8ff',
+                        color: isOpen ? '#22863a' : '#0366d6',
+                      }}>
+                        {typeLabel}
+                      </span>
+                      {w.label && <span style={{ fontSize: '14px', fontWeight: '600', marginRight: '8px' }}>{w.label}</span>}
+                      <span style={{ fontSize: '13px', color: '#586069' }}>
+                        {new Date(w.startsAt).toLocaleString()} → {new Date(w.endsAt).toLocaleString()}
+                      </span>
+                      {isOpen && (
+                        <span style={{ marginLeft: '10px', fontSize: '12px', color: '#22863a', fontWeight: '600' }}>● Open</span>
+                      )}
+                    </div>
+
+                    {w.isActive && (
+                      <button
+                        onClick={() => handleDeactivateWindow(w.windowId)}
+                        style={{
+                          padding: '6px 12px',
+                          backgroundColor: '#fafbfc',
+                          border: '1px solid #d1d5da',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          fontSize: '13px',
+                          color: '#d73a49',
+                          flexShrink: 0,
+                        }}
+                      >
+                        Deactivate
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </section>
+
+            {inactiveWindows.length > 0 && (
+              <section style={{ background: 'white', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+                <h2 style={{ marginTop: 0, fontSize: '18px', color: '#666' }}>Past / Deactivated Windows</h2>
+                {inactiveWindows.map((w) => {
+                  const typeLabel = OPERATION_TYPES.find((t) => t.value === w.operationType)?.label ?? w.operationType;
+                  return (
+                    <div key={w.windowId} style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '12px 0',
+                      borderBottom: '1px solid #e1e4e8',
+                    }}>
+                      <div>
+                        <span style={{
+                          display: 'inline-block',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          fontSize: '12px',
+                          fontWeight: '600',
+                          marginRight: '10px',
+                          backgroundColor: '#f1f8ff',
+                          color: '#0366d6',
+                        }}>
+                          {typeLabel}
+                        </span>
+                        {w.label && <span style={{ fontSize: '14px', fontWeight: '600', marginRight: '8px' }}>{w.label}</span>}
+                        <span style={{ fontSize: '13px', color: '#586069' }}>
+                          {new Date(w.startsAt).toLocaleString()} → {new Date(w.endsAt).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </section>
+            )}
+          </>
+        )}
+
+        {/* ──── INTEGRATION HEALTH TAB ──── */}
+        {activeTab === 'health' && (
           <section style={{ background: 'white', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-            <h2 style={{ marginTop: 0, fontSize: '18px', color: '#666' }}>Past / Deactivated Windows</h2>
-            {inactiveWindows.map((w) => (
-              <WindowRow key={w.windowId} window={w} onDeactivate={null} />
-            ))}
+            <h2 style={{ marginTop: 0, fontSize: '18px' }}>Integration Health Overview</h2>
+
+            {groupsLoading && <p style={{ color: '#666' }}>Loading…</p>}
+            {groupsError && <p style={{ color: '#d73a49' }}>{groupsError}</p>}
+
+            {!groupsLoading && groups.length === 0 && (
+              <p style={{ color: '#666', fontSize: '14px' }}>No groups found.</p>
+            )}
+
+            {!groupsLoading && groups.length > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
+                {groups.map((group) => {
+                  const health = getIntegrationHealthClass(group);
+                  const hasErrors = group.integrationErrors && group.integrationErrors.length > 0;
+
+                  return (
+                    <div key={group.groupId} style={{
+                      border: '1px solid #e1e4e8',
+                      borderRadius: '8px',
+                      padding: '16px',
+                      backgroundColor: health === 'healthy' ? '#f0f9ff' : health === 'partial' ? '#fffbf0' : health === 'error' ? '#fff5f5' : '#f6f8fa',
+                      borderLeft: `4px solid ${health === 'healthy' ? '#28a745' : health === 'partial' ? '#ffc107' : health === 'error' ? '#dc3545' : '#e1e4e8'}`,
+                    }}>
+                      <div style={{ marginBottom: '12px' }}>
+                        <h3 style={{ margin: '0 0 4px 0', fontSize: '15px', fontWeight: '600', color: '#24292e' }}>{group.groupName}</h3>
+                        <p style={{ margin: '0', fontSize: '12px', color: '#444' }}>{group.groupId}</p>
+                      </div>
+
+                      <div style={{ marginBottom: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '50%',
+                            backgroundColor: group.githubConnected ? '#28a745' : '#e0e0e0',
+                            marginRight: '8px',
+                          }} />
+                          <span style={{ fontSize: '13px', fontWeight: '500', color: '#444' }}>GitHub: {group.githubConnected ? 'Connected' : 'Not Connected'}</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '50%',
+                            backgroundColor: group.jiraConnected ? '#0366d6' : '#e0e0e0',
+                            marginRight: '8px',
+                          }} />
+                          <span style={{ fontSize: '13px', fontWeight: '500', color: '#444' }}>JIRA: {group.jiraConnected ? 'Connected' : 'Not Connected'}</span>
+                        </div>
+                      </div>
+
+                      {hasErrors && (
+                        <div style={{ borderTop: '1px solid #e1e4e8', paddingTop: '12px' }}>
+                          <p style={{ margin: '0 0 8px 0', fontSize: '12px', fontWeight: '600', color: '#dc3545' }}>Recent Errors:</p>
+                          {group.integrationErrors.slice(0, 3).map((err, idx) => (
+                            <div key={idx} style={{ fontSize: '11px', color: '#24292e', marginBottom: '4px' }}>
+                              <span style={{ fontWeight: '600', color: '#24292e' }}>{err.service}:</span> <span style={{ color: '#444' }}>{err.lastError}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </section>
         )}
       </div>
     </div>
   );
-};
-
-const WindowRow = ({ window: w, onDeactivate }) => {
-  const typeLabel = OPERATION_TYPES.find((t) => t.value === w.operationType)?.label ?? w.operationType;
-  const now = new Date();
-  const isOpen = w.isActive && new Date(w.startsAt) <= now && new Date(w.endsAt) >= now;
-
-  return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      padding: '12px 0',
-      borderBottom: '1px solid #e1e4e8',
-    }}>
-      <div>
-        <span style={{
-          display: 'inline-block',
-          padding: '2px 8px',
-          borderRadius: '12px',
-          fontSize: '12px',
-          fontWeight: '600',
-          marginRight: '10px',
-          backgroundColor: isOpen ? '#dcffe4' : '#f1f8ff',
-          color: isOpen ? '#22863a' : '#0366d6',
-        }}>
-          {typeLabel}
-        </span>
-        {w.label && <span style={{ fontSize: '14px', fontWeight: '600', marginRight: '8px' }}>{w.label}</span>}
-        <span style={{ fontSize: '13px', color: '#586069' }}>
-          {new Date(w.startsAt).toLocaleString()} → {new Date(w.endsAt).toLocaleString()}
-        </span>
-        {isOpen && (
-          <span style={{ marginLeft: '10px', fontSize: '12px', color: '#22863a', fontWeight: '600' }}>● Open</span>
-        )}
-      </div>
-
-      {onDeactivate && w.isActive && (
-        <button
-          onClick={() => onDeactivate(w.windowId)}
-          style={{
-            padding: '6px 12px',
-            backgroundColor: '#fafbfc',
-            border: '1px solid #d1d5da',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            fontSize: '13px',
-            color: '#d73a49',
-            flexShrink: 0,
-          }}
-        >
-          Deactivate
-        </button>
-      )}
-    </div>
-  );
-};
-
-const labelStyle = {
-  display: 'block',
-  fontSize: '14px',
-  fontWeight: '600',
-  marginBottom: '6px',
-  color: '#24292e',
-};
-
-const inputStyle = {
-  width: '100%',
-  padding: '8px 10px',
-  border: '1px solid #d1d5da',
-  borderRadius: '6px',
-  fontSize: '14px',
-  boxSizing: 'border-box',
 };
 
 export default CoordinatorPanel;
