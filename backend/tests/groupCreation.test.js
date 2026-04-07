@@ -49,6 +49,7 @@ describe('POST /groups — createGroup', () => {
   const openWindow = (overrides = {}) => {
     const now = new Date();
     return ScheduleWindow.create({
+      operationType: 'group_creation',
       startsAt: overrides.startsAt || new Date(now.getTime() - 60_000),
       endsAt: overrides.endsAt || new Date(now.getTime() + 60_000 * 60),
       isActive: true,
@@ -199,6 +200,7 @@ describe('POST /groups — createGroup', () => {
       const leader = await createActiveUser({ userId: 'usr_futuresched' });
       const future = new Date(Date.now() + 60_000 * 60);
       await ScheduleWindow.create({
+        operationType: 'group_creation',
         startsAt: new Date(future.getTime()),
         endsAt: new Date(future.getTime() + 60_000 * 60),
         isActive: true,
@@ -217,6 +219,7 @@ describe('POST /groups — createGroup', () => {
     it('returns 403 when window has expired', async () => {
       const leader = await createActiveUser({ userId: 'usr_expiredsched' });
       await ScheduleWindow.create({
+        operationType: 'group_creation',
         startsAt: new Date(Date.now() - 60_000 * 120),
         endsAt: new Date(Date.now() - 60_000),
         isActive: true,
@@ -236,6 +239,7 @@ describe('POST /groups — createGroup', () => {
       const leader = await createActiveUser({ userId: 'usr_inactivesched' });
       const now = new Date();
       await ScheduleWindow.create({
+        operationType: 'group_creation',
         startsAt: new Date(now.getTime() - 60_000),
         endsAt: new Date(now.getTime() + 60_000 * 60),
         isActive: false,
