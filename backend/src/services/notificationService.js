@@ -17,7 +17,7 @@ const NOTIFICATION_SERVICE_URL =
 const dispatchInvitationNotification = async ({ groupId, groupName, inviteeId, invitedBy }) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-    { type: 'GROUP_INVITATION', groupId, groupName, inviteeId, invitedBy },
+    { type: 'approval_request', groupId, groupName, inviteeId, invitedBy },
     { timeout: 5000 }
   );
   return response.data;
@@ -38,7 +38,7 @@ const dispatchInvitationNotification = async ({ groupId, groupName, inviteeId, i
 const dispatchMembershipDecisionNotification = async ({ groupId, groupName, studentId, decision, decidedAt }) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-    { type: 'MEMBERSHIP_DECISION', groupId, groupName, studentId, decision, decidedAt },
+    { type: 'membership_decision', groupId, groupName, studentId, decision, decidedAt },
     { timeout: 5000 }
   );
   return response.data;
@@ -57,7 +57,7 @@ const dispatchMembershipDecisionNotification = async ({ groupId, groupName, stud
 const dispatchGroupCreationNotification = async ({ groupId, groupName, leaderId }) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-    { type: 'GROUP_CREATED', groupId, groupName, leaderId },
+    { type: 'general', groupId, groupName, leaderId },
     { timeout: 5000 }
   );
   return response.data;

@@ -444,16 +444,18 @@ const membershipDecision = async (req, res) => {
     });
 
     // Dispatch membership decision notification (non-fatal, 3-attempt retry)
+    let decisionNotifId = null;
     let notifLastError;
     for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
       try {
-        await dispatchMembershipDecisionNotification({
+        const notifResult = await dispatchMembershipDecisionNotification({
           groupId,
           groupName: group.groupName,
           studentId,
           decision,
           decidedAt,
         });
+        decisionNotifId = notifResult.notification_id || null;
         notifLastError = null;
         break;
       } catch (err) {
@@ -468,6 +470,10 @@ const membershipDecision = async (req, res) => {
         attempts: MAX_RETRY_ATTEMPTS,
         lastError: notifLastError.message,
       });
+    } else if (decisionNotifId) {
+      invitation.notificationId = decisionNotifId;
+      invitation.notifiedAt = new Date();
+      await invitation.save();
     }
 
     return res.status(200).json({
@@ -476,6 +482,7 @@ const membershipDecision = async (req, res) => {
       student_id: studentId,
       decision,
       decided_at: decidedAt,
+      notification_id: decisionNotifId,
     });
   } catch (err) {
     console.error('membershipDecision error:', err);
