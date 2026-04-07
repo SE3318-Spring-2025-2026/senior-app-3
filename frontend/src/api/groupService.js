@@ -225,14 +225,17 @@ export const getPendingApprovals = async (groupId) => {
  */
 export const getGroupDashboardData = async (groupId) => {
   try {
-    const groupData = await getGroup(groupId);
+    const [groupData, approvalsData] = await Promise.all([
+      getGroup(groupId),
+      apiClient.get(`/groups/${groupId}/approvals`).then((r) => r.data).catch(() => ({ approvals: [] })),
+    ]);
 
     return {
       group: groupData,
       members: groupData.members || [],
       github: { connected: false, repo_url: null, last_synced: null },
       jira: { connected: false, project_key: null, board_url: null },
-      approvals: { approvals: [] },
+      approvals: approvalsData,
     };
   } catch (error) {
     console.error('Error fetching group dashboard data:', error);

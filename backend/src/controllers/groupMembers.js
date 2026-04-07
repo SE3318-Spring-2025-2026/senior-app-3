@@ -519,15 +519,79 @@ const membershipDecision = async (req, res) => {
     }
 
     return res.status(200).json({
-      invitation_id: invitation.invitationId,
-      group_id: groupId,
+      decision_id: invitation.invitationId,
       student_id: studentId,
       decision,
-      decided_at: decidedAt,
-      notification_id: decisionNotifId,
+      group_id: groupId,
+      forwarded_to_notification: !!decisionNotifId,
+      submitted_at: decidedAt,
     });
   } catch (err) {
     console.error('membershipDecision error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
+  }
+};
+
+/**
+ * GET /groups/:groupId/approvals
+ *
+ * Process 2.4 — Returns all membership decisions for a group.
+ *
+ * Lists every invitation record (pending / accepted / rejected) so callers
+ * can see per-reviewer status and a rolled-up overall_status.
+ *
+ * overall_status values:
+ *   'pending'      — at least one invitation is still awaiting a decision
+ *   'all_accepted' — every invited student accepted
+ *   'all_rejected' — every invited student rejected
+ *   'all_decided'  — mix of accepted + rejected, none pending
+ *   'no_invitations' — no invitations exist for this group
+ */
+const getApprovals = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+
+    const group = await Group.findOne({ groupId });
+    if (!group) {
+      return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
+    }
+
+    const invitations = await MemberInvitation.find({ groupId });
+
+    const approvals = invitations.map((inv) => ({
+      invitation_id: inv.invitationId,
+      student_id: inv.inviteeId,
+      status: inv.status,          // 'pending' | 'accepted' | 'rejected'
+      decided_at: inv.decidedAt || null,
+      notification_id: inv.notificationId || null,
+    }));
+
+    const total = approvals.length;
+    const accepted = approvals.filter((a) => a.status === 'accepted').length;
+    const rejected = approvals.filter((a) => a.status === 'rejected').length;
+    const pending = approvals.filter((a) => a.status === 'pending').length;
+
+    let overall_status;
+    if (total === 0) {
+      overall_status = 'no_invitations';
+    } else if (pending > 0) {
+      overall_status = 'pending';
+    } else if (accepted === total) {
+      overall_status = 'all_accepted';
+    } else if (rejected === total) {
+      overall_status = 'all_rejected';
+    } else {
+      overall_status = 'all_decided';
+    }
+
+    return res.status(200).json({
+      group_id: groupId,
+      approvals,
+      overall_status,
+      summary: { total, accepted, rejected, pending },
+    });
+  } catch (err) {
+    console.error('getApprovals error:', err);
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
   }
 };
@@ -566,4 +630,4 @@ const getMyPendingInvitation = async (req, res) => {
   }
 };
 
-module.exports = { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation };
+module.exports = { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals };
