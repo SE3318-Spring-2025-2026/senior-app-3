@@ -32,9 +32,10 @@ const addMember = async (req, res) => {
     const { groupId } = req.params;
     const { student_ids } = req.body;
 
-    // --- Schedule boundary check ---
+    // --- Schedule boundary check (member_addition window) ---
     const now = new Date();
     const activeWindow = await ScheduleWindow.findOne({
+      operationType: 'member_addition',
       isActive: true,
       startsAt: { $lte: now },
       endsAt: { $gte: now },
@@ -43,7 +44,7 @@ const addMember = async (req, res) => {
     if (!activeWindow) {
       return res.status(403).json({
         code: 'OUTSIDE_SCHEDULE_WINDOW',
-        message: 'Member addition is currently closed. Please check the coordinator-defined schedule.',
+        reason: 'Operation not available outside the configured schedule window',
       });
     }
 
@@ -126,10 +127,44 @@ const addMember = async (req, res) => {
         userAgent: req.headers['user-agent'],
       });
 
+      // f06: dispatch invitation notification (non-fatal, 3-attempt retry)
+      let notificationId = null;
+      let lastError;
+      for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+        try {
+          const notifResult = await dispatchInvitationNotification({
+            groupId,
+            groupName: group.groupName,
+            inviteeId: invitee.userId,
+            invitedBy: req.user.userId,
+          });
+          notificationId = notifResult.notification_id || null;
+          lastError = null;
+          break;
+        } catch (err) {
+          lastError = err;
+        }
+      }
+
+      if (lastError) {
+        await SyncErrorLog.create({
+          service: 'notification',
+          groupId,
+          actorId: req.user.userId,
+          attempts: MAX_RETRY_ATTEMPTS,
+          lastError: lastError.message,
+        });
+      } else if (notificationId) {
+        invitation.notifiedAt = new Date();
+        invitation.notificationId = notificationId;
+        await invitation.save();
+      }
+
       added.push({
         invitation_id: invitation.invitationId,
         invitee_id: invitee.userId,
         status: 'pending',
+        notified: !!notificationId,
       });
     }
 
