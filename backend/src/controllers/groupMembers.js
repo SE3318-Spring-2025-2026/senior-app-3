@@ -606,24 +606,23 @@ const getMyPendingInvitation = async (req, res) => {
   try {
     const studentId = req.user.userId;
 
-    const invitation = await MemberInvitation.findOne({ inviteeId: studentId, status: 'pending' });
-    if (!invitation) {
-      return res.status(404).json({ code: 'NO_PENDING_INVITATION', message: 'No pending invitation found' });
+    const invitations = await MemberInvitation.find({ inviteeId: studentId, status: 'pending' });
+
+    for (const invitation of invitations) {
+      const group = await Group.findOne({ groupId: invitation.groupId });
+      if (!group) continue; // stale invitation — group was deleted, skip it
+
+      return res.status(200).json({
+        invitation_id: invitation.invitationId,
+        group_id: invitation.groupId,
+        group_name: group.groupName,
+        invited_by: invitation.invitedBy,
+        status: invitation.status,
+        created_at: invitation.createdAt,
+      });
     }
 
-    const group = await Group.findOne({ groupId: invitation.groupId });
-    if (!group) {
-      return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
-    }
-
-    return res.status(200).json({
-      invitation_id: invitation.invitationId,
-      group_id: invitation.groupId,
-      group_name: group.groupName,
-      invited_by: invitation.invitedBy,
-      status: invitation.status,
-      created_at: invitation.createdAt,
-    });
+    return res.status(404).json({ code: 'NO_PENDING_INVITATION', message: 'No pending invitation found' });
   } catch (err) {
     console.error('getMyPendingInvitation error:', err);
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });

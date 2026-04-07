@@ -8,11 +8,16 @@ const Dashboard = () => {
   const user = useAuthStore((state) => state.user);
   const [invitation, setInvitation] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [invitationError, setInvitationError] = useState('');
 
   useEffect(() => {
     getMyPendingInvitation()
       .then((inv) => setInvitation(inv))
-      .catch(() => {})
+      .catch((err) => {
+        if (err?.response?.status !== 404) {
+          setInvitationError('Could not load invitation status. Please refresh.');
+        }
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -53,19 +58,21 @@ const Dashboard = () => {
             </div>
           )}
 
-          {!loading && !invitation && (
-            <p style={{ color: '#666' }}>
-              No pending group invitations.{' '}
-              <span
-                style={{ color: '#1976d2', cursor: 'pointer', textDecoration: 'underline' }}
-                onClick={() => navigate('/groups/new')}
-              >
-                Create a group
-              </span>
-            </p>
-          )}
-        </div>
-      )}
+            {!loading && invitationError && (
+              <p className="dashboard-error">{invitationError}</p>
+            )}
+
+            {!loading && !invitation && !invitationError && (
+              <div className="dashboard-empty">
+                <p>You have no pending group invitations.</p>
+                <button className="link-btn" onClick={() => navigate('/groups/new')}>
+                  Create a group
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
