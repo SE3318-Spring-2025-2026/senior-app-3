@@ -30,7 +30,7 @@ const MAX_RETRY_ATTEMPTS = 3;
 const addMember = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { invitee_id } = req.body;
+    const { student_ids } = req.body;
 
     // --- Schedule boundary check ---
     const now = new Date();
@@ -104,27 +104,34 @@ const addMember = async (req, res) => {
         invitedBy: req.user.userId,
       });
 
-    await GroupMembership.create({
-      groupId,
-      studentId: invitee_id.trim(),
-      status: 'pending',
-    });
-
-    // Create audit log for member addition
-    await createAuditLog({
-      action: 'MEMBER_ADDED',
-      actorId: req.user.userId,
-      actorRole: req.user.role,
-      targetId: groupId,
-      targetType: 'group',
-      details: {
-        inviteeId: invitee_id.trim(),
+      await GroupMembership.create({
+        groupId,
+        studentId: invitee.userId,
         status: 'pending',
-        sourceProcess: 'direct_invitation',
-      },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
-    });
+      });
+
+      // Create audit log for member addition
+      await createAuditLog({
+        action: 'MEMBER_ADDED',
+        actorId: req.user.userId,
+        actorRole: req.user.role,
+        targetId: groupId,
+        targetType: 'group',
+        details: {
+          inviteeId: invitee.userId,
+          status: 'pending',
+          sourceProcess: 'direct_invitation',
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+
+      added.push({
+        invitation_id: invitation.invitationId,
+        invitee_id: invitee.userId,
+        status: 'pending',
+      });
+    }
 
     return res.status(201).json({
       added,
