@@ -126,7 +126,7 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
         res
       );
 
-      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.status).toHaveBeenCalledWith(201);
       const body = res.json.mock.calls[0][0];
       expect(body.validated).toBe(true);
       expect(body.github_org).toBe('cool-org');

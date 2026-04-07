@@ -125,7 +125,7 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
 
       await configureJira(makeReq({ groupId: group.groupId }, validJiraBody()), res);
 
-      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.status).toHaveBeenCalledWith(201);
       const body = res.json.mock.calls[0][0];
       expect(body.validated).toBe(true);
       expect(body.jira_url).toBe('https://mycompany.atlassian.net');
