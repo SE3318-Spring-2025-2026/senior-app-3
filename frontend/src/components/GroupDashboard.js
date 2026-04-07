@@ -72,7 +72,7 @@ const GroupDashboard = () => {
     setDecisionLoading(true);
     setDecisionMsg('');
     try {
-      await submitMembershipDecision(groupId, decision);
+      await submitMembershipDecision(groupId, decision, user.userId);
       setInvitationInfo(null);
       setDecisionMsg(decision === 'accepted' ? 'You have joined the group!' : 'Invitation declined.');
       if (decision === 'accepted') fetchGroupDashboard(groupId);
@@ -116,6 +116,11 @@ const GroupDashboard = () => {
         <div>
           <h1 className="dashboard-title">
             {groupData?.groupName || 'Group Dashboard'}
+            {groupData?.status && (
+              <span className={`group-status-badge ${groupData.status}`}>
+                {groupData.status.replace('_', ' ')}
+              </span>
+            )}
           </h1>
           {lastUpdated && (
             <p className="last-updated">
@@ -220,8 +225,9 @@ const GroupDashboard = () => {
                   <span className="info-value">{pendingApprovalsCount}</span>
                 </div>
                 {pendingApprovalsCount > 0 && (
-                  <p style={{ margin: '8px 0 0 0', color: '#666', fontSize: '12px' }}>
-                    {pendingApprovalsCount} student{pendingApprovalsCount !== 1 ? 's' : ''} {pendingApprovalsCount !== 1 ? 'have' : 'has'} not yet responded to the membership request.
+                  <p className="card-hint">
+                    {pendingApprovalsCount} student{pendingApprovalsCount !== 1 ? 's' : ''}{' '}
+                    {pendingApprovalsCount !== 1 ? 'have' : 'has'} not yet responded.
                   </p>
                 )}
               </div>
@@ -244,14 +250,10 @@ const GroupDashboard = () => {
           )}
 
           {/* Group Information Footer */}
-          <div style={{ marginTop: '24px', fontSize: '12px', color: '#666', textAlign: 'center' }}>
-            <p style={{ margin: 0 }}>
-              Group ID: {groupData?.groupId} | Created: {
-                groupData?.createdAt 
-                  ? new Date(groupData.createdAt).toLocaleDateString()
-                  : 'N/A'
-              } | Status: {groupData?.status || 'Unknown'}
-            </p>
+          <div className="group-info-footer">
+            Group ID: {groupData?.groupId} &nbsp;·&nbsp; Created:{' '}
+            {groupData?.createdAt ? new Date(groupData.createdAt).toLocaleDateString() : 'N/A'}
+            &nbsp;·&nbsp; Status: {groupData?.status || 'Unknown'}
           </div>
         </>
       )}

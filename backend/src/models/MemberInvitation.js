@@ -28,6 +28,7 @@ const memberInvitationSchema = new mongoose.Schema(
     notifiedAt: { type: Date, default: null },
     decidedAt: { type: Date, default: null },
     notificationId: { type: String, default: null },
+    decisionMessage: { type: String, default: null },
   },
   { timestamps: true }
 );

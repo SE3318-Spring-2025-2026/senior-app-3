@@ -3,12 +3,12 @@ const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const { checkScheduleWindow } = require('../middleware/scheduleWindow');
 const { forwardApprovalResults, createGroup, getGroup, createMemberRequest, decideMemberRequest, coordinatorOverride } = require('../controllers/groups');
-const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation } = require('../controllers/groupMembers');
+const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
-router.post('/', authMiddleware, roleMiddleware(['student']), checkScheduleWindow('group_creation'), createGroup);
+router.post('/', authMiddleware, roleMiddleware(['student']), createGroup);
 
 // GET /api/v1/groups/pending-invitation — return current user's pending invitation with group info
 router.get('/pending-invitation', authMiddleware, getMyPendingInvitation);
@@ -33,6 +33,9 @@ router.post('/:groupId/notifications', authMiddleware, dispatchNotification);
 
 // POST /api/v1/groups/:groupId/membership-decisions — Process 2.4: student accepts/rejects (f07, f08)
 router.post('/:groupId/membership-decisions', authMiddleware, membershipDecision);
+
+// GET /api/v1/groups/:groupId/approvals — Process 2.4: list all invitation decisions with overall_status
+router.get('/:groupId/approvals', authMiddleware, getApprovals);
 
 // POST /api/v1/groups/:groupId/approval-results
 // Flow f09: process 2.4 → 2.5 — forward collected approval results to the queue
