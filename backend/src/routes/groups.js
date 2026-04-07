@@ -21,6 +21,12 @@ router.post('/:groupId/members', authMiddleware, checkScheduleWindow('member_add
 // GET /api/v1/groups/:groupId/members — return current member list from D2
 router.get('/:groupId/members', authMiddleware, getMembers);
 
+// POST /api/v1/groups/:groupId/member-requests — Student requests to join group
+router.post('/:groupId/member-requests', authMiddleware, roleMiddleware(['student']), createMemberRequest);
+
+// PATCH /api/v1/groups/:groupId/member-requests/:requestId — Leader approves/rejects member request
+router.patch('/:groupId/member-requests/:requestId', authMiddleware, decideMemberRequest);
+
 // POST /api/v1/groups/:groupId/notifications — Process 2.3: dispatch invitation notification (f06)
 router.post('/:groupId/notifications', authMiddleware, dispatchNotification);
 

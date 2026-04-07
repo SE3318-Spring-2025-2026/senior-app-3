@@ -3,6 +3,7 @@ const GroupMembership = require('../models/GroupMembership');
 const MemberInvitation = require('../models/MemberInvitation');
 const User = require('../models/User');
 const ScheduleWindow = require('../models/ScheduleWindow');
+const { createAuditLog } = require('../services/auditService');
 const { dispatchInvitationNotification, dispatchMembershipDecisionNotification } = require('../services/notificationService');
 const SyncErrorLog = require('../models/SyncErrorLog');
 
@@ -21,18 +22,19 @@ const MAX_RETRY_ATTEMPTS = 3;
  *   f32 — D2 → 2.3 (read current group data before processing)
  *
  * Business rule: a student may only belong to one active group at a time.
- * Per-student errors are collected and returned alongside successes so that
- * a batch request with mixed validity still adds the valid students.
+ * If the invitee already has an approved membership elsewhere, the request
+ * is auto-denied with 409 STUDENT_ALREADY_IN_GROUP.
+ * 
+ * Schedule boundary: member addition must occur within an active schedule window.
  */
 const addMember = async (req, res) => {
   try {
     const { groupId } = req.params;
     const { student_ids } = req.body;
 
-    // --- Schedule boundary check (f05: Student → 2.3) ---
+    // --- Schedule boundary check ---
     const now = new Date();
     const activeWindow = await ScheduleWindow.findOne({
-      operationType: 'member_addition',
       isActive: true,
       startsAt: { $lte: now },
       endsAt: { $gte: now },
@@ -41,7 +43,7 @@ const addMember = async (req, res) => {
     if (!activeWindow) {
       return res.status(403).json({
         code: 'OUTSIDE_SCHEDULE_WINDOW',
-        reason: 'Operation not available outside the configured schedule window',
+        message: 'Member addition is currently closed. Please check the coordinator-defined schedule.',
       });
     }
 
@@ -108,44 +110,26 @@ const addMember = async (req, res) => {
         status: 'pending',
       });
 
-      // f06: forward to process 2.4 — dispatch invitation notification (non-fatal)
-      let notificationId = null;
-      let lastError;
-      for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
-        try {
-          const notifResult = await dispatchInvitationNotification({
-            groupId,
-            groupName: group.groupName,
-            inviteeId,
-            invitedBy: req.user.userId,
-          });
-          notificationId = notifResult.notification_id || null;
-          lastError = null;
-          break;
-        } catch (err) {
-          lastError = err;
-        }
-      }
-
-      if (lastError) {
-        await SyncErrorLog.create({
-          service: 'notification',
-          groupId,
-          actorId: req.user.userId,
-          attempts: MAX_RETRY_ATTEMPTS,
-          lastError: lastError.message,
-        });
-      } else if (notificationId) {
-        invitation.notifiedAt = new Date();
-        invitation.notificationId = notificationId;
-        await invitation.save();
-      }
+      // Create audit log for member addition
+      await createAuditLog({
+        action: 'MEMBER_ADDED',
+        actorId: req.user.userId,
+        actorRole: req.user.role,
+        targetId: groupId,
+        targetType: 'group',
+        details: {
+          inviteeId: invitee.userId,
+          status: 'pending',
+          sourceProcess: 'direct_invitation',
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
 
       added.push({
         invitation_id: invitation.invitationId,
         invitee_id: invitee.userId,
         status: 'pending',
-        notified: !!notificationId,
       });
     }
 
@@ -330,6 +314,22 @@ const membershipDecision = async (req, res) => {
           { groupId, studentId },
           { $set: { status: 'rejected', decidedBy: studentId, decidedAt: new Date() } }
         );
+
+        // Create audit log for auto-deny
+        await createAuditLog({
+          action: 'MEMBERSHIP_DECISION_AUTO_DENIED',
+          actorId: studentId,
+          actorRole: req.user.role,
+          targetId: groupId,
+          targetType: 'group',
+          details: {
+            reason: 'student_already_in_approved_group',
+            decision: 'auto_rejected',
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+
         return res.status(409).json({
           code: 'STUDENT_ALREADY_IN_GROUP',
           message: 'Student already belongs to an active group. Invitation auto-denied.',
@@ -357,7 +357,56 @@ const membershipDecision = async (req, res) => {
         group.members.push({ userId: studentId, role: 'member', status: 'accepted', joinedAt: decidedAt });
         await group.save();
       }
+
+      // Auto-deny all other pending invitations for this student (one-active-group rule)
+      const otherInvitations = await MemberInvitation.find({
+        inviteeId: studentId,
+        groupId: { $ne: groupId },
+        status: 'pending',
+      });
+
+      for (const otherInv of otherInvitations) {
+        otherInv.status = 'rejected';
+        otherInv.decidedAt = decidedAt;
+        await otherInv.save();
+
+        // Update corresponding GroupMembership records
+        await GroupMembership.findOneAndUpdate(
+          { groupId: otherInv.groupId, studentId },
+          { $set: { status: 'rejected', decidedBy: studentId, decidedAt } }
+        );
+
+        // Create audit log for each auto-denied invitation
+        await createAuditLog({
+          action: 'MEMBERSHIP_DECISION_AUTO_DENIED',
+          actorId: studentId,
+          actorRole: req.user.role,
+          targetId: otherInv.groupId,
+          targetType: 'group',
+          details: {
+            reason: 'student_accepted_another_group',
+            acceptedGroupId: groupId,
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      }
     }
+
+    // Create audit log for membership decision
+    await createAuditLog({
+      action: 'MEMBERSHIP_DECISION',
+      actorId: studentId,
+      actorRole: req.user.role,
+      targetId: groupId,
+      targetType: 'group',
+      details: {
+        decision,
+        status: membershipStatus,
+      },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
 
     // Dispatch membership decision notification (non-fatal, 3-attempt retry)
     let notifLastError;
