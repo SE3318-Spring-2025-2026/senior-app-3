@@ -246,22 +246,27 @@ async function seed() {
 
   // ── Schedule Window ───────────────────────────────────────────────────────
   console.log('\nSeeding schedule window...');
-  const existingWindow = await ScheduleWindow.findOne({ isActive: true });
-  if (existingWindow) {
-    console.log('  skip  active schedule window already exists');
-  } else {
-    const coordinator = await User.findOne({ role: 'coordinator' });
-    const now = new Date();
-    const endsAt = new Date(now);
-    endsAt.setFullYear(endsAt.getFullYear() + 1);
-    await ScheduleWindow.create({
-      startsAt: now,
-      endsAt,
-      isActive: true,
-      createdBy: coordinator?.userId ?? 'seed',
-      label: 'Seed — Group Creation Open',
-    });
-    console.log('  added active schedule window (open for 1 year)');
+  const coordinator = await User.findOne({ role: 'coordinator' });
+  const createdBy = coordinator?.userId ?? 'seed';
+  const now = new Date();
+  const endsAt = new Date(now);
+  endsAt.setFullYear(endsAt.getFullYear() + 1);
+
+  for (const operationType of ['group_creation', 'member_addition']) {
+    const existingWindow = await ScheduleWindow.findOne({ operationType, isActive: true });
+    if (existingWindow) {
+      console.log(`  skip  active ${operationType} window already exists`);
+    } else {
+      await ScheduleWindow.create({
+        operationType,
+        startsAt: now,
+        endsAt,
+        isActive: true,
+        createdBy,
+        label: `Seed — ${operationType === 'group_creation' ? 'Group Creation' : 'Member Addition'} Open`,
+      });
+      console.log(`  added active ${operationType} window (open for 1 year)`);
+    }
   }
 
   // ── Save ────────────────────────────────────────────────────────────────

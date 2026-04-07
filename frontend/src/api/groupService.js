@@ -41,16 +41,49 @@ export const createGroup = async ({
 };
 
 /**
- * Check if the group creation schedule window is currently open
+ * Check if a schedule window is currently open for the given operation type.
+ * @param {'group_creation'|'member_addition'} [type] - Operation type to check
  * @returns {Promise<{open: boolean, window: object|null}>}
  */
-export const getScheduleWindow = async () => {
+export const getScheduleWindow = async (type) => {
   try {
-    const response = await apiClient.get('/schedule-window/active');
+    const params = type ? { type } : {};
+    const response = await apiClient.get('/schedule-window/active', { params });
     return response.data;
   } catch {
     return { open: false, window: null };
   }
+};
+
+/**
+ * List all schedule windows (coordinator only).
+ * @param {'group_creation'|'member_addition'} [type] - Optional filter by operation type
+ * @returns {Promise<{windows: object[]}>}
+ */
+export const listScheduleWindows = async (type) => {
+  const params = type ? { type } : {};
+  const response = await apiClient.get('/schedule-window', { params });
+  return response.data;
+};
+
+/**
+ * Create a schedule window (coordinator only).
+ * @param {{ operationType: string, startsAt: string, endsAt: string, label?: string }} payload
+ * @returns {Promise<object>}
+ */
+export const createScheduleWindow = async (payload) => {
+  const response = await apiClient.post('/schedule-window', payload);
+  return response.data;
+};
+
+/**
+ * Deactivate a schedule window (coordinator only).
+ * @param {string} windowId
+ * @returns {Promise<{windowId: string, isActive: false}>}
+ */
+export const deactivateScheduleWindow = async (windowId) => {
+  const response = await apiClient.delete(`/schedule-window/${windowId}`);
+  return response.data;
 };
 
 /**

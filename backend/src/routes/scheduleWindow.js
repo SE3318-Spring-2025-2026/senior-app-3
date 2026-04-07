@@ -1,12 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
-const { getActiveWindow, createWindow, deactivateWindow } = require('../controllers/scheduleWindow');
+const { getActiveWindow, getAllWindows, createWindow, deactivateWindow } = require('../controllers/scheduleWindow');
 
-// GET /api/v1/schedule-window/active — anyone authenticated can check if creation is open
+// GET /api/v1/schedule-window/active — check if a window is open (?type=group_creation|member_addition)
 router.get('/active', authMiddleware, getActiveWindow);
 
-// POST /api/v1/schedule-window — coordinator/admin defines a new window
+// GET /api/v1/schedule-window — coordinator/admin lists all windows (?type=... optional filter)
+router.get('/', authMiddleware, roleMiddleware(['coordinator', 'admin']), getAllWindows);
+
+// POST /api/v1/schedule-window — coordinator/admin creates a new window
 router.post('/', authMiddleware, roleMiddleware(['coordinator', 'admin']), createWindow);
 
 // DELETE /api/v1/schedule-window/:windowId — coordinator/admin deactivates a window
