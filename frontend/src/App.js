@@ -16,7 +16,9 @@ import GroupDashboard from './components/GroupDashboard';
 import GroupCreationPage from './components/GroupCreationPage';
 import CoordinatorPanel from './components/CoordinatorPanel';
 import Dashboard from './components/Dashboard';
+import Sidebar from './components/layout/Sidebar';
 import './App.css';
+import './components/layout/Sidebar.css';
 
 /**
  * Placeholder components for routes not yet implemented
@@ -29,7 +31,7 @@ const NotFound = () => <div className="page error">Page Not Found</div>;
  * Main App component with routing
  */
 function App() {
-  const { isSessionValid } = useAuthStore();
+  const { isSessionValid, isAuthenticated } = useAuthStore();
 
   // Initialize auth on app load (restore from localStorage)
   useEffect(() => {
@@ -39,59 +41,72 @@ function App() {
 
   return (
     <Router>
-      <Routes>
-        {/* Public Routes */}
-        <Route path="/" element={<Navigate to="/auth/method-selection" replace />} />
-        <Route path="/auth/method-selection" element={<AuthMethodSelection />} />
-        <Route path="/auth/login" element={<LoginForm />} />
-        <Route path="/auth/register" element={<RegisterForm />} />
-        <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
-        <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
-        <Route path="/auth/github/callback" element={<GitHubCallbackHandler />} />
-        <Route path="/onboarding" element={<OnboardingStepper />} />
+      <div className="app-layout">
+        <div className="app-layout-sidebar">
+          <Sidebar />
+        </div>
+        <div className="app-layout-content" style={{ marginLeft: isAuthenticated ? '250px' : '0' }}>
+          <Routes>
+            {/* Public Routes */}
+            <Route path="/" element={<Navigate to="/auth/method-selection" replace />} />
+            <Route path="/auth/method-selection" element={<AuthMethodSelection />} />
+            <Route path="/auth/login" element={<LoginForm />} />
+            <Route path="/auth/register" element={<RegisterForm />} />
+            <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/auth/github/callback" element={<GitHubCallbackHandler />} />
+            <Route path="/onboarding" element={<OnboardingStepper />} />
 
-        {/* Professor first-login: dedicated route, protected */}
-        <Route
-          path="/professor/setup"
-          element={<ProtectedRoute component={ProfessorOnboardModal} />}
-        />
+            {/* Professor first-login: dedicated route, protected */}
+            <Route
+              path="/professor/setup"
+              element={<ProtectedRoute component={ProfessorOnboardModal} />}
+            />
 
-        {/* Admin Routes */}
-        <Route
-          path="/admin/password-reset"
-          element={<ProtectedRoute component={AdminPasswordReset} requiredRoles={['admin']} />}
-        />
-        <Route
-          path="/admin/professor-creation"
-          element={<ProtectedRoute component={AdminProfessorCreation} requiredRoles={['admin']} />}
-        />
+            {/* Admin Routes */}
+            <Route
+              path="/admin/password-reset"
+              element={<ProtectedRoute component={AdminPasswordReset} requiredRoles={['admin']} />}
+            />
+            <Route
+              path="/admin/professor-creation"
+              element={<ProtectedRoute component={AdminProfessorCreation} requiredRoles={['admin']} />}
+            />
 
-        {/* Protected Routes */}
-        <Route
-          path="/dashboard"
-          element={<ProtectedRoute component={Dashboard} />}
-        />
-        <Route
-          path="/groups/new"
-          element={<ProtectedRoute component={GroupCreationPage} requiredRoles={['student']} />}
-        />
-        <Route
-          path="/groups/:group_id"
-          element={<ProtectedRoute component={GroupDashboard} />}
-        />
-        <Route
-          path="/groups/:group_id/coordinator"
-          element={<ProtectedRoute component={CoordinatorPanel} requiredRoles={['coordinator', 'admin']} />}
-        />
-        <Route
-          path="/profile"
-          element={<ProtectedRoute component={Profile} />}
-        />
+            {/* Coordinator Routes */}
+            <Route
+              path="/coordinator"
+              element={<ProtectedRoute component={CoordinatorPanel} requiredRoles={['coordinator', 'admin']} />}
+            />
 
-        {/* Error Routes */}
-        <Route path="/unauthorized" element={<Unauthorized />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
+            {/* Protected Routes */}
+            <Route
+              path="/dashboard"
+              element={<ProtectedRoute component={Dashboard} />}
+            />
+            <Route
+              path="/groups/new"
+              element={<ProtectedRoute component={GroupCreationPage} requiredRoles={['student']} />}
+            />
+            <Route
+              path="/groups/:group_id"
+              element={<ProtectedRoute component={GroupDashboard} />}
+            />
+            <Route
+              path="/groups/:group_id/coordinator"
+              element={<ProtectedRoute component={CoordinatorPanel} requiredRoles={['coordinator', 'admin']} />}
+            />
+            <Route
+              path="/profile"
+              element={<ProtectedRoute component={Profile} />}
+            />
+
+            {/* Error Routes */}
+            <Route path="/unauthorized" element={<Unauthorized />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </div>
+      </div>
     </Router>
   );
 }

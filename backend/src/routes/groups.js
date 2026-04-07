@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const { checkScheduleWindow } = require('../middleware/scheduleWindow');
+const { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride } = require('../controllers/groups');
+const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation } = require('../controllers/groupMembers');
 const { forwardApprovalResults, createGroup, getGroup, createMemberRequest, decideMemberRequest, coordinatorOverride } = require('../controllers/groups');
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
@@ -12,6 +14,9 @@ router.post('/', authMiddleware, roleMiddleware(['student']), createGroup);
 
 // GET /api/v1/groups/pending-invitation — return current user's pending invitation with group info
 router.get('/pending-invitation', authMiddleware, getMyPendingInvitation);
+
+// GET /api/v1/groups — List all groups (coordinator only) for group management dashboard
+router.get('/', authMiddleware, roleMiddleware(['coordinator']), getAllGroups);
 
 // GET /api/v1/groups/:groupId — Process 2.2: retrieve validated group record from D2
 router.get('/:groupId', authMiddleware, getGroup);
