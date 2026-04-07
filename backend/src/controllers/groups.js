@@ -4,7 +4,6 @@ const GroupMembership = require('../models/GroupMembership');
 const MemberInvitation = require('../models/MemberInvitation');
 const Override = require('../models/Override');
 const User = require('../models/User');
-const ScheduleWindow = require('../models/ScheduleWindow');
 const { createAuditLog } = require('../services/auditService');
 const { forwardToMemberRequestPipeline, forwardOverrideToReconciliation } = require('../services/groupService');
 const { dispatchGroupCreationNotification } = require('../services/notificationService');
@@ -166,24 +165,6 @@ const createGroup = async (req, res) => {
       jiraToken,
       projectKey,
     } = req.body;
-
-    // --- Schedule boundary check (f01: Student → 2.1) ---
-    // Note: when invoked via HTTP, this check is also enforced by the
-    // checkScheduleWindow('group_creation') middleware in routes/groups.js.
-    const now = new Date();
-    const activeWindow = await ScheduleWindow.findOne({
-      operationType: 'group_creation',
-      isActive: true,
-      startsAt: { $lte: now },
-      endsAt: { $gte: now },
-    });
-
-    if (!activeWindow) {
-      return res.status(403).json({
-        code: 'OUTSIDE_SCHEDULE_WINDOW',
-        reason: 'Operation not available outside the configured schedule window',
-      });
-    }
 
     // --- Input validation ---
     if (!groupName || typeof groupName !== 'string' || !groupName.trim()) {

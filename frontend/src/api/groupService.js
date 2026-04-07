@@ -126,9 +126,13 @@ export const getMyPendingInvitation = async () => {
  * Accept or reject a group invitation
  * @param {string} groupId
  * @param {'accepted'|'rejected'} decision
+ * @param {string} studentId - Must match the authenticated user
+ * @param {string} [message] - Optional message accompanying the decision
  */
-export const submitMembershipDecision = async (groupId, decision) => {
-  const response = await apiClient.post(`/groups/${groupId}/membership-decisions`, { decision });
+export const submitMembershipDecision = async (groupId, decision, studentId, message) => {
+  const body = { decision, student_id: studentId };
+  if (message) body.message = message;
+  const response = await apiClient.post(`/groups/${groupId}/membership-decisions`, body);
   return response.data;
 };
 
@@ -225,14 +229,17 @@ export const getPendingApprovals = async (groupId) => {
  */
 export const getGroupDashboardData = async (groupId) => {
   try {
-    const groupData = await getGroup(groupId);
+    const [groupData, approvalsData] = await Promise.all([
+      getGroup(groupId),
+      apiClient.get(`/groups/${groupId}/approvals`).then((r) => r.data).catch(() => ({ approvals: [] })),
+    ]);
 
     return {
       group: groupData,
       members: groupData.members || [],
       github: { connected: false, repo_url: null, last_synced: null },
       jira: { connected: false, project_key: null, board_url: null },
-      approvals: { approvals: [] },
+      approvals: approvalsData,
     };
   } catch (error) {
     console.error('Error fetching group dashboard data:', error);

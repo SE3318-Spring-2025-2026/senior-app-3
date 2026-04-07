@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
-import { createGroup, getScheduleWindow } from '../api/groupService';
+import { createGroup } from '../api/groupService';
 import './GroupCreationPage.css';
 
 /**
@@ -14,9 +14,6 @@ import './GroupCreationPage.css';
 const GroupCreationPage = () => {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
-
-  const [scheduleWindow, setScheduleWindow] = useState(null);
-  const [scheduleLoading, setScheduleLoading] = useState(true);
 
   const [formData, setFormData] = useState({
     groupName: '',
@@ -31,14 +28,6 @@ const GroupCreationPage = () => {
   const [fieldErrors, setFieldErrors] = useState({});
   const [submitError, setSubmitError] = useState('');
   const [loading, setLoading] = useState(false);
-
-  // Check schedule window on mount
-  useEffect(() => {
-    getScheduleWindow().then((data) => {
-      setScheduleWindow(data);
-      setScheduleLoading(false);
-    });
-  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -93,8 +82,6 @@ const GroupCreationPage = () => {
     }
   };
 
-  const isWindowClosed = !scheduleLoading && (!scheduleWindow || !scheduleWindow.open);
-
   return (
     <div className="group-creation-container">
       <div className="group-creation-form">
@@ -102,20 +89,6 @@ const GroupCreationPage = () => {
         <p className="form-subtitle">
           You will automatically be assigned as Team Leader.
         </p>
-
-        {/* Schedule window status banner */}
-        {!scheduleLoading && (
-          <div className={`schedule-banner ${scheduleWindow?.open ? 'open' : 'closed'}`}>
-            <span className="banner-icon">{scheduleWindow?.open ? '✓' : '✕'}</span>
-            <span>
-              {scheduleWindow?.open
-                ? scheduleWindow.window?.label
-                  ? `Group creation is open: ${scheduleWindow.window.label}`
-                  : 'Group creation is currently open.'
-                : 'Group creation is currently closed. Contact your coordinator for the schedule.'}
-            </span>
-          </div>
-        )}
 
         {submitError && (
           <div className="alert error">{submitError}</div>
@@ -135,7 +108,7 @@ const GroupCreationPage = () => {
               onChange={handleChange}
               placeholder="e.g. Alpha Team"
               className={fieldErrors.groupName ? 'input-error' : ''}
-              disabled={loading || isWindowClosed}
+              disabled={loading}
               autoFocus
             />
             {fieldErrors.groupName && (
@@ -157,7 +130,7 @@ const GroupCreationPage = () => {
               value={formData.githubOrg}
               onChange={handleChange}
               placeholder="e.g. my-org"
-              disabled={loading || isWindowClosed}
+              disabled={loading}
             />
           </div>
 
@@ -172,7 +145,7 @@ const GroupCreationPage = () => {
               value={formData.githubPat}
               onChange={handleChange}
               placeholder="ghp_••••••••"
-              disabled={loading || isWindowClosed}
+              disabled={loading}
             />
           </div>
 
@@ -190,7 +163,7 @@ const GroupCreationPage = () => {
               value={formData.jiraUrl}
               onChange={handleChange}
               placeholder="https://yourteam.atlassian.net"
-              disabled={loading || isWindowClosed}
+              disabled={loading}
             />
           </div>
 
@@ -205,7 +178,7 @@ const GroupCreationPage = () => {
               value={formData.jiraUsername}
               onChange={handleChange}
               placeholder="user@example.com"
-              disabled={loading || isWindowClosed}
+              disabled={loading}
             />
           </div>
 
@@ -220,7 +193,7 @@ const GroupCreationPage = () => {
               value={formData.jiraToken}
               onChange={handleChange}
               placeholder="••••••••"
-              disabled={loading || isWindowClosed}
+              disabled={loading}
             />
           </div>
 
@@ -235,14 +208,14 @@ const GroupCreationPage = () => {
               value={formData.projectKey}
               onChange={handleChange}
               placeholder="e.g. ALPHA"
-              disabled={loading || isWindowClosed}
+              disabled={loading}
             />
           </div>
 
           <button
             type="submit"
             className="submit-button"
-            disabled={loading || isWindowClosed}
+            disabled={loading}
           >
             {loading ? 'Creating group…' : 'Create Group'}
           </button>
