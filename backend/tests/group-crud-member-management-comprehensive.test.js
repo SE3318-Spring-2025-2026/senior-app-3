@@ -1525,10 +1525,243 @@ describe('Group CRUD, Member Management & Override Endpoints — Issue #55', () 
       const updated = await Group.findOne({ groupId: group.groupId });
       expect(updated.status).toBe('inactive');
     });
+
+    it('should return 409 when attempting invalid status transition', async () => {
+      const coordinator = await createUser({ role: 'coordinator' });
+      const leader = await createUser();
+
+      // Create active group (cannot go back to pending_validation)
+      const group = await Group.create({
+        groupName: `Invalid Transition Test ${Date.now()}`,
+        leaderId: leader.userId,
+        status: 'active',
+      });
+
+      const req = makeReq(
+        { groupId: group.groupId },
+        {
+          action: 'update_group',
+          updates: { status: 'pending_validation' },
+          reason: 'Invalid transition attempt',
+        },
+        { userId: coordinator.userId, role: 'coordinator' }
+      );
+      const res = makeRes();
+
+      await coordinatorOverride(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(res.json.mock.calls[0][0].code).toBe('INVALID_STATUS_TRANSITION');
+    });
+
+    it('should create STATUS_TRANSITION audit log when coordinator changes status', async () => {
+      const coordinator = await createUser({ role: 'coordinator' });
+      const leader = await createUser();
+
+      const group = await Group.create({
+        groupName: `Status Transition Audit Test ${Date.now()}`,
+        leaderId: leader.userId,
+        status: 'pending_validation',
+      });
+
+      const req = makeReq(
+        { groupId: group.groupId },
+        {
+          action: 'update_group',
+          updates: { status: 'active' },
+          reason: 'Coordinator approval',
+        },
+        { userId: coordinator.userId, role: 'coordinator' }
+      );
+      const res = makeRes();
+
+      await coordinatorOverride(req, res);
+
+      const log = await AuditLog.findOne({ action: 'STATUS_TRANSITION' });
+      expect(log).toBeDefined();
+      expect(log.targetId).toBe(group.groupId);
+      expect(log.details.previousStatus).toBe('pending_validation');
+      expect(log.details.newStatus).toBe('active');
+    });
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // GROUP NAME UNIQUENESS VALIDATION
+  // COORDINATOR OVERRIDE TESTS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('Coordinator Override Audit Logging', () => {
+    it('should create MEMBER_REMOVED audit log when coordinator removes member', async () => {
+      const coordinator = await createUser({ role: 'coordinator' });
+      const group = await makeGroup();
+      const student = await createUser();
+
+      // Add student to group first
+      group.members.push({
+        userId: student.userId,
+        role: 'member',
+        status: 'accepted',
+        joinedAt: new Date(),
+      });
+      await group.save();
+
+      await GroupMembership.create({
+        groupId: group.groupId,
+        studentId: student.userId,
+        status: 'approved',
+      });
+
+      const req = makeReq(
+        { groupId: group.groupId },
+        {
+          action: 'remove_member',
+          target_student_id: student.userId,
+          reason: 'Contract violation',
+        },
+        { userId: coordinator.userId, role: 'coordinator' }
+      );
+      const res = makeRes();
+
+      await coordinatorOverride(req, res);
+
+      const log = await AuditLog.findOne({ action: 'MEMBER_REMOVED' });
+      expect(log).toBeDefined();
+      expect(log.targetId).toBe(group.groupId);
+      expect(log.details.studentId).toBe(student.userId);
+      expect(log.details.reason).toBe('Contract violation');
+    });
+
+    it('should create COORDINATOR_OVERRIDE log for member removal (in addition to MEMBER_REMOVED)', async () => {
+      const coordinator = await createUser({ role: 'coordinator' });
+      const group = await makeGroup();
+      const student = await createUser();
+
+      // Add student to group
+      group.members.push({
+        userId: student.userId,
+        role: 'member',
+        status: 'accepted',
+        joinedAt: new Date(),
+      });
+      await group.save();
+
+      await GroupMembership.create({
+        groupId: group.groupId,
+        studentId: student.userId,
+        status: 'approved',
+      });
+
+      const req = makeReq(
+        { groupId: group.groupId },
+        {
+          action: 'remove_member',
+          target_student_id: student.userId,
+          reason: 'Removal for audit test',
+        },
+        { userId: coordinator.userId, role: 'coordinator' }
+      );
+      const res = makeRes();
+
+      await coordinatorOverride(req, res);
+
+      // Both logs should exist
+      const overrideLog = await AuditLog.findOne({ action: 'COORDINATOR_OVERRIDE' });
+      const memberRemovedLog = await AuditLog.findOne({ action: 'MEMBER_REMOVED' });
+      expect(overrideLog).toBeDefined();
+      expect(memberRemovedLog).toBeDefined();
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SCHEDULE WINDOW EXEMPTION TESTS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('Schedule Window Exemption for Coordinators', () => {
+    it('should allow coordinatorOverride to add member outside schedule window', async () => {
+      const coordinator = await createUser({ role: 'coordinator' });
+      const group = await makeGroup();
+      const student = await createUser();
+
+      // No active schedule window - coordinator should still succeed
+      await ScheduleWindow.deleteMany({});
+
+      const req = makeReq(
+        { groupId: group.groupId },
+        {
+          action: 'add_member',
+          target_student_id: student.userId,
+          reason: 'Coordinator override bypass',
+        },
+        { userId: coordinator.userId, role: 'coordinator' }
+      );
+      const res = makeRes();
+
+      await coordinatorOverride(req, res);
+
+      // Should succeed with 200 (override endpoint returns 200)
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json.mock.calls[0][0].status).toBe('applied');
+    });
+
+    it('should prevent leader from adding member outside schedule window', async () => {
+      const leader = await createUser();
+      const group = await makeGroup();
+      group.leaderId = leader.userId;
+      await group.save();
+      const student = await createUser();
+
+      // No active schedule window - leader should fail
+      await ScheduleWindow.deleteMany({});
+
+      const req = makeReq(
+        { groupId: group.groupId },
+        { invitee_id: student.userId },
+        { userId: leader.userId }
+      );
+      const res = makeRes();
+
+      await addMember(req, res);
+
+      // Leader should fail with 403 (outside schedule window)
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json.mock.calls[0][0].code).toBe('OUTSIDE_SCHEDULE_WINDOW');
+    });
+
+    it('should create MemberInvitation and GroupMembership when coordinator adds outside window', async () => {
+      const coordinator = await createUser({ role: 'coordinator' });
+      const group = await makeGroup();
+      const student = await createUser();
+
+      await ScheduleWindow.deleteMany({});
+
+      const req = makeReq(
+        { groupId: group.groupId },
+        {
+          action: 'add_member',
+          target_student_id: student.userId,
+          reason: 'Coordinator override',
+        },
+        { userId: coordinator.userId, role: 'coordinator' }
+      );
+      const res = makeRes();
+
+      await coordinatorOverride(req, res);
+
+      // Verify student was added to group
+      const updatedGroup = await Group.findOne({ groupId: group.groupId });
+      const member = updatedGroup.members.find((m) => m.userId === student.userId);
+      expect(member).toBeDefined();
+      expect(member.status).toBe('accepted');
+
+      // Verify GroupMembership record exists
+      const membership = await GroupMembership.findOne({
+        groupId: group.groupId,
+        studentId: student.userId,
+      });
+      expect(membership).toBeDefined();
+      expect(membership.status).toBe('approved');
+    });
+  });
+
   // ═══════════════════════════════════════════════════════════════════════════
 
   describe('Group Name Uniqueness Validation (Unit Test 2.2)', () => {

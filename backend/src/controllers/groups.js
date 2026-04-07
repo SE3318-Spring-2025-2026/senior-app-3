@@ -380,6 +380,14 @@ const VALID_GROUP_FIELDS = new Set([
 
 const VALID_GROUP_STATUSES = new Set(['pending_validation', 'active', 'inactive', 'archived']);
 
+// State machine: valid status transitions
+const VALID_STATUS_TRANSITIONS = {
+  'pending_validation': new Set(['active', 'archived']),
+  'active': new Set(['inactive', 'archived']),
+  'inactive': new Set(['active', 'archived']),
+  'archived': new Set([]),
+};
+
 /**
  * PATCH /groups/:groupId/override
  *
@@ -460,6 +468,22 @@ const coordinatorOverride = async (req, res) => {
         });
       }
 
+      // State machine validation: check if status transition is legal
+      if (updates.status !== undefined && updates.status !== group.status) {
+        const currentStatus = group.status;
+        const nextStatus = updates.status;
+        const allowedTransitions = VALID_STATUS_TRANSITIONS[currentStatus];
+        if (!allowedTransitions || !allowedTransitions.has(nextStatus)) {
+          return res.status(409).json({
+            code: 'INVALID_STATUS_TRANSITION',
+            message: `Cannot transition from '${currentStatus}' to '${nextStatus}'. Allowed transitions: ${[...allowedTransitions].join(', ') || 'none'}`,
+          });
+        }
+      }
+
+      // Capture old status for audit log
+      const oldStatus = group.status;
+
       // f21: Apply partial update to D2 group record
       Object.assign(group, updates);
       await group.save();
@@ -486,6 +510,26 @@ const coordinatorOverride = async (req, res) => {
         });
       } catch (auditError) {
         console.error('Audit log failed (non-fatal):', auditError.message);
+      }
+
+      // If status was updated, also log STATUS_TRANSITION
+      if (updates.status !== undefined && updates.status !== oldStatus) {
+        try {
+          await createAuditLog({
+            action: 'STATUS_TRANSITION',
+            actorId: req.user.userId,
+            targetId: groupId,
+            details: {
+              previousStatus: oldStatus,
+              newStatus: updates.status,
+              reason: reason.trim(),
+            },
+            ipAddress: req.ip,
+            userAgent: req.headers['user-agent'],
+          });
+        } catch (auditError) {
+          console.error('STATUS_TRANSITION audit log failed (non-fatal):', auditError.message);
+        }
       }
 
       return res.status(200).json({
@@ -558,6 +602,23 @@ const coordinatorOverride = async (req, res) => {
           },
         }
       );
+
+      // Log MEMBER_REMOVED action separately
+      try {
+        await createAuditLog({
+          action: 'MEMBER_REMOVED',
+          actorId: req.user.userId,
+          targetId: groupId,
+          details: {
+            studentId,
+            reason: reason.trim(),
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      } catch (auditError) {
+        console.error('MEMBER_REMOVED audit log failed (non-fatal):', auditError.message);
+      }
     }
 
     const override = await Override.create({
