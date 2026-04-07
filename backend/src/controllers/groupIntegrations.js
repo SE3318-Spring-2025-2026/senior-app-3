@@ -173,9 +173,12 @@ const configureGithub = async (req, res) => {
     // f24: store config in D2
     group.githubPat = pat.trim();
     group.githubOrg = org_name.trim();
+    group.githubOrgId = orgData.id;
+    group.githubOrgName = orgData.name;
     group.githubRepoName = repo_name.trim();
     group.githubVisibility = visibility;
     group.githubRepoUrl = `https://github.com/${org_name.trim()}/${repo_name.trim()}`;
+    group.githubLastSynced = new Date();
     await group.save();
 
     // Audit log: github_integration_setup (non-fatal)
@@ -201,7 +204,7 @@ const configureGithub = async (req, res) => {
 
     return res.status(201).json({
       repo_url: group.githubRepoUrl,
-      status: 'success',
+      status: 'created',
       org_data: { 
         id: orgData.id, 
         login: orgData.login, 
@@ -218,6 +221,18 @@ const configureGithub = async (req, res) => {
  * GET /groups/:groupId/github
  *
  * Returns the stored GitHub config for the group (PAT excluded).
+ * 
+ * DFD flow: 2.6 → Student (confirmation status check)
+ * 
+ * Response format:
+ *   - group_id: Group identifier
+ *   - github_org: Stored organization name (legacy field)
+ *   - validated: Boolean indicating if GitHub integration is set up (legacy field)
+ *   - connected: Boolean indicating if GitHub integration is active
+ *   - repo_url: GitHub repository URL (only if connected)
+ *   - org: Organization data { id, login, name } (only if connected)
+ *   - last_synced: Timestamp of last successful validation (only if connected)
+ *   - last_sync_error: Error information if last attempt failed
  */
 const getGithub = async (req, res) => {
   try {
@@ -228,16 +243,22 @@ const getGithub = async (req, res) => {
       return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
     }
 
+    // Check if GitHub integration is connected
+    const isConnected = !!(group.githubOrg && group.githubPat && group.githubRepoUrl);
+
     const lastSyncError = await SyncErrorLog.findOne(
       { groupId, service: 'github' },
       null,
       { sort: { createdAt: -1, _id: -1 } }
     );
 
-    return res.status(200).json({
+    // Build response with core confirmation fields
+    const response = {
       group_id: groupId,
       github_org: group.githubOrg,
       validated: !!group.githubOrg,
+      // New status fields (flow f24: 2.6 → Student)
+      connected: isConnected,
       last_sync_error: lastSyncError
         ? {
             error_id: lastSyncError.errorId,
@@ -246,7 +267,20 @@ const getGithub = async (req, res) => {
             timestamp: lastSyncError.createdAt,
           }
         : null,
-    });
+    };
+
+    // Include confirmation data only if successfully connected
+    if (isConnected) {
+      response.repo_url = group.githubRepoUrl;
+      response.org = {
+        id: group.githubOrgId,
+        login: group.githubOrg,
+        name: group.githubOrgName,
+      };
+      response.last_synced = group.githubLastSynced;
+    }
+
+    return res.status(200).json(response);
   } catch (err) {
     console.error('getGithub error:', err);
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
