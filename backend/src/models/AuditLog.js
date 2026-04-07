@@ -29,8 +29,13 @@ const auditLogSchema = new mongoose.Schema(
         'GROUP_RETRIEVED',
         'COORDINATOR_OVERRIDE',
         'MEMBER_INVITED',
+        'MEMBER_ADDED',
+        'MEMBER_REMOVED',
         'NOTIFICATION_DISPATCHED',
+        'MEMBERSHIP_DECISION',
         'MEMBERSHIP_DECISION_MADE',
+        'MEMBERSHIP_DECISION_AUTO_DENIED',
+        'STATUS_TRANSITION',
         'GITHUB_CONFIGURED',
         'JIRA_CONFIGURED',
       ],
@@ -45,6 +50,10 @@ const auditLogSchema = new mongoose.Schema(
     },
     // Captured for ACCOUNT_UPDATED: { previous: {}, updated: {} }
     changes: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+    details: {
       type: mongoose.Schema.Types.Mixed,
       default: null,
     },
