@@ -1,33 +1,30 @@
 const ScheduleWindow = require('../models/ScheduleWindow');
 
-const VALID_OPERATION_TYPES = ['group_creation', 'member_addition'];
+const VALID_OPERATION_TYPES = new Set(['group_creation', 'member_addition']);
 
 /**
- * GET /schedule-window/active
- * Returns the currently active schedule window for a given operation type.
- * Query param: ?type=group_creation | member_addition
- * Used by the frontend to show open/closed status.
+ * GET /schedule-window/active?operationType=group_creation
+ * Returns the currently active schedule window for the given operation type.
+ * Used by the frontend to show open/closed status on creation/member-add pages.
  */
 const getActiveWindow = async (req, res) => {
   try {
-    const { type } = req.query;
+    const { operationType } = req.query;
 
-    if (type && !VALID_OPERATION_TYPES.includes(type)) {
+    if (!operationType || !VALID_OPERATION_TYPES.has(operationType)) {
       return res.status(400).json({
         code: 'INVALID_INPUT',
-        message: `type must be one of: ${VALID_OPERATION_TYPES.join(', ')}`,
+        message: "operationType query param must be 'group_creation' or 'member_addition'.",
       });
     }
 
     const now = new Date();
-    const query = {
+    const window = await ScheduleWindow.findOne({
+      operationType,
       isActive: true,
       startsAt: { $lte: now },
       endsAt: { $gte: now },
-    };
-    if (type) query.operationType = type;
-
-    const window = await ScheduleWindow.findOne(query);
+    });
 
     if (!window) {
       return res.status(200).json({ open: false, window: null });
@@ -51,25 +48,24 @@ const getActiveWindow = async (req, res) => {
 
 /**
  * GET /schedule-window
- * Returns all schedule windows (active and inactive), ordered by creation date desc.
- * Used by the Coordinator Panel UI to display current configuration.
+ * Returns all schedule windows (active and inactive) for coordinator panel display.
+ * Optional query param: ?operationType=group_creation|member_addition
  */
-const getAllWindows = async (req, res) => {
+const listWindows = async (req, res) => {
   try {
-    const { type } = req.query;
-
-    const query = {};
-    if (type) {
-      if (!VALID_OPERATION_TYPES.includes(type)) {
+    const { operationType } = req.query;
+    const filter = {};
+    if (operationType) {
+      if (!VALID_OPERATION_TYPES.has(operationType)) {
         return res.status(400).json({
           code: 'INVALID_INPUT',
-          message: `type must be one of: ${VALID_OPERATION_TYPES.join(', ')}`,
+          message: "operationType must be 'group_creation' or 'member_addition'.",
         });
       }
-      query.operationType = type;
+      filter.operationType = operationType;
     }
 
-    const windows = await ScheduleWindow.find(query).sort({ createdAt: -1 });
+    const windows = await ScheduleWindow.find(filter).sort({ createdAt: -1 });
 
     return res.status(200).json({
       windows: windows.map((w) => ({
@@ -84,7 +80,7 @@ const getAllWindows = async (req, res) => {
       })),
     });
   } catch (err) {
-    console.error('getAllWindows error:', err);
+    console.error('listWindows error:', err);
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred.' });
   }
 };
@@ -94,16 +90,16 @@ const getAllWindows = async (req, res) => {
  * Coordinator/admin creates a new schedule window for a specific operation type.
  * Body: { operationType, startsAt, endsAt, label? }
  *
- * Deactivates any existing windows of the same operationType that overlap.
+ * Deactivates any existing windows of the same operationType that overlap with the new one.
  */
 const createWindow = async (req, res) => {
   try {
     const { operationType, startsAt, endsAt, label } = req.body;
 
-    if (!operationType || !VALID_OPERATION_TYPES.includes(operationType)) {
+    if (!operationType || !VALID_OPERATION_TYPES.has(operationType)) {
       return res.status(400).json({
         code: 'INVALID_INPUT',
-        message: `operationType must be one of: ${VALID_OPERATION_TYPES.join(', ')}`,
+        message: "operationType must be 'group_creation' or 'member_addition'.",
       });
     }
 
@@ -122,7 +118,7 @@ const createWindow = async (req, res) => {
       return res.status(400).json({ code: 'INVALID_INPUT', message: 'endsAt must be after startsAt.' });
     }
 
-    // Deactivate overlapping windows of the same operation type
+    // Deactivate overlapping windows of the same operationType
     await ScheduleWindow.updateMany(
       {
         operationType,
@@ -179,4 +175,4 @@ const deactivateWindow = async (req, res) => {
   }
 };
 
-module.exports = { getActiveWindow, getAllWindows, createWindow, deactivateWindow };
+module.exports = { getActiveWindow, listWindows, createWindow, deactivateWindow };

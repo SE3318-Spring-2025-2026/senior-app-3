@@ -41,14 +41,15 @@ export const createGroup = async ({
 };
 
 /**
- * Check if a schedule window is currently open for the given operation type.
- * @param {'group_creation'|'member_addition'} [type] - Operation type to check
+ * Check if a schedule window is currently open for a given operation type
+ * @param {'group_creation'|'member_addition'} operationType
  * @returns {Promise<{open: boolean, window: object|null}>}
  */
-export const getScheduleWindow = async (type) => {
+export const getScheduleWindow = async (operationType = 'group_creation') => {
   try {
-    const params = type ? { type } : {};
-    const response = await apiClient.get('/schedule-window/active', { params });
+    const response = await apiClient.get('/schedule-window/active', {
+      params: { operationType },
+    });
     return response.data;
   } catch {
     return { open: false, window: null };
@@ -56,28 +57,36 @@ export const getScheduleWindow = async (type) => {
 };
 
 /**
- * List all schedule windows (coordinator only).
- * @param {'group_creation'|'member_addition'} [type] - Optional filter by operation type
+ * List all schedule windows (coordinator/admin only)
+ * @param {'group_creation'|'member_addition'|undefined} operationType — optional filter
  * @returns {Promise<{windows: object[]}>}
  */
-export const listScheduleWindows = async (type) => {
-  const params = type ? { type } : {};
+export const listScheduleWindows = async (operationType) => {
+  const params = operationType ? { operationType } : {};
   const response = await apiClient.get('/schedule-window', { params });
   return response.data;
 };
 
 /**
- * Create a schedule window (coordinator only).
- * @param {{ operationType: string, startsAt: string, endsAt: string, label?: string }} payload
- * @returns {Promise<object>}
+ * Create a new schedule window (coordinator/admin only)
+ * @param {'group_creation'|'member_addition'} operationType
+ * @param {string} startsAt - ISO date string
+ * @param {string} endsAt - ISO date string
+ * @param {string} [label]
+ * @returns {Promise<object>} Created window
  */
-export const createScheduleWindow = async (payload) => {
-  const response = await apiClient.post('/schedule-window', payload);
+export const createScheduleWindow = async (operationType, startsAt, endsAt, label = '') => {
+  const response = await apiClient.post('/schedule-window', {
+    operationType,
+    startsAt,
+    endsAt,
+    label,
+  });
   return response.data;
 };
 
 /**
- * Deactivate a schedule window (coordinator only).
+ * Deactivate a schedule window (coordinator/admin only)
  * @param {string} windowId
  * @returns {Promise<{windowId: string, isActive: false}>}
  */
@@ -164,7 +173,6 @@ export const getGitHubStatus = async (groupId) => {
     return response.data;
   } catch (error) {
     console.error('Error fetching GitHub status:', error);
-    // Return default if endpoint not found
     if (error.response?.status === 404) {
       return { connected: false, repo_url: null, last_synced: null };
     }
@@ -183,7 +191,6 @@ export const getJiraStatus = async (groupId) => {
     return response.data;
   } catch (error) {
     console.error('Error fetching JIRA status:', error);
-    // Return default if endpoint not found
     if (error.response?.status === 404) {
       return { connected: false, project_key: null, board_url: null };
     }
@@ -204,7 +211,6 @@ export const getPendingApprovals = async (groupId) => {
     return response.data;
   } catch (error) {
     console.error('Error fetching pending approvals:', error);
-    // Return empty array if endpoint not found
     if (error.response?.status === 404) {
       return { approvals: [] };
     }

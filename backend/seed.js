@@ -247,7 +247,6 @@ async function seed() {
   // ── Schedule Window ───────────────────────────────────────────────────────
   console.log('\nSeeding schedule window...');
   const coordinator = await User.findOne({ role: 'coordinator' });
-  const createdBy = coordinator?.userId ?? 'seed';
   const now = new Date();
   const endsAt = new Date(now);
   endsAt.setFullYear(endsAt.getFullYear() + 1);
@@ -262,7 +261,7 @@ async function seed() {
         startsAt: now,
         endsAt,
         isActive: true,
-        createdBy,
+        createdBy: coordinator?.userId ?? 'seed',
         label: `Seed — ${operationType === 'group_creation' ? 'Group Creation' : 'Member Addition'} Open`,
       });
       console.log(`  added active ${operationType} window (open for 1 year)`);

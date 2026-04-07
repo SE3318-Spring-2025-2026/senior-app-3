@@ -4,9 +4,10 @@ const { v4: uuidv4 } = require('uuid');
 /**
  * ScheduleWindow — stores coordinator-defined schedule windows per operation type.
  *
- * One window per operation_type can be active at a given point in time.
- * Boundary check middleware enforces these windows on group creation and
- * member addition endpoints (AC: schedule boundary enforcement).
+ * Each window is scoped to an operationType ('group_creation' | 'member_addition').
+ * Only one active window per operationType may cover a given point in time.
+ * Boundary checks in createGroup (2.1) and addMember (2.3) reject requests
+ * outside an active window for their respective operationType.
  */
 const scheduleWindowSchema = new mongoose.Schema(
   {
@@ -30,7 +31,7 @@ const scheduleWindowSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Index used by the schedule boundary check middleware
+// Index used by boundary checks: filter by operationType + active status + time range
 scheduleWindowSchema.index({ operationType: 1, isActive: 1, startsAt: 1, endsAt: 1 });
 
 const ScheduleWindow = mongoose.model('ScheduleWindow', scheduleWindowSchema);
