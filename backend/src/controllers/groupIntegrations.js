@@ -113,10 +113,12 @@ const configureGithub = async (req, res) => {
     // f24: store config in D2
     group.githubPat = pat.trim();
     group.githubOrg = org.trim();
+    group.githubRepoUrl = `https://github.com/${org.trim()}`;
     await group.save();
 
     return res.status(200).json({
       github_org: group.githubOrg,
+      github_repo_url: group.githubRepoUrl,
       validated: true,
       org_data: { login: orgData.login, id: orgData.id, name: orgData.name },
     });
@@ -251,12 +253,14 @@ const configureJira = async (req, res) => {
     group.jiraToken = jira_token.trim();
     group.projectKey = project_key.trim();
     group.jiraProject = projectData.name || project_key.trim();
+    group.jiraBoardUrl = `${baseUrl}/jira/software/projects/${project_key.trim()}/boards`;
     await group.save();
 
     return res.status(200).json({
       jira_url: group.jiraUrl,
       jira_project: group.jiraProject,
-      project_key: group.projectKey,
+      jira_project_key: group.projectKey,
+      jira_board_url: group.jiraBoardUrl,
       validated: true,
     });
   } catch (err) {
@@ -283,7 +287,8 @@ const getJira = async (req, res) => {
       group_id: groupId,
       jira_url: group.jiraUrl,
       jira_project: group.jiraProject,
-      project_key: group.projectKey,
+      jira_project_key: group.projectKey,
+      jira_board_url: group.jiraBoardUrl,
       validated: !!group.jiraUrl,
     });
   } catch (err) {

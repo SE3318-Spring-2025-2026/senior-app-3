@@ -33,7 +33,7 @@ const groupSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    advisor: {
+    advisorId: {
       type: String,
       default: null,
     },
@@ -47,6 +47,10 @@ const groupSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    githubRepoUrl: {
+      type: String,
+      default: null,
+    },
     githubPat: {
       type: String,
       default: null,
@@ -56,6 +60,10 @@ const groupSchema = new mongoose.Schema(
       default: null,
     },
     jiraUrl: {
+      type: String,
+      default: null,
+    },
+    jiraBoardUrl: {
       type: String,
       default: null,
     },
@@ -76,6 +84,7 @@ const groupSchema = new mongoose.Schema(
 );
 
 groupSchema.index({ leaderId: 1 });
+groupSchema.index({ status: 1 });
 
 const Group = mongoose.model('Group', groupSchema);
 
