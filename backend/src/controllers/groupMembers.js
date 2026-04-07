@@ -13,11 +13,13 @@ const MAX_RETRY_ATTEMPTS = 3;
 /**
  * POST /groups/:groupId/members
  *
- * Process 2.3 — Team leader invites a student to the group.
+ * Process 2.3 — Team leader invites one or more students to the group.
  *
  * DFD flows:
  *   f05 — Student (leader) → 2.3 (add member request)
+ *   f06 — 2.3 → 2.4 (forward invitee IDs + group ID for notification dispatch)
  *   f19 — 2.3 → D2 (write pending member record)
+ *   f32 — D2 → 2.3 (read current group data before processing)
  *
  * Business rule: a student may only belong to one active group at a time.
  * If the invitee already has an approved membership elsewhere, the request
@@ -28,7 +30,7 @@ const MAX_RETRY_ATTEMPTS = 3;
 const addMember = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { invitee_id } = req.body;
+    const { student_ids } = req.body;
 
     // --- Schedule boundary check ---
     const now = new Date();
@@ -45,10 +47,11 @@ const addMember = async (req, res) => {
       });
     }
 
-    if (!invitee_id || typeof invitee_id !== 'string' || !invitee_id.trim()) {
-      return res.status(400).json({ code: 'MISSING_INVITEE_ID', message: 'invitee_id is required' });
+    if (!Array.isArray(student_ids) || student_ids.length === 0) {
+      return res.status(400).json({ code: 'MISSING_STUDENT_IDS', message: 'student_ids must be a non-empty array' });
     }
 
+    // f32: read current group data from D2
     const group = await Group.findOne({ groupId });
     if (!group) {
       return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
@@ -58,69 +61,83 @@ const addMember = async (req, res) => {
       return res.status(403).json({ code: 'FORBIDDEN', message: 'Only the group leader can invite members' });
     }
 
-    const invitee = await User.findOne({ userId: invitee_id.trim() });
-    if (!invitee) {
-      return res.status(404).json({ code: 'STUDENT_NOT_FOUND', message: 'Invitee not found' });
-    }
+    const added = [];
+    const errors = [];
 
-    // Auto-denial: one active group per student (f08 pre-check)
-    const existingApproved = await GroupMembership.findOne({
-      studentId: invitee_id.trim(),
-      status: 'approved',
-      groupId: { $ne: groupId },
-    });
-    if (existingApproved) {
-      return res.status(409).json({
-        code: 'STUDENT_ALREADY_IN_GROUP',
-        message: 'Student already belongs to an active group and cannot be invited to another',
+    for (const rawId of student_ids) {
+      const inviteeId = typeof rawId === 'string' ? rawId.trim() : '';
+
+      if (!inviteeId) {
+        errors.push({ student_id: rawId, code: 'INVALID_STUDENT_ID', message: 'Student ID must be a non-empty string' });
+        continue;
+      }
+
+      // Accept either userId or email address
+      const invitee = await User.findOne({
+        $or: [{ userId: inviteeId }, { email: inviteeId.toLowerCase() }],
       });
-    }
+      if (!invitee) {
+        errors.push({ student_id: inviteeId, code: 'STUDENT_NOT_FOUND', message: 'Student not found' });
+        continue;
+      }
 
-    // Check for existing invitation to this group
-    const existing = await MemberInvitation.findOne({ groupId, inviteeId: invitee_id.trim() });
-    if (existing) {
-      return res.status(409).json({
-        code: 'ALREADY_INVITED',
-        message: 'Student has already been invited to this group',
+      const existingApproved = await GroupMembership.findOne({
+        studentId: invitee.userId,
+        status: 'approved',
+        groupId: { $ne: groupId },
       });
-    }
+      if (existingApproved) {
+        errors.push({ student_id: inviteeId, code: 'STUDENT_ALREADY_IN_GROUP', message: 'Student already belongs to an active group' });
+        continue;
+      }
 
-    // f19: write pending member record to D2
-    const invitation = await MemberInvitation.create({
-      groupId,
-      inviteeId: invitee_id.trim(),
-      invitedBy: req.user.userId,
-    });
+      const existing = await MemberInvitation.findOne({ groupId, inviteeId: invitee.userId });
+      if (existing) {
+        errors.push({ student_id: inviteeId, code: 'ALREADY_INVITED', message: 'Student has already been invited to this group' });
+        continue;
+      }
 
-    await GroupMembership.create({
-      groupId,
-      studentId: invitee_id.trim(),
-      status: 'pending',
-    });
+      // f19: write pending member record to D2
+      const invitation = await MemberInvitation.create({
+        groupId,
+        inviteeId: invitee.userId,
+        invitedBy: req.user.userId,
+      });
 
-    // Create audit log for member addition
-    await createAuditLog({
-      action: 'MEMBER_ADDED',
-      actorId: req.user.userId,
-      actorRole: req.user.role,
-      targetId: groupId,
-      targetType: 'group',
-      details: {
-        inviteeId: invitee_id.trim(),
+      await GroupMembership.create({
+        groupId,
+        studentId: invitee.userId,
         status: 'pending',
-        sourceProcess: 'direct_invitation',
-      },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'],
-    });
+      });
+
+      // Create audit log for member addition
+      await createAuditLog({
+        action: 'MEMBER_ADDED',
+        actorId: req.user.userId,
+        actorRole: req.user.role,
+        targetId: groupId,
+        targetType: 'group',
+        details: {
+          inviteeId: invitee.userId,
+          status: 'pending',
+          sourceProcess: 'direct_invitation',
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+
+      added.push({
+        invitation_id: invitation.invitationId,
+        invitee_id: invitee.userId,
+        status: 'pending',
+      });
+    }
 
     return res.status(201).json({
-      invitation_id: invitation.invitationId,
+      added,
+      ...(errors.length > 0 && { errors }),
       group_id: groupId,
-      invitee_id: invitation.inviteeId,
-      invited_by: invitation.invitedBy,
-      status: invitation.status,
-      created_at: invitation.createdAt,
+      total_members: group.members.length + added.length,
     });
   } catch (err) {
     console.error('addMember error:', err);
@@ -404,4 +421,38 @@ const membershipDecision = async (req, res) => {
   }
 };
 
-module.exports = { addMember, getMembers, dispatchNotification, membershipDecision };
+/**
+ * GET /groups/pending-invitation
+ *
+ * Returns the current user's pending group invitation with group details.
+ * Used by invited students to discover and navigate to their group.
+ */
+const getMyPendingInvitation = async (req, res) => {
+  try {
+    const studentId = req.user.userId;
+
+    const invitation = await MemberInvitation.findOne({ inviteeId: studentId, status: 'pending' });
+    if (!invitation) {
+      return res.status(404).json({ code: 'NO_PENDING_INVITATION', message: 'No pending invitation found' });
+    }
+
+    const group = await Group.findOne({ groupId: invitation.groupId });
+    if (!group) {
+      return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
+    }
+
+    return res.status(200).json({
+      invitation_id: invitation.invitationId,
+      group_id: invitation.groupId,
+      group_name: group.groupName,
+      invited_by: invitation.invitedBy,
+      status: invitation.status,
+      created_at: invitation.createdAt,
+    });
+  } catch (err) {
+    console.error('getMyPendingInvitation error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
+  }
+};
+
+module.exports = { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation };

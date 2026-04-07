@@ -15,12 +15,12 @@ import GitHubCallbackHandler from './components/GitHubCallbackHandler';
 import GroupDashboard from './components/GroupDashboard';
 import GroupCreationPage from './components/GroupCreationPage';
 import CoordinatorPanel from './components/CoordinatorPanel';
+import Dashboard from './components/Dashboard';
 import './App.css';
 
 /**
  * Placeholder components for routes not yet implemented
  */
-const Dashboard = () => <div className="page">Dashboard - Coming Soon</div>;
 const Profile = () => <div className="page">Profile - Coming Soon</div>;
 const Unauthorized = () => <div className="page error">Unauthorized Access</div>;
 const NotFound = () => <div className="page error">Page Not Found</div>;
