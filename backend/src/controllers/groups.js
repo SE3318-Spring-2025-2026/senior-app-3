@@ -8,6 +8,7 @@ const ScheduleWindow = require('../models/ScheduleWindow');
 const { createAuditLog } = require('../services/auditService');
 const { forwardToMemberRequestPipeline, forwardOverrideToReconciliation } = require('../services/groupService');
 const { dispatchGroupCreationNotification } = require('../services/notificationService');
+const { INACTIVE_GROUP_STATUSES, VALID_STATUS_TRANSITIONS } = require('../utils/groupStatusEnum');
 const SyncErrorLog = require('../models/SyncErrorLog');
 
 const VALID_DECISIONS = new Set(['approved', 'rejected']);
@@ -250,9 +251,10 @@ const createGroup = async (req, res) => {
       });
     }
 
+    // Issue #52: Check if leader already leads an active group (any status except rejected terminal state)
     const existingLeadership = await Group.findOne({
       leaderId: leader.userId,
-      status: { $nin: ['disbanded', 'rejected'] },
+      status: { $nin: ['rejected'] },
     });
     if (existingLeadership) {
       return res.status(409).json({
@@ -434,15 +436,10 @@ const VALID_GROUP_FIELDS = new Set([
   'jiraUsername', 'jiraToken', 'projectKey',
 ]);
 
-const VALID_GROUP_STATUSES = new Set(['pending_validation', 'active', 'inactive', 'archived']);
+const VALID_GROUP_STATUSES = new Set(['pending_validation', 'active', 'inactive', 'rejected']);
 
-// State machine: valid status transitions
-const VALID_STATUS_TRANSITIONS = {
-  'pending_validation': new Set(['active', 'archived']),
-  'active': new Set(['inactive', 'archived']),
-  'inactive': new Set(['active', 'archived']),
-  'archived': new Set([]),
-};
+// State machine: valid status transitions (Issue #52)
+// VALID_STATUS_TRANSITIONS imported from groupStatusEnum for consistency
 
 /**
  * PATCH /groups/:groupId/override
@@ -533,6 +530,9 @@ const coordinatorOverride = async (req, res) => {
           return res.status(409).json({
             code: 'INVALID_STATUS_TRANSITION',
             message: `Cannot transition from '${currentStatus}' to '${nextStatus}'. Allowed transitions: ${[...allowedTransitions].join(', ') || 'none'}`,
+            current_status: currentStatus,
+            attempted_status: nextStatus,
+            allowed_transitions: allowedTransitions ? [...allowedTransitions] : [],
           });
         }
       }
@@ -573,23 +573,25 @@ const coordinatorOverride = async (req, res) => {
         console.error('Audit log failed (non-fatal):', auditError.message);
       }
 
-      // If status was updated, also log STATUS_TRANSITION
+      // If status was updated, also log STATUS_TRANSITION (Issue #52: Use snake_case 'status_transition')
       if (updates.status !== undefined && updates.status !== oldStatus) {
         try {
           await createAuditLog({
-            action: 'STATUS_TRANSITION',
+            action: 'status_transition',
             actorId: req.user.userId,
             targetId: groupId,
-            details: {
-              previousStatus: oldStatus,
-              newStatus: updates.status,
+            groupId,
+            payload: {
+              previous_status: oldStatus,
+              new_status: updates.status,
               reason: reason.trim(),
+              via: 'coordinator_override',
             },
             ipAddress: req.ip,
             userAgent: req.headers['user-agent'],
           });
         } catch (auditError) {
-          console.error('STATUS_TRANSITION audit log failed (non-fatal):', auditError.message);
+          console.error('status_transition audit log failed (non-fatal):', auditError.message);
         }
       }
 
@@ -770,6 +772,15 @@ const createMemberRequest = async (req, res) => {
       return res.status(404).json({
         code: 'GROUP_NOT_FOUND',
         message: 'Group not found',
+      });
+    }
+
+    // Issue #52: Check if group is inactive (cannot receive new members)
+    if (INACTIVE_GROUP_STATUSES.has(group.status)) {
+      return res.status(409).json({
+        code: 'GROUP_INACTIVE',
+        message: `Cannot request to join group with status '${group.status}'`,
+        current_status: group.status,
       });
     }
 

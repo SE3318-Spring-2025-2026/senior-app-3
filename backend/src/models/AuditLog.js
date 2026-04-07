@@ -55,6 +55,7 @@ const auditLogSchema = new mongoose.Schema(
         'coordinator_override',
         'github_integration_setup',
         'jira_integration_setup',
+        'status_transition',
         'sync_error',
         // Test sentinel (used in existing test suite)
         'TEST_ACTION',
