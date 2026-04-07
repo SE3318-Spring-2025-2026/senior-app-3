@@ -300,3 +300,28 @@ export const transitionGroupStatus = async (groupId, newStatus, reason) => {
   });
   return response.data;
 };
+
+/**
+ * Configure GitHub integration for a group (Process 2.6)
+ * @param {string} groupId - The group ID
+ * @param {object} payload
+ * @param {string} payload.pat - GitHub Personal Access Token
+ * @param {string} payload.org_name - GitHub organization name
+ * @param {string} payload.repo_name - Repository name
+ * @param {string} [payload.visibility] - Visibility setting (private, public, internal); default: 'private'
+ * @returns {Promise<{repo_url, status, org_data}>}
+ */
+export const configureGitHub = async (groupId, { pat, org_name, repo_name, visibility = 'private' }) => {
+  try {
+    const response = await apiClient.post(`/groups/${groupId}/github`, {
+      pat,
+      org_name,
+      repo_name,
+      visibility,
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error configuring GitHub:', error);
+    throw error;
+  }
+};

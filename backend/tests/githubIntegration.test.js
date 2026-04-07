@@ -114,7 +114,7 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
   // ── configureGithub happy path ─────────────────────────────────────────────────
 
   describe('POST /groups/:groupId/github — configureGithub', () => {
-    it('returns 200 with github_org, validated: true, org_data on success', async () => {
+    it('returns 201 with repo_url, status, org_data on success', async () => {
       mockValidPat();
       mockValidOrg('cool-org');
 
@@ -122,31 +122,33 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
       const res = makeRes();
 
       await configureGithub(
-        makeReq({ groupId: group.groupId }, { pat: 'ghp_validtoken', org: 'cool-org' }),
+        makeReq({ groupId: group.groupId }, { pat: 'ghp_validtoken', org_name: 'cool-org', repo_name: 'my-repo', visibility: 'private' }),
         res
       );
 
       expect(res.status).toHaveBeenCalledWith(201);
       const body = res.json.mock.calls[0][0];
-      expect(body.validated).toBe(true);
-      expect(body.github_org).toBe('cool-org');
+      expect(body.status).toBe('success');
+      expect(body.repo_url).toBe('https://github.com/cool-org/my-repo');
       expect(body.org_data).toMatchObject({ login: 'cool-org', id: 42 });
     });
 
-    it('f24: stores githubPat and githubOrg in D2 group record', async () => {
+    it('f24: stores githubPat, githubOrg, githubRepoName, and githubVisibility in D2', async () => {
       mockValidPat();
       mockValidOrg('my-org');
 
       const group = await makeGroup();
 
       await configureGithub(
-        makeReq({ groupId: group.groupId }, { pat: 'ghp_secret', org: 'my-org' }),
+        makeReq({ groupId: group.groupId }, { pat: 'ghp_secret', org_name: 'my-org', repo_name: 'test-repo', visibility: 'public' }),
         makeRes()
       );
 
       const updated = await Group.findOne({ groupId: group.groupId });
       expect(updated.githubPat).toBe('ghp_secret');
       expect(updated.githubOrg).toBe('my-org');
+      expect(updated.githubRepoName).toBe('test-repo');
+      expect(updated.githubVisibility).toBe('public');
     });
 
     it('f11: makes PAT validation call to https://api.github.com/user', async () => {
@@ -155,7 +157,7 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
 
       const group = await makeGroup();
       await configureGithub(
-        makeReq({ groupId: group.groupId }, { pat: 'ghp_token', org: 'my-org' }),
+        makeReq({ groupId: group.groupId }, { pat: 'ghp_token', org_name: 'my-org', repo_name: 'my-repo' }),
         makeRes()
       );
 
@@ -173,7 +175,7 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
 
       const group = await makeGroup();
       await configureGithub(
-        makeReq({ groupId: group.groupId }, { pat: 'ghp_token', org: 'target-org' }),
+        makeReq({ groupId: group.groupId }, { pat: 'ghp_token', org_name: 'target-org', repo_name: 'my-repo' }),
         makeRes()
       );
 
@@ -191,17 +193,17 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
       const group = await makeGroup();
       const res = makeRes();
 
-      await configureGithub(makeReq({ groupId: group.groupId }, { org: 'my-org' }), res);
+      await configureGithub(makeReq({ groupId: group.groupId }, { org_name: 'my-org', repo_name: 'my-repo' }), res);
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json.mock.calls[0][0].code).toBe('MISSING_PAT');
     });
 
-    it('returns 400 MISSING_ORG when org is absent', async () => {
+    it('returns 400 MISSING_ORG when org_name is absent', async () => {
       const group = await makeGroup();
       const res = makeRes();
 
-      await configureGithub(makeReq({ groupId: group.groupId }, { pat: 'ghp_x' }), res);
+      await configureGithub(makeReq({ groupId: group.groupId }, { pat: 'ghp_x', repo_name: 'my-repo' }), res);
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json.mock.calls[0][0].code).toBe('MISSING_ORG');
@@ -214,7 +216,7 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
       const res = makeRes();
 
       await configureGithub(
-        makeReq({ groupId: group.groupId }, { pat: 'ghp_x', org: 'org' }),
+        makeReq({ groupId: group.groupId }, { pat: 'ghp_x', org_name: 'org', repo_name: 'repo' }),
         res
       );
 
@@ -226,7 +228,7 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
       const res = makeRes();
 
       await configureGithub(
-        makeReq({ groupId: 'grp_none' }, { pat: 'ghp_x', org: 'org' }),
+        makeReq({ groupId: 'grp_none' }, { pat: 'ghp_x', org_name: 'org', repo_name: 'repo' }),
         res
       );
 
@@ -243,7 +245,7 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
       const res = makeRes();
 
       await configureGithub(
-        makeReq({ groupId: group.groupId }, { pat: 'ghp_bad', org: 'my-org' }),
+        makeReq({ groupId: group.groupId }, { pat: 'ghp_bad', org_name: 'my-org', repo_name: 'my-repo' }),
         res
       );
 
@@ -258,7 +260,7 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
       const res = makeRes();
 
       await configureGithub(
-        makeReq({ groupId: group.groupId }, { pat: 'ghp_bad', org: 'my-org' }),
+        makeReq({ groupId: group.groupId }, { pat: 'ghp_bad', org_name: 'my-org', repo_name: 'my-repo' }),
         res
       );
 
@@ -274,7 +276,7 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
       const res = makeRes();
 
       await configureGithub(
-        makeReq({ groupId: group.groupId }, { pat: 'ghp_valid', org: 'ghost-org' }),
+        makeReq({ groupId: group.groupId }, { pat: 'ghp_valid', org_name: 'ghost-org', repo_name: 'my-repo' }),
         res
       );
 
@@ -291,7 +293,7 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
       const res = makeRes();
 
       await configureGithub(
-        makeReq({ groupId: group.groupId }, { pat: 'ghp_timeout', org: 'my-org' }),
+        makeReq({ groupId: group.groupId }, { pat: 'ghp_timeout', org_name: 'my-org', repo_name: 'my-repo' }),
         res
       );
 
@@ -305,7 +307,7 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
       const group = await makeGroup();
 
       await configureGithub(
-        makeReq({ groupId: group.groupId }, { pat: 'ghp_timeout', org: 'my-org' }),
+        makeReq({ groupId: group.groupId }, { pat: 'ghp_timeout', org_name: 'my-org', repo_name: 'my-repo' }),
         makeRes()
       );
 
@@ -322,7 +324,7 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
       const res = makeRes();
 
       await configureGithub(
-        makeReq({ groupId: group.groupId }, { pat: 'ghp_valid', org: 'my-org' }),
+        makeReq({ groupId: group.groupId }, { pat: 'ghp_valid', org_name: 'my-org', repo_name: 'my-repo' }),
         res
       );
 
