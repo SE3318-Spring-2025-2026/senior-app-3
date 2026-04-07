@@ -4,9 +4,11 @@ const AuditLog = require('../models/AuditLog');
  * Record an audit event.
  *
  * @param {object} params
- * @param {string} params.action      - One of ACCOUNT_CREATED | ACCOUNT_RETRIEVED | ACCOUNT_UPDATED
- * @param {string} params.actorId     - userId of the requester performing the action
- * @param {string} params.targetId    - userId of the account being acted upon
+ * @param {string} params.action      - One of the AuditLog action enum values
+ * @param {string} [params.actorId]   - userId of the requester performing the action
+ * @param {string} [params.targetId]  - userId or entityId of the subject being acted upon
+ * @param {string} [params.groupId]   - groupId for group formation events (issue spec: group_id)
+ * @param {object} [params.payload]   - Event-specific data (issue spec: payload{})
  * @param {object} [params.changes]   - For ACCOUNT_UPDATED: { previous, updated }
  * @param {object} [params.details]   - Additional details for the action
  * @param {string} [params.ipAddress]
@@ -14,10 +16,30 @@ const AuditLog = require('../models/AuditLog');
  * @param {object} [session]          - Mongoose session for transactional writes
  */
 const createAuditLog = async (
-  { action, actorId, targetId, changes = null, details = null, ipAddress = null, userAgent = null },
+  {
+    action,
+    actorId = null,
+    targetId = null,
+    groupId = null,
+    payload = null,
+    changes = null,
+    details = null,
+    ipAddress = null,
+    userAgent = null,
+  },
   session = null
 ) => {
-  const log = new AuditLog({ action, actorId, targetId, changes, details, ipAddress, userAgent });
+  const log = new AuditLog({
+    action,
+    actorId,
+    targetId,
+    groupId,
+    payload,
+    changes,
+    details,
+    ipAddress,
+    userAgent,
+  });
   await log.save(session ? { session } : undefined);
   return log;
 };

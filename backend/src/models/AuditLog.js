@@ -13,6 +13,7 @@ const auditLogSchema = new mongoose.Schema(
       type: String,
       required: true,
       enum: [
+        // Auth & account events (SCREAMING_SNAKE_CASE, legacy)
         'ACCOUNT_CREATED',
         'ACCOUNT_RETRIEVED',
         'ACCOUNT_UPDATED',
@@ -20,11 +21,18 @@ const auditLogSchema = new mongoose.Schema(
         'PASSWORD_RESET_CONFIRMED',
         'PASSWORD_RESET_ADMIN_INITIATED',
         'GITHUB_OAUTH_LINKED',
+        'GITHUB_OAUTH_INITIATED',
+        'GITHUB_LINKED',
         'ONBOARDING_COMPLETED',
         'EMAIL_VERIFICATION_SENT',
         'EMAIL_PASSWORD_RESET_SENT',
         'EMAIL_ACCOUNT_READY_SENT',
         'EMAIL_DELIVERY_FAILED',
+        'EMAIL_VERIFIED',
+        'LOGIN_SUCCESS',
+        'LOGIN_FAILED',
+        'PASSWORD_CHANGED',
+        // Group formation events (SCREAMING_SNAKE_CASE, legacy)
         'GROUP_CREATED',
         'GROUP_RETRIEVED',
         'COORDINATOR_OVERRIDE',
@@ -39,15 +47,37 @@ const auditLogSchema = new mongoose.Schema(
         'STATUS_TRANSITION',
         'GITHUB_CONFIGURED',
         'JIRA_CONFIGURED',
+        // Group formation events (snake_case, per issue spec)
+        'group_created',
+        'member_added',
+        'member_removed',
+        'membership_decision',
+        'coordinator_override',
+        'github_integration_setup',
+        'jira_integration_setup',
+        'sync_error',
+        // Test sentinel (used in existing test suite)
+        'TEST_ACTION',
       ],
     },
     actorId: {
       type: String,
-      required: true,
+      default: null,
     },
     targetId: {
       type: String,
-      required: true,
+      default: null,
+    },
+    // First-class group reference for group formation events
+    groupId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    // Consolidated event-specific data (mirrors the issue spec payload{} field)
+    payload: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
     },
     // Captured for ACCOUNT_UPDATED: { previous: {}, updated: {} }
     changes: {
@@ -66,12 +96,21 @@ const auditLogSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    // Explicit timestamp field per issue spec (mirrors createdAt)
+    timestamp: {
+      type: Date,
+      default: Date.now,
+    },
   },
   { timestamps: true }
 );
 
+// Existing indexes
 auditLogSchema.index({ targetId: 1, createdAt: -1 });
 auditLogSchema.index({ actorId: 1, createdAt: -1 });
+// New indexes for group formation audit queries (group_id + event_type)
+auditLogSchema.index({ groupId: 1, action: 1, createdAt: -1 });
+auditLogSchema.index({ action: 1, createdAt: -1 });
 
 const AuditLog = mongoose.model('AuditLog', auditLogSchema);
 
