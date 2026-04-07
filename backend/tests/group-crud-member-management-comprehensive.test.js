@@ -1556,7 +1556,7 @@ describe('Group CRUD, Member Management & Override Endpoints — Issue #55', () 
       expect(res.json.mock.calls[0][0].code).toBe('INVALID_STATUS_TRANSITION');
     });
 
-    it('should create STATUS_TRANSITION audit log when coordinator changes status', async () => {
+    it('should create status_transition audit log when coordinator changes status', async () => {
       const coordinator = await createUser({ role: 'coordinator' });
       const leader = await createUser();
 
@@ -1579,11 +1579,11 @@ describe('Group CRUD, Member Management & Override Endpoints — Issue #55', () 
 
       await coordinatorOverride(req, res);
 
-      const log = await AuditLog.findOne({ action: 'STATUS_TRANSITION' });
+      const log = await AuditLog.findOne({ action: 'status_transition' });
       expect(log).toBeDefined();
       expect(log.targetId).toBe(group.groupId);
-      expect(log.details.previousStatus).toBe('pending_validation');
-      expect(log.details.newStatus).toBe('active');
+      expect(log.payload.previous_status).toBe('pending_validation');
+      expect(log.payload.new_status).toBe('active');
     });
   });
 

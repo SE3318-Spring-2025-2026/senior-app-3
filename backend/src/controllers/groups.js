@@ -530,6 +530,9 @@ const coordinatorOverride = async (req, res) => {
           return res.status(409).json({
             code: 'INVALID_STATUS_TRANSITION',
             message: `Cannot transition from '${currentStatus}' to '${nextStatus}'. Allowed transitions: ${[...allowedTransitions].join(', ') || 'none'}`,
+            current_status: currentStatus,
+            attempted_status: nextStatus,
+            allowed_transitions: allowedTransitions ? [...allowedTransitions] : [],
           });
         }
       }
