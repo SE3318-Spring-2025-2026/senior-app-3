@@ -1,0 +1,253 @@
+<mxfile host="Electron" modified="2026-04-08" agent="5.0" version="24.0.0" type="device">
+    <diagram id="dfdLevel2_Process5_Clean" name="Level 2 - Process 5: Deliverable Submission &amp; Review">
+        <mxGraphModel dx="532" dy="326" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1300" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                
+                <!-- Title -->
+                <mxCell id="title" value="Level 2 - Process 5: Deliverable Submission &amp; Review" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=20;fontStyle=1;fontColor=#000000;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="10" width="1200" height="60" as="geometry"/>
+                </mxCell>
+                
+                <!-- System Boundary -->
+                <mxCell id="boundary" value="SYSTEM BOUNDARY: Senior Project Management System" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#333333;strokeWidth=3;dashed=1;fontSize=12;fontStyle=1;align=left;verticalAlign=top;" parent="1" vertex="1">
+                    <mxGeometry x="150" y="200" width="1050" height="480" as="geometry"/>
+                </mxCell>
+                
+                <!-- ============= EXTERNAL ENTITIES (Outside Boundary) ============= -->
+                
+                <!-- Student/Team (Left) -->
+                <mxCell id="student" value="Student / Team" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontStyle=1;fontSize=13;fontColor=#003366;" parent="1" vertex="1">
+                    <mxGeometry x="20" y="350" width="110" height="90" as="geometry"/>
+                </mxCell>
+                
+                <!-- Coordinator (Top) -->
+                <mxCell id="coordinator" value="Coordinator" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontStyle=1;fontSize=13;fontColor=#003366;" parent="1" vertex="1">
+                    <mxGeometry x="700" y="80" width="110" height="80" as="geometry"/>
+                </mxCell>
+                
+                <!-- Committee Member (Right) -->
+                <mxCell id="committee" value="Committee Member" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontStyle=1;fontSize=13;fontColor=#003366;" parent="1" vertex="1">
+                    <mxGeometry x="1650" y="350" width="110" height="90" as="geometry"/>
+                </mxCell>
+                
+                <!-- ============= DATA STORES (Bottom, Outside) ============= -->
+                
+                <!-- D4: Deliverable Files -->
+                <mxCell id="d4" value="D4 Deliverable Files &amp; Submissions" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontStyle=1;fontSize=11;fontColor=#B2860D;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="1100" width="170" height="90" as="geometry"/>
+                </mxCell>
+                
+                <!-- D8: Rubrics & Sprint Configurations (Center Bottom) -->
+                <mxCell id="d8" value="D8 Rubrics &amp; Sprint Configurations" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontStyle=1;fontSize=11;fontColor=#B2860D;" parent="1" vertex="1">
+                    <mxGeometry x="700" y="1100" width="170" height="90" as="geometry"/>
+                </mxCell>
+                
+                <!-- D2: Groups & Advisor Assignments -->
+                <mxCell id="d2" value="D2 Groups &amp; Advisor Assignments" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontStyle=1;fontSize=11;fontColor=#B2860D;" parent="1" vertex="1">
+                    <mxGeometry x="1580" y="1100" width="170" height="90" as="geometry"/>
+                </mxCell>
+                
+                <!-- ============= PROCESSES (Top 2 ROW) ============= -->
+                
+                <!-- 5.1: Accept & Validate Submission -->
+                <mxCell id="p51" value="5.1 Accept &amp; Validate Submission" style="ellipse;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontStyle=1;fontSize=12;fontColor=#004620;" parent="1" vertex="1">
+                    <mxGeometry x="180" y="250" width="150" height="110" as="geometry"/>
+                </mxCell>
+                
+                <!-- 5.2: Check Committee Eligibility -->
+                <mxCell id="p52" value="5.2 Check Committee Eligibility" style="ellipse;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontStyle=1;fontSize=12;fontColor=#004620;" parent="1" vertex="1">
+                    <mxGeometry x="490" y="250" width="150" height="110" as="geometry"/>
+                </mxCell>
+                
+                <!-- 5.4: Manage Clarification Requests -->
+                <mxCell id="p54" value="5.4 Manage Clarification Requests" style="ellipse;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontStyle=1;fontSize=12;fontColor:#004620;" parent="1" vertex="1">
+                    <mxGeometry x="800" y="250" width="150" height="110" as="geometry"/>
+                </mxCell>
+                
+                <!-- ============= PROCESSES (Bottom ROW) ============= -->
+                
+                <!-- 5.3: Store Deliverable File -->
+                <mxCell id="p53" value="5.3 Store Deliverable File" style="ellipse;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontStyle=1;fontSize=12;fontColor=#004620;" parent="1" vertex="1">
+                    <mxGeometry x="180" y="440" width="150" height="110" as="geometry"/>
+                </mxCell>
+                
+                <!-- 5.6: Track Resubmissions -->
+                <mxCell id="p56" value="5.6 Track Resubmissions" style="ellipse;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontStyle=1;fontSize=12;fontColor:#004620;" parent="1" vertex="1">
+                    <mxGeometry x="490" y="440" width="150" height="110" as="geometry"/>
+                </mxCell>
+                
+                <!-- 5.5: Generate Reviewer Worklist -->
+                <mxCell id="p55" value="5.5 Generate Reviewer Worklist" style="ellipse;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontStyle=1;fontSize=12;fontColor:#004620;" parent="1" vertex="1">
+                    <mxGeometry x="800" y="440" width="150" height="110" as="geometry"/>
+                </mxCell>
+                
+                <!-- ============= DATA FLOWS ============= -->
+                
+                <!-- Flow 1: Student → 5.1 (deliverable file) -->
+                <mxCell id="f1" value="deliverable file / resubmission" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#1F4788;strokeWidth=2.5;fontSize=10;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="130" y="395" as="sourcePoint"/>
+                        <mxPoint x="255" y="305" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="130" y="305"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                
+                <!-- Flow 2: 5.1 → 5.2 (validation status) -->
+                <mxCell id="f2" value="validation status" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#1F4788;strokeWidth=2.5;fontSize=10;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="330" y="305" as="sourcePoint"/>
+                        <mxPoint x="490" y="305" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                
+                <!-- Flow 3: 5.1 → 5.3 (validated submission) -->
+                <mxCell id="f3" value="validated submission" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#1F4788;strokeWidth=2.5;fontSize=10;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="255" y="360" as="sourcePoint"/>
+                        <mxPoint x="255" y="440" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                
+                <!-- Flow 4: 5.2 → 5.5 (eligibility status) -->
+                <mxCell id="f4" value="eligibility status" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#1F4788;strokeWidth=2.5;fontSize=10;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="565" y="360" as="sourcePoint"/>
+                        <mxPoint x="875" y="440" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="565" y="400"/>
+                            <mxPoint x="875" y="400"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                
+                <!-- Flow 5: 5.3 → D4 (store file) -->
+                <mxCell id="f5" value="store files + metadata" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=none;endFill=0;strokeColor=#666666;strokeWidth=2;dashed=1;fontSize=10;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="255" y="550" as="sourcePoint"/>
+                        <mxPoint x="115" y="1100" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="255" y="850"/>
+                            <mxPoint x="115" y="850"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                
+                <!-- Flow 6: D4 → 5.5 (submitted files) -->
+                <mxCell id="f6" value="submitted files" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=none;endFill=0;strokeColor=#666666;strokeWidth=2;dashed=1;fontSize=10;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="200" y="1100" as="sourcePoint"/>
+                        <mxPoint x="875" y="550" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="875" y="850"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                
+                <!-- Flow 7: Committee → 5.4 (clarification requests) -->
+                <mxCell id="f7" value="comments / clarification requests" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#1F4788;strokeWidth=2.5;fontSize=10;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="1650" y="395" as="sourcePoint"/>
+                        <mxPoint x="950" y="305" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="1300" y="395"/>
+                            <mxPoint x="1300" y="305"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                
+                <!-- Flow 8: 5.4 → Student (feedback) -->
+                <mxCell id="f8" value="clarification request / feedback" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#893FA3;strokeWidth=2.5;fontSize=10;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="800" y="305" as="sourcePoint"/>
+                        <mxPoint x="130" y="440" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="400" y="305"/>
+                            <mxPoint x="400" y="440"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                
+                <!-- Flow 9: 5.4 → 5.6 (clarification tracking) -->
+                <mxCell id="f9" value="clarification status" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#1F4788;strokeWidth=2.5;fontSize=10;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="825" y="360" as="sourcePoint"/>
+                        <mxPoint x="640" y="495" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                
+                <!-- Flow 10: 5.5 → Committee (reviewer worklist) -->
+                <mxCell id="f10" value="reviewer worklist + files" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#893FA3;strokeWidth=2.5;fontSize=10;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="950" y="495" as="sourcePoint"/>
+                        <mxPoint x="1650" y="395" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="1300" y="495"/>
+                            <mxPoint x="1300" y="395"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                
+                <!-- Flow 11: 5.6 → Student (resubmission status) -->
+                <mxCell id="f11" value="resubmission status" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#893FA3;strokeWidth=2.5;fontSize=10;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="490" y="495" as="sourcePoint"/>
+                        <mxPoint x="130" y="440" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                
+                <!-- Flow 12: D8 → 5.1 (submission requirements) -->
+                <mxCell id="f12" value="submission requirements" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=none;endFill=0;strokeColor=#666666;strokeWidth=2;dashed=1;fontSize=10;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="700" y="1100" as="sourcePoint"/>
+                        <mxPoint x="255" y="360" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="400" y="850"/>
+                            <mxPoint x="255" y="850"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                
+                <!-- Flow 13: Coordinator → 5.1 (deadline/schedule) -->
+                <mxCell id="f13" value="deadline / schedule" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#2D6A2D;strokeWidth=2.5;fontSize=10;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="700" y="160" as="sourcePoint"/>
+                        <mxPoint x="255" y="250" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="400" y="160"/>
+                            <mxPoint x="400" y="250"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                
+                <!-- Flow 14: 5.5 → Coordinator (status report) -->
+                <mxCell id="f14" value="status report" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#2D6A2D;strokeWidth=2.5;fontSize=10;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="875" y="440" as="sourcePoint"/>
+                        <mxPoint x="755" y="160" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="875" y="180"/>
+                            <mxPoint x="755" y="180"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                
+                <!-- Flow 15: D2 → 5.2 (group info) -->
+                <mxCell id="f15" value="group/advisor info" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=none;endFill=0;strokeColor=#666666;strokeWidth=2;dashed=1;fontSize=10;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="1665" y="1100" as="sourcePoint"/>
+                        <mxPoint x="565" y="360" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="900" y="850"/>
+                            <mxPoint x="565" y="850"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
