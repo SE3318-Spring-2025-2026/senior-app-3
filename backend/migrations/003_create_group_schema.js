@@ -61,15 +61,15 @@ module.exports = {
     const groupsColl = conn.collection('groups');
 
     // groupId unique index (logical PK — Mongoose also enforces this via schema)
-    await groupsColl.createIndex({ groupId: 1 }, { unique: true, name: 'groupId_unique' });
+    await groupsColl.createIndex({ groupId: 1 }, { unique: true });
     console.log('[MIGRATION] Ensured index: groups.groupId (unique)');
 
     // leaderId index — supports queries like "find all groups led by student X"
-    await groupsColl.createIndex({ leaderId: 1 }, { name: 'leaderId_idx' });
+    await groupsColl.createIndex({ leaderId: 1 });
     console.log('[MIGRATION] Ensured index: groups.leaderId');
 
     // status index — supports filtering by pending_validation / active / inactive / archived
-    await groupsColl.createIndex({ status: 1 }, { name: 'status_idx' });
+    await groupsColl.createIndex({ status: 1 });
     console.log('[MIGRATION] Ensured index: groups.status');
 
     // --- groupmemberships collection ---
@@ -84,17 +84,11 @@ module.exports = {
     const membershipsColl = conn.collection('groupmemberships');
 
     // Composite unique — a student can have at most one membership record per group (D2 upsert target)
-    await membershipsColl.createIndex(
-      { groupId: 1, studentId: 1 },
-      { unique: true, name: 'groupId_studentId_unique' }
-    );
+    await membershipsColl.createIndex({ groupId: 1, studentId: 1 }, { unique: true });
     console.log('[MIGRATION] Ensured index: groupmemberships.(groupId, studentId) (unique)');
 
     // (groupId, status) — supports queries like "fetch all approved members for group X"
-    await membershipsColl.createIndex(
-      { groupId: 1, status: 1 },
-      { name: 'groupId_status_idx' }
-    );
+    await membershipsColl.createIndex({ groupId: 1, status: 1 });
     console.log('[MIGRATION] Ensured index: groupmemberships.(groupId, status)');
   },
 
