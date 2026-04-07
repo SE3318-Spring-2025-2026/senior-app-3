@@ -2,11 +2,12 @@ const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 
 /**
- * ScheduleWindow — stores coordinator-defined group creation windows.
+ * ScheduleWindow — stores coordinator-defined schedule windows per operation type.
  *
- * Only one window can be active at a given point in time.
- * createGroup checks this collection and rejects requests outside
- * any active window (AC: schedule boundary enforcement).
+ * Each window is scoped to an operationType ('group_creation' | 'member_addition').
+ * Only one active window per operationType may cover a given point in time.
+ * Boundary checks in createGroup (2.1) and addMember (2.3) reject requests
+ * outside an active window for their respective operationType.
  */
 const scheduleWindowSchema = new mongoose.Schema(
   {
@@ -14,6 +15,11 @@ const scheduleWindowSchema = new mongoose.Schema(
       type: String,
       default: () => `sw_${uuidv4().split('-')[0]}`,
       unique: true,
+      required: true,
+    },
+    operationType: {
+      type: String,
+      enum: ['group_creation', 'member_addition'],
       required: true,
     },
     startsAt: { type: Date, required: true },
@@ -25,8 +31,8 @@ const scheduleWindowSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Index used by the createGroup boundary check
-scheduleWindowSchema.index({ isActive: 1, startsAt: 1, endsAt: 1 });
+// Index used by boundary checks: filter by operationType + active status + time range
+scheduleWindowSchema.index({ operationType: 1, isActive: 1, startsAt: 1, endsAt: 1 });
 
 const ScheduleWindow = mongoose.model('ScheduleWindow', scheduleWindowSchema);
 

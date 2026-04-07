@@ -25,6 +25,7 @@ describe('groupMembers controller', () => {
   let MemberInvitation;
   let SyncErrorLog;
   let User;
+  let ScheduleWindow;
   let notificationService;
   let addMember;
   let getMembers;
@@ -80,6 +81,7 @@ describe('groupMembers controller', () => {
     MemberInvitation = require('../src/models/MemberInvitation');
     SyncErrorLog = require('../src/models/SyncErrorLog');
     User = require('../src/models/User');
+    ScheduleWindow = require('../src/models/ScheduleWindow');
     notificationService = require('../src/services/notificationService');
     ({ addMember, getMembers, dispatchNotification, membershipDecision } =
       require('../src/controllers/groupMembers'));
@@ -90,6 +92,18 @@ describe('groupMembers controller', () => {
     await mongoose.disconnect();
   });
 
+  const openMemberAdditionWindow = (overrides = {}) => {
+    const now = new Date();
+    return ScheduleWindow.create({
+      operationType: 'member_addition',
+      startsAt: overrides.startsAt || new Date(now.getTime() - 60_000),
+      endsAt: overrides.endsAt || new Date(now.getTime() + 60_000 * 60),
+      isActive: true,
+      createdBy: 'coordinator_1',
+      ...overrides,
+    });
+  };
+
   beforeEach(async () => {
     await Promise.all([
       Group.deleteMany({}),
@@ -97,6 +111,7 @@ describe('groupMembers controller', () => {
       MemberInvitation.deleteMany({}),
       SyncErrorLog.deleteMany({}),
       User.deleteMany({}),
+      ScheduleWindow.deleteMany({}),
     ]);
     jest.clearAllMocks();
   });
@@ -104,7 +119,9 @@ describe('groupMembers controller', () => {
   // ── addMember (f05, f06, f19, f32) ───────────────────────────────────────────
 
   describe('POST /groups/:groupId/members — addMember (f05, f06, f19, f32)', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
+      // Default: active member_addition window open
+      await openMemberAdditionWindow();
       // Default: notification service succeeds
       notificationService.dispatchInvitationNotification.mockResolvedValue({ notification_id: 'notif_test' });
     });
@@ -350,6 +367,116 @@ describe('groupMembers controller', () => {
       expect(body.added[0].invitee_id).toBe(validStudent.userId);
       expect(body.errors).toHaveLength(1);
       expect(body.errors[0].code).toBe('STUDENT_NOT_FOUND');
+    });
+
+    // ── schedule boundary enforcement ───────────────────────────────────────────
+
+    describe('schedule boundary enforcement', () => {
+      it('returns 403 OUTSIDE_SCHEDULE_WINDOW when no member_addition window exists', async () => {
+        await ScheduleWindow.deleteMany({});
+        const group = await makeGroup();
+        const student = await makeStudent();
+
+        const res = makeRes();
+        await addMember(makeReq({ groupId: group.groupId }, { student_ids: [student.userId] }), res);
+
+        expect(res.status).toHaveBeenCalledWith(403);
+        expect(res.json.mock.calls[0][0].code).toBe('OUTSIDE_SCHEDULE_WINDOW');
+        expect(res.json.mock.calls[0][0].reason).toBe(
+          'Operation not available outside the configured schedule window'
+        );
+      });
+
+      it('returns 403 when member_addition window exists but has not started yet', async () => {
+        await ScheduleWindow.deleteMany({});
+        const future = new Date(Date.now() + 60_000 * 60);
+        await ScheduleWindow.create({
+          operationType: 'member_addition',
+          startsAt: new Date(future.getTime()),
+          endsAt: new Date(future.getTime() + 60_000 * 60),
+          isActive: true,
+          createdBy: 'coord_1',
+        });
+
+        const group = await makeGroup();
+        const student = await makeStudent();
+        const res = makeRes();
+        await addMember(makeReq({ groupId: group.groupId }, { student_ids: [student.userId] }), res);
+
+        expect(res.status).toHaveBeenCalledWith(403);
+        expect(res.json.mock.calls[0][0].code).toBe('OUTSIDE_SCHEDULE_WINDOW');
+      });
+
+      it('returns 403 when member_addition window has expired', async () => {
+        await ScheduleWindow.deleteMany({});
+        await ScheduleWindow.create({
+          operationType: 'member_addition',
+          startsAt: new Date(Date.now() - 60_000 * 120),
+          endsAt: new Date(Date.now() - 60_000),
+          isActive: true,
+          createdBy: 'coord_1',
+        });
+
+        const group = await makeGroup();
+        const student = await makeStudent();
+        const res = makeRes();
+        await addMember(makeReq({ groupId: group.groupId }, { student_ids: [student.userId] }), res);
+
+        expect(res.status).toHaveBeenCalledWith(403);
+        expect(res.json.mock.calls[0][0].code).toBe('OUTSIDE_SCHEDULE_WINDOW');
+      });
+
+      it('returns 403 when member_addition window is deactivated (isActive: false)', async () => {
+        await ScheduleWindow.deleteMany({});
+        const now = new Date();
+        await ScheduleWindow.create({
+          operationType: 'member_addition',
+          startsAt: new Date(now.getTime() - 60_000),
+          endsAt: new Date(now.getTime() + 60_000 * 60),
+          isActive: false,
+          createdBy: 'coord_1',
+        });
+
+        const group = await makeGroup();
+        const student = await makeStudent();
+        const res = makeRes();
+        await addMember(makeReq({ groupId: group.groupId }, { student_ids: [student.userId] }), res);
+
+        expect(res.status).toHaveBeenCalledWith(403);
+        expect(res.json.mock.calls[0][0].code).toBe('OUTSIDE_SCHEDULE_WINDOW');
+      });
+
+      it('does not block when a group_creation window is open but no member_addition window exists', async () => {
+        await ScheduleWindow.deleteMany({});
+        const now = new Date();
+        await ScheduleWindow.create({
+          operationType: 'group_creation',
+          startsAt: new Date(now.getTime() - 60_000),
+          endsAt: new Date(now.getTime() + 60_000 * 60),
+          isActive: true,
+          createdBy: 'coord_1',
+        });
+
+        const group = await makeGroup();
+        const student = await makeStudent();
+        const res = makeRes();
+        await addMember(makeReq({ groupId: group.groupId }, { student_ids: [student.userId] }), res);
+
+        // Blocked because no member_addition window — group_creation window is irrelevant
+        expect(res.status).toHaveBeenCalledWith(403);
+        expect(res.json.mock.calls[0][0].code).toBe('OUTSIDE_SCHEDULE_WINDOW');
+      });
+
+      it('allows member addition when an active member_addition window is open', async () => {
+        // Window already created by outer beforeEach — just verify request succeeds
+        const group = await makeGroup();
+        const student = await makeStudent();
+        const res = makeRes();
+
+        await addMember(makeReq({ groupId: group.groupId }, { student_ids: [student.userId] }), res);
+
+        expect(res.status).toHaveBeenCalledWith(201);
+      });
     });
   });
 

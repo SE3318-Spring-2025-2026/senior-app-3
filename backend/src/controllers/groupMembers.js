@@ -2,6 +2,7 @@ const Group = require('../models/Group');
 const GroupMembership = require('../models/GroupMembership');
 const MemberInvitation = require('../models/MemberInvitation');
 const User = require('../models/User');
+const ScheduleWindow = require('../models/ScheduleWindow');
 const { dispatchInvitationNotification } = require('../services/notificationService');
 const SyncErrorLog = require('../models/SyncErrorLog');
 
@@ -27,6 +28,22 @@ const addMember = async (req, res) => {
   try {
     const { groupId } = req.params;
     const { student_ids } = req.body;
+
+    // --- Schedule boundary check (f05: Student → 2.3) ---
+    const now = new Date();
+    const activeWindow = await ScheduleWindow.findOne({
+      operationType: 'member_addition',
+      isActive: true,
+      startsAt: { $lte: now },
+      endsAt: { $gte: now },
+    });
+
+    if (!activeWindow) {
+      return res.status(403).json({
+        code: 'OUTSIDE_SCHEDULE_WINDOW',
+        reason: 'Operation not available outside the configured schedule window',
+      });
+    }
 
     if (!Array.isArray(student_ids) || student_ids.length === 0) {
       return res.status(400).json({ code: 'MISSING_STUDENT_IDS', message: 'student_ids must be a non-empty array' });
