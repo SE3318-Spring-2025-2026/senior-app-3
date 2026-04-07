@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram id="1Y6bJC3Unu1EE_OWwz7-" name="Level 1 DFD">
-        <mxGraphModel dx="1387" dy="938" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+        <mxGraphModel dx="898" dy="555" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -36,8 +36,8 @@
                 <mxCell id="74" value="3.0 Advisor Association" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" parent="1" vertex="1">
                     <mxGeometry x="2145" y="600" width="190" height="70" as="geometry"/>
                 </mxCell>
-                <mxCell id="76" value="6.0 Deliverable Evaluation" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" parent="1" vertex="1">
-                    <mxGeometry x="2435" y="295" width="210" height="70" as="geometry"/>
+                <mxCell id="76" value="6.0 Deliverable Review &amp; Evaluation" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="2385" y="295" width="240" height="70" as="geometry"/>
                 </mxCell>
                 <mxCell id="77" value="7.0 Sprint Tracking &amp; Contribution Calculation" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" parent="1" vertex="1">
                     <mxGeometry x="1070" y="325" width="165" height="60" as="geometry"/>
@@ -188,11 +188,13 @@
                         <mxPoint x="810" y="390" as="targetPoint"/>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="97" value="comments / clarification requests" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="69" target="75" edge="1">
+                <mxCell id="97" value="clarification feedback" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="76" target="65" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
-                            <mxPoint x="1819" y="250"/>
-                            <mxPoint x="1891" y="327.5"/>
+                            <mxPoint x="2517" y="295"/>
+                            <mxPoint x="2055" y="95"/>
+                            <mxPoint x="190" y="95"/>
+                            <mxPoint x="152" y="486.1979166666667"/>
                         </Array>
                     </mxGeometry>
                 </mxCell>
@@ -200,10 +202,8 @@
                     <mxGeometry relative="1" as="geometry">
                         <mxPoint x="1070" y="680" as="targetPoint"/>
                         <Array as="points">
-                            <mxPoint x="1817" y="233.33333333333334"/>
+                            <mxPoint x="1817" y="250"/>
                             <mxPoint x="1855" y="255"/>
-                            <mxPoint x="2095" y="255"/>
-                            <mxPoint x="2095" y="255"/>
                             <mxPoint x="2385" y="255"/>
                             <mxPoint x="2421" y="322.5"/>
                         </Array>
@@ -312,12 +312,22 @@
                         </Array>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="109" value="submitted deliverables" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="75" target="76" edge="1">
+                <mxCell id="e_5to6" value="submitted deliverables" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;noEdgeStyle=1;orthogonal=1;" edge="1" parent="1" source="75" target="76">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
-                            <mxPoint x="2061" y="315"/>
+                            <mxPoint x="2059" y="315"/>
                             <mxPoint x="2095" y="360"/>
                             <mxPoint x="2385" y="360"/>
+                            <mxPoint x="2421" y="337.5"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="109" value="review assignments + comments" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="69" target="76" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1817" y="250"/>
+                            <mxPoint x="1855" y="280"/>
+                            <mxPoint x="2385" y="330"/>
                             <mxPoint x="2421" y="337.5"/>
                         </Array>
                     </mxGeometry>
@@ -504,11 +514,19 @@
                         </Array>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="125" value="reports / configuration result" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="75" target="66" edge="1">
+                <mxCell id="125" value="submission report" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="75" target="66" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
                             <mxPoint x="2057" y="345"/>
                             <mxPoint x="2133" y="519.1666666666666"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="126" value="evaluation report" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;noEdgeStyle=1;orthogonal=1;" edge="1" parent="1" source="76" target="66">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="2525" y="337.5"/>
+                            <mxPoint x="2243" y="519.1666666666666"/>
                         </Array>
                     </mxGeometry>
                 </mxCell>
@@ -697,7 +715,7 @@
                         </Array>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="75" value="5.0 Deliverable Submission &amp; Review" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" parent="1" vertex="1">
+                <mxCell id="75" value="5.0 Deliverable Submission" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" parent="1" vertex="1">
                     <mxGeometry x="1915" y="285" width="120" height="70" as="geometry"/>
                 </mxCell>
                 <mxCell id="143" value="welcome notification" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;fontSize=10;noEdgeStyle=1;orthogonal=1;" parent="1" source="72" target="142" edge="1">
