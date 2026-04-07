@@ -173,7 +173,6 @@ export const getGitHubStatus = async (groupId) => {
     return response.data;
   } catch (error) {
     console.error('Error fetching GitHub status:', error);
-    // Return default if endpoint not found
     if (error.response?.status === 404) {
       return { connected: false, repo_url: null, last_synced: null };
     }
@@ -192,7 +191,6 @@ export const getJiraStatus = async (groupId) => {
     return response.data;
   } catch (error) {
     console.error('Error fetching JIRA status:', error);
-    // Return default if endpoint not found
     if (error.response?.status === 404) {
       return { connected: false, project_key: null, board_url: null };
     }
@@ -213,7 +211,6 @@ export const getPendingApprovals = async (groupId) => {
     return response.data;
   } catch (error) {
     console.error('Error fetching pending approvals:', error);
-    // Return empty array if endpoint not found
     if (error.response?.status === 404) {
       return { approvals: [] };
     }

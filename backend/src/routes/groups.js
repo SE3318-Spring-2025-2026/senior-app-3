@@ -1,12 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
+const { checkScheduleWindow } = require('../middleware/scheduleWindow');
 const { forwardApprovalResults, createGroup, getGroup, createMemberRequest, decideMemberRequest, coordinatorOverride } = require('../controllers/groups');
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
-router.post('/', authMiddleware, roleMiddleware(['student']), createGroup);
+router.post('/', authMiddleware, roleMiddleware(['student']), checkScheduleWindow('group_creation'), createGroup);
 
 // GET /api/v1/groups/pending-invitation — return current user's pending invitation with group info
 router.get('/pending-invitation', authMiddleware, getMyPendingInvitation);
@@ -15,7 +16,7 @@ router.get('/pending-invitation', authMiddleware, getMyPendingInvitation);
 router.get('/:groupId', authMiddleware, getGroup);
 
 // POST /api/v1/groups/:groupId/members — Process 2.3: leader invites a student (f05, f19)
-router.post('/:groupId/members', authMiddleware, addMember);
+router.post('/:groupId/members', authMiddleware, checkScheduleWindow('member_addition'), addMember);
 
 // GET /api/v1/groups/:groupId/members — return current member list from D2
 router.get('/:groupId/members', authMiddleware, getMembers);

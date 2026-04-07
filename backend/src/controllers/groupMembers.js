@@ -4,7 +4,7 @@ const MemberInvitation = require('../models/MemberInvitation');
 const User = require('../models/User');
 const ScheduleWindow = require('../models/ScheduleWindow');
 const { createAuditLog } = require('../services/auditService');
-const { dispatchInvitationNotification } = require('../services/notificationService');
+const { dispatchInvitationNotification, dispatchMembershipDecisionNotification } = require('../services/notificationService');
 const SyncErrorLog = require('../models/SyncErrorLog');
 
 const VALID_DECISIONS = new Set(['accepted', 'rejected']);
@@ -32,9 +32,10 @@ const addMember = async (req, res) => {
     const { groupId } = req.params;
     const { student_ids } = req.body;
 
-    // --- Schedule boundary check ---
+    // --- Schedule boundary check (member_addition window) ---
     const now = new Date();
     const activeWindow = await ScheduleWindow.findOne({
+      operationType: 'member_addition',
       isActive: true,
       startsAt: { $lte: now },
       endsAt: { $gte: now },
@@ -43,7 +44,7 @@ const addMember = async (req, res) => {
     if (!activeWindow) {
       return res.status(403).json({
         code: 'OUTSIDE_SCHEDULE_WINDOW',
-        message: 'Member addition is currently closed. Please check the coordinator-defined schedule.',
+        reason: 'Operation not available outside the configured schedule window',
       });
     }
 
@@ -126,10 +127,44 @@ const addMember = async (req, res) => {
         userAgent: req.headers['user-agent'],
       });
 
+      // f06: dispatch invitation notification (non-fatal, 3-attempt retry)
+      let notificationId = null;
+      let lastError;
+      for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+        try {
+          const notifResult = await dispatchInvitationNotification({
+            groupId,
+            groupName: group.groupName,
+            inviteeId: invitee.userId,
+            invitedBy: req.user.userId,
+          });
+          notificationId = notifResult.notification_id || null;
+          lastError = null;
+          break;
+        } catch (err) {
+          lastError = err;
+        }
+      }
+
+      if (lastError) {
+        await SyncErrorLog.create({
+          service: 'notification',
+          groupId,
+          actorId: req.user.userId,
+          attempts: MAX_RETRY_ATTEMPTS,
+          lastError: lastError.message,
+        });
+      } else if (notificationId) {
+        invitation.notifiedAt = new Date();
+        invitation.notificationId = notificationId;
+        await invitation.save();
+      }
+
       added.push({
         invitation_id: invitation.invitationId,
         invitee_id: invitee.userId,
         status: 'pending',
+        notified: !!notificationId,
       });
     }
 
@@ -408,12 +443,46 @@ const membershipDecision = async (req, res) => {
       userAgent: req.headers['user-agent'],
     });
 
-    return res.status(201).json({
+    // Dispatch membership decision notification (non-fatal, 3-attempt retry)
+    let decisionNotifId = null;
+    let notifLastError;
+    for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        const notifResult = await dispatchMembershipDecisionNotification({
+          groupId,
+          groupName: group.groupName,
+          studentId,
+          decision,
+          decidedAt,
+        });
+        decisionNotifId = notifResult.notification_id || null;
+        notifLastError = null;
+        break;
+      } catch (err) {
+        notifLastError = err;
+      }
+    }
+    if (notifLastError) {
+      await SyncErrorLog.create({
+        service: 'notification',
+        groupId,
+        actorId: studentId,
+        attempts: MAX_RETRY_ATTEMPTS,
+        lastError: notifLastError.message,
+      });
+    } else if (decisionNotifId) {
+      invitation.notificationId = decisionNotifId;
+      invitation.notifiedAt = new Date();
+      await invitation.save();
+    }
+
+    return res.status(200).json({
       invitation_id: invitation.invitationId,
       group_id: groupId,
       student_id: studentId,
       decision,
       decided_at: decidedAt,
+      notification_id: decisionNotifId,
     });
   } catch (err) {
     console.error('membershipDecision error:', err);

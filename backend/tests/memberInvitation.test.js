@@ -869,5 +869,101 @@ describe('groupMembers controller', () => {
       const inv = await MemberInvitation.findOne({ groupId: group.groupId, inviteeId: student.userId });
       expect(inv.status).toBe('rejected');
     });
+
+    // ── membership_decision notification dispatch ─────────────────────────────
+
+    describe('membership_decision notification dispatch', () => {
+      beforeEach(() => {
+        notificationService.dispatchMembershipDecisionNotification.mockResolvedValue({
+          notification_id: 'notif_decision_test',
+        });
+      });
+
+      it('dispatches membership_decision notification after accepted decision', async () => {
+        const group = await makeGroup();
+        const student = await makeStudent();
+        await setupInvitation(group.groupId, student.userId);
+
+        await membershipDecision(
+          makeReq({ groupId: group.groupId }, { decision: 'accepted' }, { userId: student.userId }),
+          makeRes()
+        );
+
+        expect(notificationService.dispatchMembershipDecisionNotification).toHaveBeenCalledWith(
+          expect.objectContaining({
+            groupId: group.groupId,
+            groupName: group.groupName,
+            studentId: student.userId,
+            decision: 'accepted',
+          })
+        );
+      });
+
+      it('dispatches membership_decision notification after rejected decision', async () => {
+        const group = await makeGroup();
+        const student = await makeStudent();
+        await setupInvitation(group.groupId, student.userId);
+
+        await membershipDecision(
+          makeReq({ groupId: group.groupId }, { decision: 'rejected' }, { userId: student.userId }),
+          makeRes()
+        );
+
+        expect(notificationService.dispatchMembershipDecisionNotification).toHaveBeenCalledWith(
+          expect.objectContaining({
+            groupId: group.groupId,
+            decision: 'rejected',
+          })
+        );
+      });
+
+      it('returns notification_id in response and stores it on invitation after successful dispatch', async () => {
+        const group = await makeGroup();
+        const student = await makeStudent();
+        await setupInvitation(group.groupId, student.userId);
+
+        const res = makeRes();
+        await membershipDecision(
+          makeReq({ groupId: group.groupId }, { decision: 'accepted' }, { userId: student.userId }),
+          res
+        );
+
+        expect(res.status).toHaveBeenCalledWith(200);
+        const body = res.json.mock.calls[0][0];
+        expect(body.notification_id).toBe('notif_decision_test');
+
+        const inv = await MemberInvitation.findOne({ groupId: group.groupId, inviteeId: student.userId });
+        expect(inv.notificationId).toBe('notif_decision_test');
+        expect(inv.notifiedAt).toBeDefined();
+      });
+
+      it('logs SyncErrorLog and still returns 200 when notification service fails after 3 retries', async () => {
+        notificationService.dispatchMembershipDecisionNotification.mockRejectedValue(
+          new Error('notification service down')
+        );
+
+        const group = await makeGroup();
+        const student = await makeStudent();
+        await setupInvitation(group.groupId, student.userId);
+
+        const res = makeRes();
+        await membershipDecision(
+          makeReq({ groupId: group.groupId }, { decision: 'accepted' }, { userId: student.userId }),
+          res
+        );
+
+        // Decision still succeeds
+        expect(res.status).toHaveBeenCalledWith(200);
+
+        // Notification was retried 3 times
+        expect(notificationService.dispatchMembershipDecisionNotification).toHaveBeenCalledTimes(3);
+
+        // Failure logged to SyncErrorLog
+        const errorLog = await SyncErrorLog.findOne({ groupId: group.groupId, service: 'notification' });
+        expect(errorLog).not.toBeNull();
+        expect(errorLog.attempts).toBe(3);
+        expect(errorLog.lastError).toBe('notification service down');
+      });
+    });
   });
 });

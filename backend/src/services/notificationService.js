@@ -17,10 +17,54 @@ const NOTIFICATION_SERVICE_URL =
 const dispatchInvitationNotification = async ({ groupId, groupName, inviteeId, invitedBy }) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-    { type: 'GROUP_INVITATION', groupId, groupName, inviteeId, invitedBy },
+    { type: 'approval_request', groupId, groupName, inviteeId, invitedBy },
     { timeout: 5000 }
   );
   return response.data;
 };
 
-module.exports = { dispatchInvitationNotification };
+/**
+ * Dispatch a MEMBERSHIP_DECISION notification after a student accepts/rejects.
+ * Called by Process 2.4 (DFD flow f08: 2.4 → Notification Service).
+ *
+ * @param {object} payload
+ * @param {string} payload.groupId
+ * @param {string} payload.groupName
+ * @param {string} payload.studentId   - student who made the decision
+ * @param {string} payload.decision    - 'accepted' | 'rejected'
+ * @param {Date}   payload.decidedAt
+ * @returns {object} { notification_id }
+ */
+const dispatchMembershipDecisionNotification = async ({ groupId, groupName, studentId, decision, decidedAt }) => {
+  const response = await axios.post(
+    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+    { type: 'membership_decision', groupId, groupName, studentId, decision, decidedAt },
+    { timeout: 5000 }
+  );
+  return response.data;
+};
+
+/**
+ * Dispatch a GROUP_CREATED notification after a group is successfully created.
+ * Called by Process 2.1 (DFD flow f03: 2.1 → Notification Service).
+ *
+ * @param {object} payload
+ * @param {string} payload.groupId
+ * @param {string} payload.groupName
+ * @param {string} payload.leaderId
+ * @returns {object} { notification_id }
+ */
+const dispatchGroupCreationNotification = async ({ groupId, groupName, leaderId }) => {
+  const response = await axios.post(
+    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+    { type: 'general', groupId, groupName, leaderId },
+    { timeout: 5000 }
+  );
+  return response.data;
+};
+
+module.exports = {
+  dispatchInvitationNotification,
+  dispatchMembershipDecisionNotification,
+  dispatchGroupCreationNotification,
+};

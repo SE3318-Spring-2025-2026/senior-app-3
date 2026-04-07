@@ -7,6 +7,8 @@ const User = require('../models/User');
 const ScheduleWindow = require('../models/ScheduleWindow');
 const { createAuditLog } = require('../services/auditService');
 const { forwardToMemberRequestPipeline, forwardOverrideToReconciliation } = require('../services/groupService');
+const { dispatchGroupCreationNotification } = require('../services/notificationService');
+const SyncErrorLog = require('../models/SyncErrorLog');
 
 const VALID_DECISIONS = new Set(['approved', 'rejected']);
 
@@ -165,6 +167,8 @@ const createGroup = async (req, res) => {
     } = req.body;
 
     // --- Schedule boundary check (f01: Student → 2.1) ---
+    // Note: when invoked via HTTP, this check is also enforced by the
+    // checkScheduleWindow('group_creation') middleware in routes/groups.js.
     const now = new Date();
     const activeWindow = await ScheduleWindow.findOne({
       operationType: 'group_creation',
@@ -274,6 +278,35 @@ const createGroup = async (req, res) => {
 
     // --- f03: Forward valid group data to Process 2.5 (member request pipeline) ---
     await forwardToMemberRequestPipeline(group);
+
+    // --- Dispatch group creation notification (non-fatal, 3-attempt retry) ---
+    let notifLastError;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await dispatchGroupCreationNotification({
+          groupId: group.groupId,
+          groupName: group.groupName,
+          leaderId: leader.userId,
+        });
+        notifLastError = null;
+        break;
+      } catch (err) {
+        notifLastError = err;
+      }
+    }
+    if (notifLastError) {
+      try {
+        await SyncErrorLog.create({
+          service: 'notification',
+          groupId: group.groupId,
+          actorId: leader.userId,
+          attempts: 3,
+          lastError: notifLastError.message,
+        });
+      } catch (logErr) {
+        console.error('SyncErrorLog write failed (non-fatal):', logErr.message);
+      }
+    }
 
     // Audit log (non-fatal)
     try {

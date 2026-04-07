@@ -10,6 +10,9 @@
 
 const mongoose = require('mongoose');
 
+// Mock Notification Service so tests never hit a real HTTP endpoint
+jest.mock('../src/services/notificationService');
+
 describe('POST /groups — createGroup', () => {
   const mongoUri =
     process.env.MONGODB_TEST_URI ||
@@ -18,6 +21,8 @@ describe('POST /groups — createGroup', () => {
   let Group;
   let User;
   let ScheduleWindow;
+  let SyncErrorLog;
+  let notificationService;
   let createGroup;
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -70,6 +75,8 @@ describe('POST /groups — createGroup', () => {
     Group = require('../src/models/Group');
     User = require('../src/models/User');
     ScheduleWindow = require('../src/models/ScheduleWindow');
+    SyncErrorLog = require('../src/models/SyncErrorLog');
+    notificationService = require('../src/services/notificationService');
     ({ createGroup } = require('../src/controllers/groups'));
   });
 
@@ -83,7 +90,12 @@ describe('POST /groups — createGroup', () => {
       Group.deleteMany({}),
       User.deleteMany({}),
       ScheduleWindow.deleteMany({}),
+      SyncErrorLog.deleteMany({}),
     ]);
+    jest.clearAllMocks();
+    notificationService.dispatchGroupCreationNotification.mockResolvedValue({
+      notification_id: 'notif_group_test',
+    });
   });
 
   // ── Happy path ───────────────────────────────────────────────────────────────
@@ -388,6 +400,59 @@ describe('POST /groups — createGroup', () => {
       const saved = await Group.findOne({ groupId: body.groupId });
       expect(saved.groupName).toBe('F02 Team');
       expect(saved.leaderId).toBe(leader.userId);
+    });
+  });
+
+  // ── general (group creation) notification dispatch ────────────────────────
+
+  describe('general notification dispatch on group creation', () => {
+    it('dispatches GROUP_CREATED notification after successful group creation', async () => {
+      const leader = await createActiveUser({ userId: 'usr_notif1' });
+      await openWindow();
+
+      await createGroup(makeReq({ groupName: 'Notif Team', leaderId: leader.userId }, leader.userId), makeRes());
+
+      expect(notificationService.dispatchGroupCreationNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          groupName: 'Notif Team',
+          leaderId: leader.userId,
+        })
+      );
+      expect(notificationService.dispatchGroupCreationNotification.mock.calls[0][0].groupId).toMatch(/^grp_/);
+    });
+
+    it('logs SyncErrorLog and still returns 201 when notification service fails after 3 retries', async () => {
+      notificationService.dispatchGroupCreationNotification.mockRejectedValue(
+        new Error('notification service unavailable')
+      );
+
+      const leader = await createActiveUser({ userId: 'usr_notif2' });
+      await openWindow();
+
+      const res = makeRes();
+      await createGroup(makeReq({ groupName: 'Retry Team', leaderId: leader.userId }, leader.userId), res);
+
+      // Group creation still succeeds
+      expect(res.status).toHaveBeenCalledWith(201);
+
+      // Notification was retried 3 times
+      expect(notificationService.dispatchGroupCreationNotification).toHaveBeenCalledTimes(3);
+
+      // Failure logged to SyncErrorLog
+      const body = res.json.mock.calls[0][0];
+      const errorLog = await SyncErrorLog.findOne({ groupId: body.groupId, service: 'notification' });
+      expect(errorLog).not.toBeNull();
+      expect(errorLog.attempts).toBe(3);
+      expect(errorLog.lastError).toBe('notification service unavailable');
+    });
+
+    it('does not dispatch notification when group creation fails (outside window)', async () => {
+      const leader = await createActiveUser({ userId: 'usr_notif3' });
+      // No schedule window
+
+      await createGroup(makeReq({ groupName: 'No Window Team', leaderId: leader.userId }, leader.userId), makeRes());
+
+      expect(notificationService.dispatchGroupCreationNotification).not.toHaveBeenCalled();
     });
   });
 });

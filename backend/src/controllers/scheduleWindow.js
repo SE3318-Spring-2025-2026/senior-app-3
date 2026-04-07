@@ -166,8 +166,7 @@ const deactivateWindow = async (req, res) => {
       return res.status(404).json({ code: 'NOT_FOUND', message: 'Schedule window not found.' });
     }
 
-    window.isActive = false;
-    await window.save();
+    await ScheduleWindow.updateOne({ windowId }, { $set: { isActive: false } });
 
     return res.status(200).json({ windowId: window.windowId, isActive: false });
   } catch (err) {
