@@ -129,7 +129,7 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
       const body = res.json.mock.calls[0][0];
       expect(body.validated).toBe(true);
       expect(body.jira_url).toBe('https://mycompany.atlassian.net');
-      expect(body.project_key).toBe('PROJ');
+      expect(body.jira_project_key).toBe('PROJ');
       expect(body.jira_project).toBe('My Project');
     });
 
@@ -389,7 +389,7 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
       expect(body.group_id).toBe(group.groupId);
       expect(body.jira_url).toBe('https://mycompany.atlassian.net');
       expect(body.jira_project).toBe('My Project');
-      expect(body.project_key).toBe('PROJ');
+      expect(body.jira_project_key).toBe('PROJ');
       expect(body.validated).toBe(true);
     });
 

@@ -299,7 +299,7 @@ describe('PATCH /groups/:groupId/override — coordinatorOverride', () => {
           { groupId: group.groupId },
           {
             action: 'update_group',
-            updates: { status: 'active', advisor: 'usr_advisor_1' },
+            updates: { status: 'active', advisorId: 'usr_advisor_1' },
             reason: 'Coordinator setting advisor',
           }
         ),
@@ -308,7 +308,7 @@ describe('PATCH /groups/:groupId/override — coordinatorOverride', () => {
 
       const updated = await Group.findOne({ groupId: group.groupId });
       expect(updated.status).toBe('active');
-      expect(updated.advisor).toBe('usr_advisor_1');
+      expect(updated.advisorId).toBe('usr_advisor_1');
     });
 
     it('creates override log entry with override_id, action, updates, reason, coordinatorId (f16→D2)', async () => {
