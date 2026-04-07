@@ -124,13 +124,14 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
         .set('Authorization', `Bearer ${leaderToken}`)
         .send({
           pat: 'ghp_validtoken123',
-          org: 'test-org',
+          org_name: 'test-org',
+          repo_name: 'test-repo',
+          visibility: 'private',
         });
 
       expect(res.status).toBe(201);
-      expect(res.body).toHaveProperty('github_org', 'test-org');
-      expect(res.body).toHaveProperty('github_repo_url');
-      expect(res.body).toHaveProperty('validated', true);
+      expect(res.body).toHaveProperty('repo_url');
+      expect(res.body).toHaveProperty('status', 'created');
       expect(res.body).toHaveProperty('org_data');
       expect(res.body.org_data.login).toBe('test-org');
       expect(res.body.org_data.id).toBe(12345);
@@ -158,7 +159,9 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
         .set('Authorization', `Bearer ${leaderToken}`)
         .send({
           pat: 'ghp_invalidtoken',
-          org: 'test-org',
+          org_name: 'test-org',
+          repo_name: 'test-repo',
+          visibility: 'private',
         });
 
       // Should fail on PAT validation attempt
@@ -269,7 +272,9 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
         .post(`/api/v1/groups/${group.groupId}/github`)
         .set('Authorization', `Bearer ${leaderToken}`)
         .send({
-          org: 'test-org',
+          org_name: 'test-org',
+          repo_name: 'test-repo',
+          visibility: 'private',
         });
 
       expect(res.status).toBe(400);

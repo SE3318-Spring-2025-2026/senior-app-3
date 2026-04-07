@@ -47,6 +47,14 @@ const groupSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    githubOrgId: {
+      type: Number,
+      default: null,
+    },
+    githubOrgName: {
+      type: String,
+      default: null,
+    },
     githubRepoName: {
       type: String,
       default: null,
@@ -62,6 +70,10 @@ const groupSchema = new mongoose.Schema(
     },
     githubPat: {
       type: String,
+      default: null,
+    },
+    githubLastSynced: {
+      type: Date,
       default: null,
     },
     jiraProject: {

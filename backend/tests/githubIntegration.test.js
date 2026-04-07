@@ -128,7 +128,7 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
 
       expect(res.status).toHaveBeenCalledWith(201);
       const body = res.json.mock.calls[0][0];
-      expect(body.status).toBe('success');
+      expect(body.status).toBe('created');
       expect(body.repo_url).toBe('https://github.com/cool-org/my-repo');
       expect(body.org_data).toMatchObject({ login: 'cool-org', id: 42 });
     });
