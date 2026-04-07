@@ -250,7 +250,7 @@ paths:
         404:
           description: Approval request not found
 
-  /groups/{groupId}/github-setup:
+  /groups/{groupId}/github:
     post:
       summary: Setup GitHub Integration (Process 2.6)
       description: Configure GitHub organization and validate Personal Access Token (PAT)
@@ -282,7 +282,7 @@ paths:
                   description: GitHub organization name for the project
                   example: senior-project-org
       responses:
-        200:
+        201:
           description: GitHub integration setup successful
           content:
             application/json:
@@ -309,12 +309,34 @@ paths:
                         type: integer
         400:
           description: Invalid PAT or organization name
-        403:
-          description: GitHub API validation failed
+        422:
+          description: Business-rule validation failure (invalid PAT or org not found)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: string
+                    enum: [INVALID_PAT, ORG_NOT_FOUND]
+                  message:
+                    type: string
         404:
           description: Group not found
+        503:
+          description: GitHub API unavailable after maximum retry attempts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: string
+                    enum: [GITHUB_API_UNAVAILABLE]
+                  message:
+                    type: string
 
-  /groups/{groupId}/jira-setup:
+  /groups/{groupId}/jira:
     post:
       summary: Setup JIRA Integration (Process 2.7)
       description: Bind group to JIRA project and configure integration
@@ -350,7 +372,7 @@ paths:
                     apiToken:
                       type: string
       responses:
-        200:
+        201:
           description: JIRA integration setup successful
           content:
             application/json:
@@ -378,10 +400,32 @@ paths:
                         type: string
         400:
           description: Invalid project key or credentials
-        403:
-          description: JIRA authentication failed
+        422:
+          description: Business-rule validation failure (invalid credentials or project key not found)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: string
+                    enum: [INVALID_JIRA_CREDENTIALS, INVALID_PROJECT_KEY]
+                  message:
+                    type: string
         404:
           description: Group not found
+        503:
+          description: JIRA API unavailable after maximum retry attempts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: string
+                    enum: [JIRA_API_UNAVAILABLE]
+                  message:
+                    type: string
 
   /groups/{groupId}/members/{memberId}:
     patch:

@@ -126,7 +126,7 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
         res
       );
 
-      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.status).toHaveBeenCalledWith(201);
       const body = res.json.mock.calls[0][0];
       expect(body.validated).toBe(true);
       expect(body.github_org).toBe('cool-org');
@@ -374,6 +374,61 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
 
       expect(res.status).toHaveBeenCalledWith(404);
       expect(res.json.mock.calls[0][0].code).toBe('GROUP_NOT_FOUND');
+    });
+
+    it('returns last_sync_error when a SyncErrorLog entry exists for github', async () => {
+      const group = await makeGroup();
+      await SyncErrorLog.create({
+        service: 'github',
+        groupId: group.groupId,
+        actorId: 'usr_leader',
+        attempts: 3,
+        lastError: 'ETIMEDOUT',
+      });
+
+      const res = makeRes();
+      await getGithub(makeReq({ groupId: group.groupId }), res);
+
+      const body = res.json.mock.calls[0][0];
+      expect(body.last_sync_error).not.toBeNull();
+      expect(body.last_sync_error.attempts).toBe(3);
+      expect(body.last_sync_error.last_error).toBe('ETIMEDOUT');
+      expect(body.last_sync_error.error_id).toBeDefined();
+      expect(body.last_sync_error.timestamp).toBeDefined();
+    });
+
+    it('returns last_sync_error: null when no SyncErrorLog entry exists', async () => {
+      const group = await makeGroup({ githubOrg: 'clean-org' });
+      const res = makeRes();
+
+      await getGithub(makeReq({ groupId: group.groupId }), res);
+
+      const body = res.json.mock.calls[0][0];
+      expect(body.last_sync_error).toBeNull();
+    });
+
+    it('returns the most recent SyncErrorLog entry when multiple exist', async () => {
+      const group = await makeGroup();
+      await SyncErrorLog.create({
+        service: 'github',
+        groupId: group.groupId,
+        actorId: 'usr_leader',
+        attempts: 3,
+        lastError: 'first error',
+      });
+      await SyncErrorLog.create({
+        service: 'github',
+        groupId: group.groupId,
+        actorId: 'usr_leader',
+        attempts: 3,
+        lastError: 'second error',
+      });
+
+      const res = makeRes();
+      await getGithub(makeReq({ groupId: group.groupId }), res);
+
+      const body = res.json.mock.calls[0][0];
+      expect(body.last_sync_error.last_error).toBe('second error');
     });
   });
 });
