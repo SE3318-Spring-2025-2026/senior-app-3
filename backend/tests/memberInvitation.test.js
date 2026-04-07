@@ -31,6 +31,7 @@ describe('groupMembers controller', () => {
   let getMembers;
   let dispatchNotification;
   let membershipDecision;
+  let getApprovals;
 
   // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -83,7 +84,7 @@ describe('groupMembers controller', () => {
     User = require('../src/models/User');
     ScheduleWindow = require('../src/models/ScheduleWindow');
     notificationService = require('../src/services/notificationService');
-    ({ addMember, getMembers, dispatchNotification, membershipDecision } =
+    ({ addMember, getMembers, dispatchNotification, membershipDecision, getApprovals } =
       require('../src/controllers/groupMembers'));
   });
 
@@ -656,7 +657,7 @@ describe('groupMembers controller', () => {
       await GroupMembership.create({ groupId, studentId, status: 'pending' });
     };
 
-    it('returns 200 with invitation_id, group_id, student_id, decision, decided_at on accept', async () => {
+    it('returns 200 with decision_id, group_id, student_id, decision, forwarded_to_notification, submitted_at on accept', async () => {
       const group = await makeGroup();
       const student = await makeStudent();
       await setupInvitation(group.groupId, student.userId);
@@ -669,11 +670,12 @@ describe('groupMembers controller', () => {
 
       expect(res.status).toHaveBeenCalledWith(200);
       const body = res.json.mock.calls[0][0];
-      expect(body.invitation_id).toMatch(/^inv_/);
+      expect(body.decision_id).toMatch(/^inv_/);
       expect(body.group_id).toBe(group.groupId);
       expect(body.student_id).toBe(student.userId);
       expect(body.decision).toBe('accepted');
-      expect(body.decided_at).toBeDefined();
+      expect(typeof body.forwarded_to_notification).toBe('boolean');
+      expect(body.submitted_at).toBeDefined();
     });
 
     it('f08: accepted decision updates MemberInvitation status to accepted', async () => {
@@ -917,7 +919,7 @@ describe('groupMembers controller', () => {
         );
       });
 
-      it('returns notification_id in response and stores it on invitation after successful dispatch', async () => {
+      it('sets forwarded_to_notification:true in response and stores notificationId on invitation after successful dispatch', async () => {
         const group = await makeGroup();
         const student = await makeStudent();
         await setupInvitation(group.groupId, student.userId);
@@ -930,7 +932,7 @@ describe('groupMembers controller', () => {
 
         expect(res.status).toHaveBeenCalledWith(200);
         const body = res.json.mock.calls[0][0];
-        expect(body.notification_id).toBe('notif_decision_test');
+        expect(body.forwarded_to_notification).toBe(true);
 
         const inv = await MemberInvitation.findOne({ groupId: group.groupId, inviteeId: student.userId });
         expect(inv.notificationId).toBe('notif_decision_test');
@@ -964,6 +966,140 @@ describe('groupMembers controller', () => {
         expect(errorLog.attempts).toBe(3);
         expect(errorLog.lastError).toBe('notification service down');
       });
+    });
+  });
+
+  // ── getApprovals ──────────────────────────────────────────────────────────────
+
+  describe('GET /groups/:groupId/approvals — getApprovals', () => {
+    it('returns 200 with empty approvals and overall_status no_invitations when no invitations exist', async () => {
+      const group = await makeGroup();
+      const res = makeRes();
+
+      await getApprovals(makeReq({ groupId: group.groupId }), res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const body = res.json.mock.calls[0][0];
+      expect(body.group_id).toBe(group.groupId);
+      expect(body.approvals).toHaveLength(0);
+      expect(body.overall_status).toBe('no_invitations');
+      expect(body.summary).toEqual({ total: 0, accepted: 0, rejected: 0, pending: 0 });
+    });
+
+    it('returns overall_status pending when at least one invitation is still pending', async () => {
+      const group = await makeGroup();
+      const s1 = await makeStudent();
+      const s2 = await makeStudent();
+
+      await MemberInvitation.create({ groupId: group.groupId, inviteeId: s1.userId, invitedBy: 'usr_leader', status: 'pending' });
+      await MemberInvitation.create({ groupId: group.groupId, inviteeId: s2.userId, invitedBy: 'usr_leader', status: 'accepted' });
+
+      const res = makeRes();
+      await getApprovals(makeReq({ groupId: group.groupId }), res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const body = res.json.mock.calls[0][0];
+      expect(body.overall_status).toBe('pending');
+      expect(body.summary.pending).toBe(1);
+      expect(body.summary.accepted).toBe(1);
+    });
+
+    it('returns overall_status all_accepted when all invitations are accepted', async () => {
+      const group = await makeGroup();
+      const s1 = await makeStudent();
+      const s2 = await makeStudent();
+
+      await MemberInvitation.create({ groupId: group.groupId, inviteeId: s1.userId, invitedBy: 'usr_leader', status: 'accepted' });
+      await MemberInvitation.create({ groupId: group.groupId, inviteeId: s2.userId, invitedBy: 'usr_leader', status: 'accepted' });
+
+      const res = makeRes();
+      await getApprovals(makeReq({ groupId: group.groupId }), res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json.mock.calls[0][0].overall_status).toBe('all_accepted');
+    });
+
+    it('returns overall_status all_rejected when all invitations are rejected', async () => {
+      const group = await makeGroup();
+      const s1 = await makeStudent();
+
+      await MemberInvitation.create({ groupId: group.groupId, inviteeId: s1.userId, invitedBy: 'usr_leader', status: 'rejected' });
+
+      const res = makeRes();
+      await getApprovals(makeReq({ groupId: group.groupId }), res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json.mock.calls[0][0].overall_status).toBe('all_rejected');
+    });
+
+    it('returns overall_status all_decided when mix of accepted and rejected with none pending', async () => {
+      const group = await makeGroup();
+      const s1 = await makeStudent();
+      const s2 = await makeStudent();
+
+      await MemberInvitation.create({ groupId: group.groupId, inviteeId: s1.userId, invitedBy: 'usr_leader', status: 'accepted' });
+      await MemberInvitation.create({ groupId: group.groupId, inviteeId: s2.userId, invitedBy: 'usr_leader', status: 'rejected' });
+
+      const res = makeRes();
+      await getApprovals(makeReq({ groupId: group.groupId }), res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const body = res.json.mock.calls[0][0];
+      expect(body.overall_status).toBe('all_decided');
+      expect(body.summary).toEqual({ total: 2, accepted: 1, rejected: 1, pending: 0 });
+    });
+
+    it('returns each approval with invitation_id, student_id, status, decided_at, notification_id', async () => {
+      const group = await makeGroup();
+      const student = await makeStudent();
+      const decidedAt = new Date();
+
+      await MemberInvitation.create({
+        groupId: group.groupId,
+        inviteeId: student.userId,
+        invitedBy: 'usr_leader',
+        status: 'accepted',
+        decidedAt,
+        notificationId: 'notif_abc',
+      });
+
+      const res = makeRes();
+      await getApprovals(makeReq({ groupId: group.groupId }), res);
+
+      const body = res.json.mock.calls[0][0];
+      expect(body.approvals).toHaveLength(1);
+      const approval = body.approvals[0];
+      expect(approval.invitation_id).toMatch(/^inv_/);
+      expect(approval.student_id).toBe(student.userId);
+      expect(approval.status).toBe('accepted');
+      expect(approval.decided_at).toBeDefined();
+      expect(approval.notification_id).toBe('notif_abc');
+    });
+
+    it('returns 404 GROUP_NOT_FOUND when group does not exist', async () => {
+      const res = makeRes();
+
+      await getApprovals(makeReq({ groupId: 'grp_nonexistent' }), res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.json.mock.calls[0][0].code).toBe('GROUP_NOT_FOUND');
+    });
+
+    it('only returns invitations belonging to the requested group', async () => {
+      const group = await makeGroup();
+      const otherGroup = await makeGroup({ groupName: `Other ${Date.now()}`, leaderId: 'usr_leader' });
+      const s1 = await makeStudent();
+      const s2 = await makeStudent();
+
+      await MemberInvitation.create({ groupId: group.groupId, inviteeId: s1.userId, invitedBy: 'usr_leader', status: 'pending' });
+      await MemberInvitation.create({ groupId: otherGroup.groupId, inviteeId: s2.userId, invitedBy: 'usr_leader', status: 'accepted' });
+
+      const res = makeRes();
+      await getApprovals(makeReq({ groupId: group.groupId }), res);
+
+      const body = res.json.mock.calls[0][0];
+      expect(body.approvals).toHaveLength(1);
+      expect(body.approvals[0].student_id).toBe(s1.userId);
     });
   });
 });

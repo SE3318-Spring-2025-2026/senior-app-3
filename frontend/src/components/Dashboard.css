@@ -114,6 +114,13 @@
   color: white;
 }
 
+/* ─── Error ───────────────────────────────────────────────────── */
+.dashboard-error {
+  margin: 0;
+  font-size: 14px;
+  color: #b91c1c;
+}
+
 /* ─── Loading ─────────────────────────────────────────────────── */
 .dashboard-loading {
   font-size: 14px;
