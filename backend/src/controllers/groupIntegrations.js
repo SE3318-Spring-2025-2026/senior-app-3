@@ -3,10 +3,14 @@ const Group = require('../models/Group');
 const SyncErrorLog = require('../models/SyncErrorLog');
 
 const MAX_RETRY_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 100;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Retry wrapper: calls fn up to maxAttempts times.
+ * Retry wrapper: calls fn up to maxAttempts times with exponential back-off.
  * Returns the result on first success, or throws the last error.
+ * 4xx client errors are not retried — they indicate business-rule failures.
  */
 const withRetry = async (fn, maxAttempts = MAX_RETRY_ATTEMPTS) => {
   let lastError;
@@ -19,6 +23,9 @@ const withRetry = async (fn, maxAttempts = MAX_RETRY_ATTEMPTS) => {
         throw err;
       }
       lastError = err;
+      if (attempt < maxAttempts) {
+        await sleep(RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1));
+      }
     }
   }
   throw lastError;
@@ -142,10 +149,24 @@ const getGithub = async (req, res) => {
       return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
     }
 
+    const lastSyncError = await SyncErrorLog.findOne(
+      { groupId, service: 'github' },
+      null,
+      { sort: { createdAt: -1, _id: -1 } }
+    );
+
     return res.status(200).json({
       group_id: groupId,
       github_org: group.githubOrg,
       validated: !!group.githubOrg,
+      last_sync_error: lastSyncError
+        ? {
+            error_id: lastSyncError.errorId,
+            attempts: lastSyncError.attempts,
+            last_error: lastSyncError.lastError,
+            timestamp: lastSyncError.createdAt,
+          }
+        : null,
     });
   } catch (err) {
     console.error('getGithub error:', err);
@@ -283,6 +304,12 @@ const getJira = async (req, res) => {
       return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
     }
 
+    const lastSyncError = await SyncErrorLog.findOne(
+      { groupId, service: 'jira' },
+      null,
+      { sort: { createdAt: -1, _id: -1 } }
+    );
+
     return res.status(200).json({
       group_id: groupId,
       jira_url: group.jiraUrl,
@@ -290,6 +317,14 @@ const getJira = async (req, res) => {
       jira_project_key: group.projectKey,
       jira_board_url: group.jiraBoardUrl,
       validated: !!group.jiraUrl,
+      last_sync_error: lastSyncError
+        ? {
+            error_id: lastSyncError.errorId,
+            attempts: lastSyncError.attempts,
+            last_error: lastSyncError.lastError,
+            timestamp: lastSyncError.createdAt,
+          }
+        : null,
     });
   } catch (err) {
     console.error('getJira error:', err);

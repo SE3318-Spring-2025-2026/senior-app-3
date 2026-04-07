@@ -424,5 +424,60 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
       expect(res.status).toHaveBeenCalledWith(404);
       expect(res.json.mock.calls[0][0].code).toBe('GROUP_NOT_FOUND');
     });
+
+    it('returns last_sync_error when a SyncErrorLog entry exists for jira', async () => {
+      const group = await makeGroup();
+      await SyncErrorLog.create({
+        service: 'jira',
+        groupId: group.groupId,
+        actorId: 'usr_leader',
+        attempts: 3,
+        lastError: 'ETIMEDOUT',
+      });
+
+      const res = makeRes();
+      await getJira(makeReq({ groupId: group.groupId }), res);
+
+      const body = res.json.mock.calls[0][0];
+      expect(body.last_sync_error).not.toBeNull();
+      expect(body.last_sync_error.attempts).toBe(3);
+      expect(body.last_sync_error.last_error).toBe('ETIMEDOUT');
+      expect(body.last_sync_error.error_id).toBeDefined();
+      expect(body.last_sync_error.timestamp).toBeDefined();
+    });
+
+    it('returns last_sync_error: null when no SyncErrorLog entry exists', async () => {
+      const group = await makeGroup({ jiraUrl: 'https://mycompany.atlassian.net' });
+      const res = makeRes();
+
+      await getJira(makeReq({ groupId: group.groupId }), res);
+
+      const body = res.json.mock.calls[0][0];
+      expect(body.last_sync_error).toBeNull();
+    });
+
+    it('returns the most recent SyncErrorLog entry when multiple exist', async () => {
+      const group = await makeGroup();
+      await SyncErrorLog.create({
+        service: 'jira',
+        groupId: group.groupId,
+        actorId: 'usr_leader',
+        attempts: 3,
+        lastError: 'first error',
+      });
+      await SyncErrorLog.create({
+        service: 'jira',
+        groupId: group.groupId,
+        actorId: 'usr_leader',
+        attempts: 3,
+        lastError: 'second error',
+      });
+
+      const res = makeRes();
+      await getJira(makeReq({ groupId: group.groupId }), res);
+
+      const body = res.json.mock.calls[0][0];
+      expect(body.last_sync_error.last_error).toBe('second error');
+    });
   });
 });
