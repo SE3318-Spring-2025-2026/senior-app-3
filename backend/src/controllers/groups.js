@@ -393,6 +393,7 @@ const formatGroupResponse = (group) => ({
   groupName: group.groupName,
   leaderId: group.leaderId,
   advisorId: group.advisorId,
+  committeeId: group.committeeId || null,
   status: group.status,
   members: group.members.map((m) => ({
     userId: m.userId,

@@ -8,6 +8,7 @@ import JiraStatusCard from './JiraStatusCard';
 import JiraSetupForm from './JiraSetupForm';
 import GroupMemberList from './GroupMemberList';
 import AddMemberForm from './AddMemberForm';
+import CommitteeStatusCard from './CommitteeStatusCard';
 import { submitMembershipDecision, getMyPendingInvitation } from '../api/groupService';
 import './GroupDashboard.css';
 
@@ -28,6 +29,7 @@ const GroupDashboard = () => {
   // Group store state
   const {
     groupData,
+    committeeStatus,
     members,
     github,
     jira,
@@ -235,6 +237,9 @@ const GroupDashboard = () => {
               </div>
             </div>
           </div>
+
+          {/* Committee Status Section */}
+          <CommitteeStatusCard committeeStatus={committeeStatus} user={user} />
 
           {/* Members Section */}
           <GroupMemberList

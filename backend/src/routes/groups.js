@@ -6,6 +6,7 @@ const { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMembe
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
+const { getGroupCommitteeStatus } = require('../controllers/committees');
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
 router.post('/', authMiddleware, roleMiddleware(['student']), createGroup);
@@ -18,6 +19,9 @@ router.get('/', authMiddleware, roleMiddleware(['coordinator']), getAllGroups);
 
 // GET /api/v1/groups/:groupId — Process 2.2: retrieve validated group record from D2
 router.get('/:groupId', authMiddleware, getGroup);
+
+// GET /api/v1/groups/:groupId/committee-status — Committee status lookup for group dashboard
+router.get('/:groupId/committee-status', authMiddleware, getGroupCommitteeStatus);
 
 // POST /api/v1/groups/:groupId/members — Process 2.3: leader invites a student (f05, f19)
 router.post('/:groupId/members', authMiddleware, checkScheduleWindow('member_addition'), addMember);

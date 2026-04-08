@@ -36,6 +36,12 @@ const Sidebar = () => {
       );
     }
 
+    if (user?.role === 'professor' || user?.role === 'committee_member' || user?.role === 'admin') {
+      items.push(
+        { label: 'Jury Committees', path: '/jury/committees', icon: '🎓' }
+      );
+    }
+
     if (user?.role === 'admin') {
       items.push(
         { label: 'Admin - Password Reset', path: '/admin/password-reset', icon: '🔑' },

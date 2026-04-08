@@ -152,6 +152,35 @@ export const getGroup = async (groupId) => {
 };
 
 /**
+ * Get group committee status
+ * @param {string} groupId - The group ID
+ * @returns {Promise} Committee status object for the group
+ */
+export const getGroupCommitteeStatus = async (groupId) => {
+  try {
+    const response = await apiClient.get(`/groups/${groupId}/committee-status`);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching committee status:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get jury-assigned committees for the authenticated user
+ * @returns {Promise<{committees: object[]}>}
+ */
+export const getJuryCommittees = async () => {
+  try {
+    const response = await apiClient.get('/jury/committees');
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching jury committees:', error);
+    throw error;
+  }
+};
+
+/**
  * Get group members
  * @param {string} groupId - The group ID
  * @returns {Promise} List of group members
@@ -229,11 +258,12 @@ export const getPendingApprovals = async (groupId) => {
  */
 export const getGroupDashboardData = async (groupId) => {
   try {
-    const [groupData, approvalsData, githubData, jiraData] = await Promise.all([
+    const [groupData, approvalsData, githubData, jiraData, committeeData] = await Promise.all([
       getGroup(groupId),
       apiClient.get(`/groups/${groupId}/approvals`).then((r) => r.data).catch(() => ({ approvals: [] })),
       getGitHubStatus(groupId).catch(() => ({ connected: false, repo_url: null, last_synced: null })),
       getJiraStatus(groupId).catch(() => ({ connected: false, project_key: null, board_url: null })),
+      getGroupCommitteeStatus(groupId).catch(() => ({ groupId, committeeId: null, committee: null })),
     ]);
 
     return {
@@ -242,6 +272,7 @@ export const getGroupDashboardData = async (groupId) => {
       github: githubData,
       jira: jiraData,
       approvals: approvalsData,
+      committeeStatus: committeeData,
     };
   } catch (error) {
     console.error('Error fetching group dashboard data:', error);
