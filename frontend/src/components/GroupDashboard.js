@@ -8,6 +8,7 @@ import JiraStatusCard from './JiraStatusCard';
 import JiraSetupForm from './JiraSetupForm';
 import GroupMemberList from './GroupMemberList';
 import AddMemberForm from './AddMemberForm';
+import DeliverableSubmissionForm from './DeliverableSubmissionForm';
 import { submitMembershipDecision, getMyPendingInvitation } from '../api/groupService';
 import './GroupDashboard.css';
 
@@ -276,6 +277,15 @@ const GroupDashboard = () => {
               onMemberAdded={() => fetchGroupDashboard(groupId)}
             />
           )}
+
+          <DeliverableSubmissionForm
+            groupId={groupId}
+            isLeader={isLeader}
+            userId={user?.userId}
+            members={members}
+            committeeStatus={groupData?.committee?.status || groupData?.committeeStatus}
+            onSuccess={() => fetchGroupDashboard(groupId)}
+          />
 
           {/* Group Information Footer */}
           <div className="group-info-footer">
