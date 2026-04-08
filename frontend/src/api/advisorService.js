@@ -29,3 +29,13 @@ export const checkAdvisorWindow = async () => {
   });
   return response.data;
 };
+
+/**
+ * Release the currently assigned advisor from the group (Process 3.5)
+ */
+export const releaseAdvisor = async (groupId, professorId, reason) => {
+  const response = await apiClient.delete(`/groups/${groupId}/advisor`, {
+    data: { professorId, reason }
+  });
+  return response.data;
+};

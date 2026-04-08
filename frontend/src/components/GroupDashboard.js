@@ -8,6 +8,7 @@ import JiraStatusCard from './JiraStatusCard';
 import GroupMemberList from './GroupMemberList';
 import AddMemberForm from './AddMemberForm';
 import { submitMembershipDecision, getMyPendingInvitation } from '../api/groupService';
+import { releaseAdvisor } from '../api/advisorService';
 import './GroupDashboard.css';
 
 /**
@@ -23,6 +24,12 @@ const GroupDashboard = () => {
   const [invitationInfo, setInvitationInfo] = useState(null);
   const [decisionLoading, setDecisionLoading] = useState(false);
   const [decisionMsg, setDecisionMsg] = useState('');
+  
+  // Release Advisor state
+  const [releaseModalOpen, setReleaseModalOpen] = useState(false);
+  const [releaseReason, setReleaseReason] = useState('');
+  const [releaseLoading, setReleaseLoading] = useState(false);
+  const [releaseError, setReleaseError] = useState('');
 
   // Group store state
   const {
@@ -81,6 +88,23 @@ const GroupDashboard = () => {
       setDecisionMsg(err.response?.data?.message || 'Could not process your decision.');
     } finally {
       setDecisionLoading(false);
+    }
+  };
+
+  const handleReleaseAdvisor = async () => {
+    if (!groupData.advisorId) return;
+    
+    setReleaseLoading(true);
+    setReleaseError('');
+    try {
+      await releaseAdvisor(groupId, groupData.advisorId, releaseReason);
+      setReleaseModalOpen(false);
+      setReleaseReason('');
+      fetchGroupDashboard(groupId);
+    } catch (err) {
+      setReleaseError(err.response?.data?.message || 'Failed to release advisor. Please check the schedule window.');
+    } finally {
+      setReleaseLoading(false);
     }
   };
 
@@ -226,9 +250,20 @@ const GroupDashboard = () => {
               </div>
               <div className="card-content">
                 {groupData?.advisorId ? (
-                  <div className="info-row">
-                    <span className="info-label">Assigned Advisor:</span>
-                    <span className="info-value">Dr. {groupData.advisorName || 'Advisor'}</span>
+                  <div className="info-row assigned-advisor-row">
+                    <div className="advisor-info">
+                      <span className="info-label">Assigned Advisor:</span>
+                      <span className="info-value">Dr. {groupData.advisorName || 'Advisor'}</span>
+                    </div>
+                    {(isLeader || isCoordinator) && (
+                      <button 
+                        className="release-advisor-btn-outline"
+                        onClick={() => setReleaseModalOpen(true)}
+                        title="Release advisor from this group"
+                      >
+                        Release
+                      </button>
+                    )}
                   </div>
                 ) : groupData?.advisorRequest?.status === 'pending' ? (
                   <div className="advisor-empty-state">
@@ -321,6 +356,50 @@ const GroupDashboard = () => {
             {groupData?.createdAt ? new Date(groupData.createdAt).toLocaleDateString() : 'N/A'}
             &nbsp;·&nbsp; Status: {groupData?.status || 'Unknown'}
           </div>
+
+          {/* Release Advisor Confirmation Modal */}
+          {releaseModalOpen && (
+            <div className="modal-overlay">
+              <div className="modal-content release-modal">
+                <h2>Release Advisor</h2>
+                <p>Are you sure you want to release <strong>Dr. {groupData.advisorName}</strong> from this group?</p>
+                <p className="modal-warning">This action will clear the current assignment and allow you to request a new advisor.</p>
+                
+                <div className="form-group">
+                  <label htmlFor="releaseReason">Reason for Release (optional):</label>
+                  <textarea
+                    id="releaseReason"
+                    value={releaseReason}
+                    onChange={(e) => setReleaseReason(e.target.value)}
+                    placeholder="Provide a reason for releasing the advisor..."
+                    rows="3"
+                  />
+                </div>
+
+                {releaseError && <div className="modal-error">{releaseError}</div>}
+
+                <div className="modal-actions">
+                  <button 
+                    className="cancel-btn" 
+                    onClick={() => {
+                      setReleaseModalOpen(false);
+                      setReleaseError('');
+                    }}
+                    disabled={releaseLoading}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    className="confirm-release-btn" 
+                    onClick={handleReleaseAdvisor}
+                    disabled={releaseLoading}
+                  >
+                    {releaseLoading ? 'Releasing...' : 'Confirm Release'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

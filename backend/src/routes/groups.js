@@ -3,6 +3,7 @@ const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const { checkScheduleWindow } = require('../middleware/scheduleWindow');
 const { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride } = require('../controllers/groups');
+const advisorRequestController = require('../controllers/advisorRequestController');
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
@@ -18,6 +19,9 @@ router.get('/', authMiddleware, roleMiddleware(['coordinator']), getAllGroups);
 
 // GET /api/v1/groups/:groupId — Process 2.2: retrieve validated group record from D2
 router.get('/:groupId', authMiddleware, getGroup);
+
+// DELETE /api/v1/groups/:groupId/advisor — Process 3.5: release current advisor
+router.delete('/:groupId/advisor', authMiddleware, advisorRequestController.releaseAdvisor);
 
 // POST /api/v1/groups/:groupId/members — Process 2.3: leader invites a student (f05, f19)
 router.post('/:groupId/members', authMiddleware, checkScheduleWindow('member_addition'), addMember);

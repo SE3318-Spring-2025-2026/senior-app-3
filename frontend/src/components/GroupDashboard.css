@@ -696,4 +696,159 @@
 .status-badge.none {
   background: #f1f5f9;
   color: #64748b;
-}
+}
+
+/* ─── Advisor Release ──────────────────────────── */
+.assigned-advisor-row {
+  align-items: center;
+}
+
+.advisor-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.release-advisor-btn-outline {
+  padding: 4px 10px;
+  background: white;
+  color: #ef4444;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.release-advisor-btn-outline:hover {
+  background: #fee2e2;
+  border-color: #ef4444;
+}
+
+/* ─── Modal ────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.modal-content {
+  background: white;
+  padding: 32px;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 450px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  animation: modalEnter 0.3s ease-out;
+}
+
+@keyframes modalEnter {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.release-modal h2 {
+  margin: 0 0 16px 0;
+  font-size: 20px;
+  color: #111827;
+}
+
+.release-modal p {
+  margin-bottom: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #4b5563;
+}
+
+.modal-warning {
+  background: #fffbeb;
+  border-left: 4px solid #f59e0b;
+  padding: 12px;
+  color: #92400e !important;
+  font-size: 13px !important;
+  border-radius: 4px;
+}
+
+.modal-error {
+  background: #fee2e2;
+  color: #b91c1c;
+  padding: 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.form-group {
+  margin: 16px 0;
+}
+
+.form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 6px;
+}
+
+.form-group textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  resize: none;
+  font-family: inherit;
+}
+
+.form-group textarea:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.cancel-btn {
+  padding: 10px 20px;
+  background: #f3f4f6;
+  color: #4b5563;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.confirm-release-btn {
+  padding: 10px 20px;
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.confirm-release-btn:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.confirm-release-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
