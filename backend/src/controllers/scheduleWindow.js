@@ -1,6 +1,6 @@
 const ScheduleWindow = require('../models/ScheduleWindow');
 
-const VALID_OPERATION_TYPES = new Set(['group_creation', 'member_addition']);
+const VALID_OPERATION_TYPES = new Set(['group_creation', 'member_addition', 'advisor_association']);
 
 /**
  * GET /schedule-window/active?operationType=group_creation
@@ -14,7 +14,7 @@ const getActiveWindow = async (req, res) => {
     if (!operationType || !VALID_OPERATION_TYPES.has(operationType)) {
       return res.status(400).json({
         code: 'INVALID_INPUT',
-        message: "operationType query param must be 'group_creation' or 'member_addition'.",
+        message: "operationType query param must be 'group_creation', 'member_addition', or 'advisor_association'.",
       });
     }
 
@@ -59,7 +59,7 @@ const listWindows = async (req, res) => {
       if (!VALID_OPERATION_TYPES.has(operationType)) {
         return res.status(400).json({
           code: 'INVALID_INPUT',
-          message: "operationType must be 'group_creation' or 'member_addition'.",
+          message: "operationType must be 'group_creation', 'member_addition', or 'advisor_association'.",
         });
       }
       filter.operationType = operationType;
@@ -99,7 +99,7 @@ const createWindow = async (req, res) => {
     if (!operationType || !VALID_OPERATION_TYPES.has(operationType)) {
       return res.status(400).json({
         code: 'INVALID_INPUT',
-        message: "operationType must be 'group_creation' or 'member_addition'.",
+        message: "operationType must be 'group_creation', 'member_addition', or 'advisor_association'.",
       });
     }
 

@@ -14,6 +14,7 @@ import AdminProfessorCreation from './components/AdminProfessorCreation';
 import GitHubCallbackHandler from './components/GitHubCallbackHandler';
 import GroupDashboard from './components/GroupDashboard';
 import GroupCreationPage from './components/GroupCreationPage';
+import AdviseeRequestForm from './components/AdviseeRequestForm';
 import CoordinatorPanel from './components/CoordinatorPanel';
 import Dashboard from './components/Dashboard';
 import Sidebar from './components/layout/Sidebar';
@@ -95,6 +96,10 @@ function App() {
             <Route
               path="/groups/:group_id/coordinator"
               element={<ProtectedRoute component={CoordinatorPanel} requiredRoles={['coordinator', 'admin']} />}
+            />
+            <Route
+              path="/groups/:group_id/advisor-request"
+              element={<ProtectedRoute component={AdviseeRequestForm} requiredRoles={['student']} />}
             />
             <Route
               path="/profile"

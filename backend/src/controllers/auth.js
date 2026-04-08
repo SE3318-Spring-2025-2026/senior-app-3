@@ -1088,4 +1088,5 @@ module.exports = {
   adminInitiatePasswordReset,
   getAdminUsersList,
   adminCreateProfessor,
+  listProfessors,
 };
