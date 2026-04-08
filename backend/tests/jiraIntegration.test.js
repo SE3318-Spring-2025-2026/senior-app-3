@@ -116,7 +116,7 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
   // ── configureJira happy path ───────────────────────────────────────────────────
 
   describe('POST /groups/:groupId/jira — configureJira', () => {
-    it('returns 200 with jira_url, jira_project, project_key, validated: true on success', async () => {
+    it('returns 201 with project_key, board_url, binding: confirmed on success', async () => {
       mockValidCredentials();
       mockValidProject('PROJ');
 
@@ -127,10 +127,9 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
 
       expect(res.status).toHaveBeenCalledWith(201);
       const body = res.json.mock.calls[0][0];
-      expect(body.validated).toBe(true);
-      expect(body.jira_url).toBe('https://mycompany.atlassian.net');
-      expect(body.jira_project_key).toBe('PROJ');
-      expect(body.jira_project).toBe('My Project');
+      expect(body.project_key).toBe('PROJ');
+      expect(body.board_url).toBe('https://mycompany.atlassian.net/jira/software/projects/PROJ/boards');
+      expect(body.binding).toBe('confirmed');
     });
 
     it('f25: stores jiraUrl, jiraUsername, jiraToken, projectKey in D2 group record', async () => {
@@ -372,11 +371,12 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
   // ── getJira ────────────────────────────────────────────────────────────────────
 
   describe('GET /groups/:groupId/jira — getJira', () => {
-    it('returns 200 with group_id, jira_url, jira_project, project_key, validated: true when config is set', async () => {
+    it('returns 200 with connected: true, project_key, board_url when config is set', async () => {
       const group = await makeGroup({
         jiraUrl: 'https://mycompany.atlassian.net',
         jiraProject: 'My Project',
         projectKey: 'PROJ',
+        jiraBoardUrl: 'https://mycompany.atlassian.net/jira/software/projects/PROJ/boards',
         jiraUsername: 'user@example.com',
         jiraToken: 'tok_secret',
       });
@@ -386,11 +386,9 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
 
       expect(res.status).toHaveBeenCalledWith(200);
       const body = res.json.mock.calls[0][0];
-      expect(body.group_id).toBe(group.groupId);
-      expect(body.jira_url).toBe('https://mycompany.atlassian.net');
-      expect(body.jira_project).toBe('My Project');
-      expect(body.jira_project_key).toBe('PROJ');
-      expect(body.validated).toBe(true);
+      expect(body.connected).toBe(true);
+      expect(body.project_key).toBe('PROJ');
+      expect(body.board_url).toBe('https://mycompany.atlassian.net/jira/software/projects/PROJ/boards');
     });
 
     it('does not expose jiraToken in the response', async () => {
@@ -406,14 +404,16 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
       expect(body.jiraToken).toBeUndefined();
     });
 
-    it('returns validated: false when no JIRA config is set', async () => {
+    it('returns connected: false when no JIRA config is set', async () => {
       const group = await makeGroup();
       const res = makeRes();
 
       await getJira(makeReq({ groupId: group.groupId }), res);
 
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json.mock.calls[0][0].validated).toBe(false);
+      expect(res.json.mock.calls[0][0].connected).toBe(false);
+      expect(res.json.mock.calls[0][0].project_key).toBeUndefined();
+      expect(res.json.mock.calls[0][0].board_url).toBeUndefined();
     });
 
     it('returns 404 GROUP_NOT_FOUND when group does not exist', async () => {
