@@ -9,6 +9,7 @@ import {
   getGroupStatus,
   transitionGroupStatus,
 } from '../api/groupService';
+import CommitteeManagementTab from './CommitteeManagementTab';
 
 const OPERATION_TYPES = [
   { value: 'group_creation', label: 'Group Creation' },
@@ -271,6 +272,9 @@ const CoordinatorPanel = () => {
           <button style={tabButtonStyle(activeTab === 'groups')} onClick={() => setActiveTab('groups')}>
             Groups ({groups.length})
           </button>
+          <button style={tabButtonStyle(activeTab === 'committees')} onClick={() => setActiveTab('committees')}>
+            Committees
+          </button>
           <button style={tabButtonStyle(activeTab === 'overrides')} onClick={() => setActiveTab('overrides')}>
             Overrides
           </button>
@@ -361,6 +365,12 @@ const CoordinatorPanel = () => {
                 </table>
               </div>
             )}
+          </section>
+        )}
+
+        {activeTab === 'committees' && (
+          <section style={{ background: 'white', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+            <CommitteeManagementTab />
           </section>
         )}
 
