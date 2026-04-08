@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import useGroupStore from '../store/groupStore';
 import useAuthStore from '../store/authStore';
 import GitHubStatusCard from './GitHubStatusCard';
@@ -24,7 +24,7 @@ const GroupDashboard = () => {
   const [decisionLoading, setDecisionLoading] = useState(false);
   const [decisionMsg, setDecisionMsg] = useState('');
 
-  // Group store state
+
   const {
     groupData,
     members,
@@ -39,14 +39,14 @@ const GroupDashboard = () => {
     stopPolling,
   } = useGroupStore();
 
-  // Validate group ID
+ 
   useEffect(() => {
     if (!groupId) {
       navigate('/');
     }
   }, [groupId, navigate]);
 
-  // Initial load and polling setup
+
   useEffect(() => {
     if (groupId) {
       pollingIntervalRef.current = startPolling(groupId, 30000);
@@ -59,32 +59,45 @@ const GroupDashboard = () => {
     };
   }, [groupId, startPolling, stopPolling]);
 
-  // Check if the current user has a pending invitation for this group
+ 
   useEffect(() => {
     if (!groupId || !user) return;
-    getMyPendingInvitation().then((inv) => {
-      if (inv && inv.group_id === groupId) {
-        setInvitationInfo(inv);
-      }
-    }).catch(() => {});
+
+    getMyPendingInvitation()
+      .then((inv) => {
+        if (inv && inv.group_id === groupId) {
+          setInvitationInfo(inv);
+        }
+      })
+      .catch(() => {});
   }, [groupId, user]);
 
   const handleDecision = async (decision) => {
     setDecisionLoading(true);
     setDecisionMsg('');
+
     try {
       await submitMembershipDecision(groupId, decision, user.userId);
       setInvitationInfo(null);
-      setDecisionMsg(decision === 'accepted' ? 'You have joined the group!' : 'Invitation declined.');
-      if (decision === 'accepted') fetchGroupDashboard(groupId);
+      setDecisionMsg(
+        decision === 'accepted'
+          ? 'You have joined the group!'
+          : 'Invitation declined.'
+      );
+
+      if (decision === 'accepted') {
+        fetchGroupDashboard(groupId);
+      }
     } catch (err) {
-      setDecisionMsg(err.response?.data?.message || 'Could not process your decision.');
+      setDecisionMsg(
+        err.response?.data?.message || 'Could not process your decision.'
+      );
     } finally {
       setDecisionLoading(false);
     }
   };
 
-  // Handle manual refresh
+  
   const handleRefresh = async () => {
     setManualRefresh(true);
     try {
@@ -94,15 +107,14 @@ const GroupDashboard = () => {
     }
   };
 
-  // Check if user is coordinator (has coordinator role or is admin)
+
   const isCoordinator = user?.role === 'coordinator' || user?.role === 'admin';
 
-  // Check if current user is the group leader
+  
   const isLeader = groupData?.leaderId === user?.userId;
 
-  // Handle coordinator panel navigation
+ 
   const handleCoordinatorPanel = () => {
-    // Navigate to coordinator panel for this group
     navigate(`/groups/${groupId}/coordinator`);
   };
 
@@ -123,21 +135,34 @@ const GroupDashboard = () => {
               </span>
             )}
           </h1>
+
           {lastUpdated && (
             <p className="last-updated">
               Last updated: {new Date(lastUpdated).toLocaleTimeString()}
             </p>
           )}
         </div>
+
         <div className="dashboard-actions">
-          <button 
-            className="refresh-button" 
+          <button
+            className="refresh-button"
             onClick={handleRefresh}
             disabled={manualRefresh || isLoading}
             title="Refresh dashboard data"
           >
             {manualRefresh ? 'Refreshing...' : 'Refresh'}
           </button>
+
+          <Link to={`/groups/${groupId}/advisor`}>
+            <button
+              type="button"
+              className="coordinator-panel-btn"
+              title="Open advisor association panel"
+            >
+              Advisor Panel
+            </button>
+          </Link>
+
           {isCoordinator && (
             <button
               className="coordinator-panel-btn"
@@ -166,7 +191,11 @@ const GroupDashboard = () => {
       {/* Invitation Banner — visible to invited users who haven't responded yet */}
       {invitationInfo && (
         <div className="invitation-banner">
-          <p>You have been invited to join <strong>{groupData?.groupName || invitationInfo.group_name}</strong>.</p>
+          <p>
+            You have been invited to join{' '}
+            <strong>{groupData?.groupName || invitationInfo.group_name}</strong>.
+          </p>
+
           <div className="invitation-actions">
             <button
               className="accept-btn"
@@ -175,6 +204,7 @@ const GroupDashboard = () => {
             >
               {decisionLoading ? 'Processing…' : 'Accept'}
             </button>
+
             <button
               className="reject-btn"
               onClick={() => handleDecision('rejected')}
@@ -183,9 +213,11 @@ const GroupDashboard = () => {
               Decline
             </button>
           </div>
+
           {decisionMsg && <p className="decision-msg">{decisionMsg}</p>}
         </div>
       )}
+
       {!invitationInfo && decisionMsg && (
         <div className="invitation-banner resolved">
           <p>{decisionMsg}</p>
@@ -197,17 +229,14 @@ const GroupDashboard = () => {
         <>
           {/* Status Cards Grid */}
           <div className="dashboard-grid">
-            {/* GitHub Status Card */}
             <div>
               <GitHubStatusCard data={github} isLoading={isLoading} />
             </div>
 
-            {/* JIRA Status Card */}
             <div>
               <JiraStatusCard data={jira} isLoading={isLoading} />
             </div>
 
-            {/* Pending Approvals Card */}
             <div className="status-card">
               <div className="card-header">
                 <h3 className="card-title">
@@ -216,18 +245,26 @@ const GroupDashboard = () => {
                   </svg>
                   Pending Approvals
                 </h3>
-                <span className={`approval-badge ${pendingApprovalsCount === 0 ? 'zero' : ''}`}>
+
+                <span
+                  className={`approval-badge ${
+                    pendingApprovalsCount === 0 ? 'zero' : ''
+                  }`}
+                >
                   {pendingApprovalsCount}
                 </span>
               </div>
+
               <div className="card-content">
                 <div className="info-row">
                   <span className="info-label">Members Awaiting Response:</span>
                   <span className="info-value">{pendingApprovalsCount}</span>
                 </div>
+
                 {pendingApprovalsCount > 0 && (
                   <p className="card-hint">
-                    {pendingApprovalsCount} student{pendingApprovalsCount !== 1 ? 's' : ''}{' '}
+                    {pendingApprovalsCount} student
+                    {pendingApprovalsCount !== 1 ? 's' : ''}{' '}
                     {pendingApprovalsCount !== 1 ? 'have' : 'has'} not yet responded.
                   </p>
                 )}
@@ -242,14 +279,13 @@ const GroupDashboard = () => {
             groupLeaderId={groupData?.leaderId}
           />
 
-          {/* GitHub Integration Setup — Team Leader only (Process 2.6) */}
+          {/* GitHub Integration Setup — Team Leader only */}
           {isLeader && (
             <div className="integration-section">
               <h2 className="integration-title">GitHub Integration Setup</h2>
               <GitHubSetupForm
                 groupId={groupId}
                 onSuccess={() => {
-                  // Refresh dashboard to show updated GitHub configuration
                   fetchGroupDashboard(groupId);
                 }}
                 onError={(error) => {
@@ -260,7 +296,7 @@ const GroupDashboard = () => {
             </div>
           )}
 
-          {/* Add Member — Team Leader only (Process 2.3) */}
+          {/* Add Member — Team Leader only */}
           {isLeader && (
             <AddMemberForm
               groupId={groupId}
@@ -271,7 +307,9 @@ const GroupDashboard = () => {
           {/* Group Information Footer */}
           <div className="group-info-footer">
             Group ID: {groupData?.groupId} &nbsp;·&nbsp; Created:{' '}
-            {groupData?.createdAt ? new Date(groupData.createdAt).toLocaleDateString() : 'N/A'}
+            {groupData?.createdAt
+              ? new Date(groupData.createdAt).toLocaleDateString()
+              : 'N/A'}
             &nbsp;·&nbsp; Status: {groupData?.status || 'Unknown'}
           </div>
         </>

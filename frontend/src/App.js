@@ -19,6 +19,7 @@ import Dashboard from './components/Dashboard';
 import Sidebar from './components/layout/Sidebar';
 import './App.css';
 import './components/layout/Sidebar.css';
+import AdvisorAssociationPanel from './components/AdvisorAssociationPanel';
 
 /**
  * Placeholder components for routes not yet implemented
@@ -91,6 +92,10 @@ function App() {
             <Route
               path="/groups/:group_id"
               element={<ProtectedRoute component={GroupDashboard} />}
+            />
+            <Route
+              path="/groups/:group_id/advisor"
+              element={<ProtectedRoute component={AdvisorAssociationPanel} />}
             />
             <Route
               path="/groups/:group_id/coordinator"
