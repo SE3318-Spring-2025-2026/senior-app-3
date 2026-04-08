@@ -36,7 +36,7 @@
                 <mxCell id="74" value="3.0 Advisor Association" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" parent="1" vertex="1">
                     <mxGeometry x="2145" y="600" width="190" height="70" as="geometry"/>
                 </mxCell>
-                <mxCell id="76" value="6.0 Deliverable Review &amp; Evaluation" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" parent="1" vertex="1">
+                <mxCell id="76" value="6.0 Deliverable Review" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" parent="1" vertex="1">
                     <mxGeometry x="2385" y="295" width="240" height="70" as="geometry"/>
                 </mxCell>
                 <mxCell id="77" value="7.0 Sprint Tracking &amp; Contribution Calculation" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" parent="1" vertex="1">
@@ -198,19 +198,7 @@
                         </Array>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="98" value="rubric scores" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;entryX=0.243;entryY=1;entryDx=0;entryDy=0;entryPerimeter=0;noEdgeStyle=1;orthogonal=1;" parent="1" source="69" target="76" edge="1">
-                    <mxGeometry relative="1" as="geometry">
-                        <mxPoint x="1070" y="680" as="targetPoint"/>
-                        <Array as="points">
-                            <mxPoint x="1817" y="250"/>
-                            <mxPoint x="1855" y="255"/>
-                            <mxPoint x="2385" y="255"/>
-                            <mxPoint x="2421" y="322.5"/>
-                        </Array>
-                        <mxPoint as="offset"/>
-                    </mxGeometry>
-                </mxCell>
-                <mxCell id="99" value="rubric / sprint config" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="66" target="76" edge="1">
+                <mxCell id="99" value="review schedule +&lt;br&gt;&amp;nbsp;deadline" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="66" target="76" edge="1">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
                             <mxPoint x="2347" y="527.5"/>

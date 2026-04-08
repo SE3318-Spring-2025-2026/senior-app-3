@@ -1,0 +1,975 @@
+openapi: 3.0.0
+info:
+  title: Senior Project Management System — Deliverable Submission API
+  description: >
+    API specification for Process 5.0: Deliverable Submission.
+    
+    External entities:
+      - Student / Team (submits deliverables)
+      - Coordinator (manages process)
+      - Committee Members (assigned to group)
+      - Notification Service (receives events)
+    
+    Data stores:
+      - D2: Groups & Advisor Assignments
+      - D3: Committee Assignments
+      - D4: Deliverable Files & Submissions
+      - D8: Rubrics & Sprint Configurations (format rules, deadline configs)
+    
+    Sub-processes (6-step validation & storage workflow):
+      5.1  Validate Group & Committee Assignment
+      5.2  Receive Deliverable File
+      5.3  Validate Format & File Size
+      5.4  Check Requirements & Deadline
+      5.5  Store Deliverable & Create Record
+      5.6  Notify Stakeholders
+    
+    DFD Source: dfdLevel2_Process5.drawio
+  version: 2.5.0
+  contact:
+    name: Development Team
+    email: support@senior-project.dev
+  license:
+    name: MIT
+
+servers:
+  - url: https://api.senior-project.dev/v1
+    description: Production server
+  - url: http://localhost:3000/api/v1
+    description: Development server
+
+tags:
+  - name: Deliverable Submission
+    description: Submission workflow, validation, storage, and delivery notification
+
+paths:
+  # =============================================================================
+  # 5.1 — Validate Group & Committee Assignment
+  # 
+  # DFD Flows:
+  #   f1: Student/Team → 5.1 (group & submission request)
+  #   f7: D2 → 5.1 (group information / status)
+  #   f8: D3 → 5.1 (committee assignment status)
+  #   f12: 5.1 → Student (group not assigned / error)
+  #
+  # Action: Check if group is assigned to a committee before accepting submission
+  # =============================================================================
+  
+  /deliverables/validate-group:
+    post:
+      operationId: validateGroupAssignment
+      summary: "5.1 — Validate Group & Committee Assignment"
+      description: >
+        Pre-submission validation: checks if the requesting student's group is 
+        properly assigned to a committee (D3 lookup) and if the group exists (D2 lookup).
+        
+        Returns:
+          - success: group_id, committee_id, group_status for proceeding to submission
+          - failure: rejection error indicating group not found or committee assignment missing
+        
+        This is the first gate in the submission pipeline.
+      tags: ["Deliverable Submission"]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [groupId]
+              properties:
+                groupId:
+                  type: string
+                  description: Group identifier requesting to submit deliverable
+                  example: "grp_2024_001"
+      responses:
+        "200":
+          description: >
+            Group is assigned to a committee and ready for submission.
+            Returns group & committee context for the submission process.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupValidationResponse'
+        "400":
+          description: Invalid group ID format or missing required fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "403":
+          description: Unauthorized - caller is not a member of this group
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: Group not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "409":
+          description: Group is not assigned to any committee yet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # =============================================================================
+  # 5.2 — Receive Deliverable File
+  #
+  # DFD Flows:
+  #   f2: 5.1 → 5.2 (validation passed / proceed)
+  #   f3: 5.2 → 5.3 (deliverable file)
+  #   f6: D4 → 5.2 (existing deliverable history for versioning)
+  #
+  # Action: Accept and temporarily store the file for format validation
+  # =============================================================================
+  
+  /deliverables/submit:
+    post:
+      operationId: receiveDeliverable
+      summary: "5.2 — Receive Deliverable File"
+      description: >
+        Accepts a deliverable file submission from a group. 
+        File is temporarily staged in D4 pending format/size validation.
+        
+        Accepts:
+          - File upload (multipart/form-data)
+          - Metadata: group_id, deliverable_type, sprint_id
+        
+        Returns:
+          - staging_id: temporary identifier for validation pipeline
+          - file_hash: checksum for integrity tracking
+          - size_bytes: file size for next process validation
+      tags: ["Deliverable Submission"]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [groupId, deliverableType, file]
+              properties:
+                groupId:
+                  type: string
+                  description: Group ID (must match authenticated student's group)
+                  example: "grp_2024_001"
+                deliverableType:
+                  type: string
+                  enum: [proposal, statement_of_work, demo, interim_report, final_report]
+                  description: Type of deliverable being submitted
+                sprintId:
+                  type: string
+                  description: Sprint ID this deliverable belongs to
+                  example: "sprint_2024_s1"
+                description:
+                  type: string
+                  description: Optional submission notes or context
+                file:
+                  type: string
+                  format: binary
+                  description: Deliverable document (PDF, DOCX, MD, or ZIP)
+      responses:
+        "202":
+          description: >
+            File received and staged for validation. 
+            Returns staging identifier to track through validation pipeline.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiveDeliverableResponse'
+        "400":
+          description: Invalid body or missing required fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "403":
+          description: Unauthorized - caller's group doesn't match groupId
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "413":
+          description: File size exceeds maximum allowed size (caught early, before 5.3)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "415":
+          description: File type not supported
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "429":
+          description: Rate limit exceeded - too many submissions in short time
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # =============================================================================
+  # 5.3 — Validate Format & File Size
+  #
+  # DFD Flows:
+  #   f4: 5.2 → 5.3 (deliverable file)
+  #   f9: D8 → 5.3 (submission format rules)
+  #   f13: 5.3 → Student (format/size error / resubmit) — async notification
+  #   f5: 5.3 → 5.4 (on success)
+  #
+  # Action: Validate file format and size against D8 config rules
+  # =============================================================================
+  
+  /deliverables/{stagingId}/validate-format:
+    post:
+      operationId: validateDeliverableFormat
+      summary: "5.3 — Validate Format & File Size"
+      description: >
+        Validates submitted file against configured rules from D8:
+          - File format (PDF, DOCX, MD, ZIP allowed)
+          - File size limits per deliverable type
+          - Virus scan (if enabled in config)
+        
+        On failure → returns detailed validation error and triggers async 
+        notification to group (flow f13).
+        
+        On success → proceeds to deadline/requirements check (flow f5).
+      tags: ["Deliverable Submission"]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: stagingId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Staging identifier from receive step
+      responses:
+        "200":
+          description: >
+            File format and size validated successfully. 
+            Ready for requirements & deadline check (5.4).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormatValidationResponse'
+        "400":
+          description: Format validation failed - details included
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        "404":
+          description: Staging record not found or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "422":
+          description: File contains malware or suspicious content
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # =============================================================================
+  # 5.4 — Check Requirements & Deadline
+  #
+  # DFD Flows:
+  #   f5: 5.3 → 5.4 (format validation passed)
+  #   f10: D8 → 5.4 (deadline / sprint requirements)
+  #   f14: 5.4 → Student (deadline exceeded / requirements failed) — async
+  #   f6: 5.4 → 5.5 (on success)
+  #
+  # Action: Verify deadline and any submission requirements from D8 config
+  # =============================================================================
+  
+  /deliverables/{stagingId}/validate-deadline:
+    post:
+      operationId: validateDeadline
+      summary: "5.4 — Check Requirements & Deadline"
+      description: >
+        Validates deadline and submission requirements from D8 configuration:
+          - Check current time vs sprint deadline
+          - Check if group has made prior submissions (version tracking)
+          - Check any missing metadata or required fields
+        
+        On failure → returns deadline/requirement error, async notification to group.
+        On success → proceeds to storage & record creation (5.5).
+      tags: ["Deliverable Submission"]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: stagingId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Staging identifier
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sprintId]
+              properties:
+                sprintId:
+                  type: string
+                  description: Sprint this submission is for
+                  example: "sprint_2024_s1"
+      responses:
+        "200":
+          description: >
+            Deadline and requirements validated. 
+            Ready for storage (5.5).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeadlineValidationResponse'
+        "400":
+          description: Validation failed with details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        "403":
+          description: Deadline has passed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: Staging record not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # =============================================================================
+  # 5.5 — Store Deliverable & Create Record
+  #
+  # DFD Flows:
+  #   f6: 5.4 → 5.5 (requirements check passed)
+  #   f11: 5.5 → D4 (store deliverable + metadata + timestamp)
+  #   f7: 5.5 → 5.6 (submission stored successfully)
+  #
+  # Action: Commit file to D4 and create submission record
+  # =============================================================================
+  
+  /deliverables/{stagingId}/store:
+    post:
+      operationId: storeDeliverable
+      summary: "5.5 — Store Deliverable & Create Record"
+      description: >
+        Commits validated deliverable to D4 (Deliverable Files & Submissions data store).
+        Creates permanent submission record with:
+          - file_hash, size_bytes, format
+          - group_id, deliverable_type, sprint_id
+          - submission_timestamp, version_number
+          - status = ACCEPTED
+        
+        This is the point of no return - after this, submission is permanent.
+        Flows immediately to notification (5.6).
+      tags: ["Deliverable Submission"]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: stagingId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Staging identifier ready for storage
+      responses:
+        "201":
+          description: >
+            Deliverable successfully stored in D4. 
+            Submission record created and now available for review.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliverableSubmission'
+        "400":
+          description: Invalid staging record or storage error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: Staging record not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "507":
+          description: Insufficient storage space
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # =============================================================================
+  # 5.6 — Notify Stakeholders
+  #
+  # DFD Flows:
+  #   f7: 5.5 → 5.6 (submission stored successfully)
+  #   f15: 5.6 → Committee (submission receipt + metadata)
+  #   f16: 5.6 → Coordinator (submission log + confirmation)
+  #   f17: 5.6 → NotificationService (submission confirmation event)
+  #
+  # Action: Trigger async notifications to all stakeholders
+  # (Usually automatic, but exposed for testing/retry)
+  # =============================================================================
+  
+  /deliverables/{deliverableId}/notify:
+    post:
+      operationId: notifyStakeholders
+      summary: "5.6 — Notify Stakeholders"
+      description: >
+        Sends submission notifications to:
+          - Committee Members (review assignment, new deliverable available)
+          - Coordinator (audit log, submission receipt)
+          - Notification Service (event triggers for email, slack, etc.)
+        
+        This operation is typically automatic (triggered by store success),
+        but can be manually invoked for retry scenarios.
+      tags: ["Deliverable Submission"]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deliverableId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Deliverable ID to notify for
+      responses:
+        "202":
+          description: >
+            Notification tasks queued successfully.
+            Async delivery to individual stakeholders.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationQueueResponse'
+        "404":
+          description: Deliverable not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "409":
+          description: Notifications already sent for this deliverable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # =============================================================================
+  # Utility Endpoints
+  # =============================================================================
+  
+  /deliverables:
+    get:
+      operationId: listDeliverablesForGroup
+      summary: List all deliverables submitted by user's group
+      description: >
+        Returns paginated list of all submissions (across all sprints/types)
+        for the authenticated student's group. Useful for group dashboard.
+      tags: ["Deliverable Submission"]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: groupId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by group (admin only if not own group)
+        - name: sprintId
+          in: query
+          schema:
+            type: string
+          description: Filter by sprint
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [staging, validation_failed, deadline_failed, stored, accepted, under_review]
+          description: Filter by submission status
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: >
+            Paginated list of deliverables
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliverableListResponse'
+        "403":
+          description: Unauthorized to view this group's deliverables
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /deliverables/{deliverableId}:
+    get:
+      operationId: getDeliverableDetails
+      summary: Get details of a specific deliverable submission
+      tags: ["Deliverable Submission"]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deliverableId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deliverable details including submission history, validations, and review status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliverableDetails'
+        "403":
+          description: Unauthorized to view this deliverable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: Deliverable not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      operationId: retractDeliverable
+      summary: Retract submitted deliverable (coordinator only, before review starts)
+      tags: ["Deliverable Submission"]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deliverableId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deliverable retracted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deliverableId:
+                    type: string
+                  status:
+                    type: string
+                    enum: [retracted]
+        "403":
+          description: Only coordinator can retract deliverables
+        "409":
+          description: Cannot retract - review has already started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # =========================================================================
+    # Group Validation
+    # =========================================================================
+    GroupValidationResponse:
+      type: object
+      required: [groupId, committeeId, groupStatus, validationToken]
+      properties:
+        groupId:
+          type: string
+          description: Group identifier
+          example: "grp_2024_001"
+        committeeId:
+          type: string
+          description: Assigned committee ID (from D3)
+          example: "cmt_2024_001"
+        groupStatus:
+          type: string
+          enum: [active, inactive, suspended]
+          description: Current status of the group
+        advisorId:
+          type: string
+          description: Primary advisor for this group
+          example: "adv_prof_smith"
+        validationToken:
+          type: string
+          description: Token to include in subsequent submission requests
+        validAt:
+          type: string
+          format: date-time
+          description: When this validation is effective
+
+    # =========================================================================
+    # Deliverable Reception
+    # =========================================================================
+    ReceiveDeliverableResponse:
+      type: object
+      required: [stagingId, fileHash, sizeMb]
+      properties:
+        stagingId:
+          type: string
+          description: Temporary identifier for this submission through validation pipeline
+          example: "stg_5e8a9c2f1b"
+        fileHash:
+          type: string
+          description: SHA256 hash of uploaded file for integrity
+          example: "abc123def456..."
+        sizeMb:
+          type: number
+          format: double
+          description: File size in megabytes
+          example: 2.5
+        mimeType:
+          type: string
+          description: Detected MIME type
+          example: "application/pdf"
+        nextStep:
+          type: string
+          enum: [format_validation, manual_review]
+          description: Next stage in submission pipeline
+
+    # =========================================================================
+    # Format Validation
+    # =========================================================================
+    FormatValidationResponse:
+      type: object
+      required: [stagingId, valid]
+      properties:
+        stagingId:
+          type: string
+        valid:
+          type: boolean
+        format:
+          type: string
+          enum: [pdf, docx, markdown, zip]
+        checks:
+          type: object
+          properties:
+            formatValid:
+              type: boolean
+            sizeValid:
+              type: boolean
+            virusScanPassed:
+              type: boolean
+              nullable: true
+        nextStep:
+          type: string
+          enum: [deadline_validation, stored]
+
+    # =========================================================================
+    # Deadline Validation
+    # =========================================================================
+    DeadlineValidationResponse:
+      type: object
+      required: [stagingId, deadlineOk, submissionVersion]
+      properties:
+        stagingId:
+          type: string
+        deadlineOk:
+          type: boolean
+        sprintCurrentTime:
+          type: string
+          format: date-time
+        sprintDeadline:
+          type: string
+          format: date-time
+        timeRemainingMinutes:
+          type: integer
+          nullable: true
+        submissionVersion:
+          type: integer
+          description: Version number if resubmitting
+          example: 1
+        priorSubmissions:
+          type: integer
+          description: Count of prior submissions for this deliverable type in this sprint
+        readyForStorage:
+          type: boolean
+
+    # =========================================================================
+    # Deliverable Submission Record (D4)
+    # =========================================================================
+    DeliverableSubmission:
+      type: object
+      required: [deliverableId, groupId, deliverableType, status, submittedAt]
+      properties:
+        deliverableId:
+          type: string
+          description: Permanent deliverable identifier (from D4)
+          example: "del_5e8f9d2a3c"
+        groupId:
+          type: string
+          example: "grp_2024_001"
+        deliverableType:
+          type: string
+          enum: [proposal, statement_of_work, demo, interim_report, final_report]
+        sprintId:
+          type: string
+          example: "sprint_2024_s1"
+        fileHash:
+          type: string
+          description: SHA256 for integrity verification
+        sizeMb:
+          type: number
+          format: double
+        format:
+          type: string
+          enum: [pdf, docx, markdown, zip]
+        status:
+          type: string
+          enum: [accepted, under_review, awaiting_resubmission, evaluated]
+        version:
+          type: integer
+          description: Submission version for this deliverable type in sprint
+        submittedAt:
+          type: string
+          format: date-time
+          description: When submission was stored
+        receivedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When review started
+        fileUrl:
+          type: string
+          description: Secure download link (short-lived token)
+          example: "https://api.senior-project.dev/v1/deliverables/del_5e8f9d2a3c/download?token=..."
+
+    # =========================================================================
+    # Notification Queue
+    # =========================================================================
+    NotificationQueueResponse:
+      type: object
+      required: [deliverableId, tasksQueued]
+      properties:
+        deliverableId:
+          type: string
+        tasksQueued:
+          type: integer
+          description: Count of notification tasks sent to queue
+          example: 4
+        notifications:
+          type: array
+          items:
+            type: object
+            properties:
+              recipient:
+                type: string
+                enum: [committee, coordinator, notification_service]
+              taskId:
+                type: string
+              status:
+                type: string
+                enum: [queued, sent, failed]
+        estimatedDeliveryMinutes:
+          type: integer
+          description: Estimated time to complete notifications
+          example: 5
+
+    # =========================================================================
+    # Deliverable Listing
+    # =========================================================================
+    DeliverableListResponse:
+      type: object
+      required: [groupId, total, page, limit, deliverables]
+      properties:
+        groupId:
+          type: string
+        total:
+          type: integer
+          description: Total count across all pages
+        page:
+          type: integer
+        limit:
+          type: integer
+        deliverables:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeliverableSummary'
+
+    DeliverableSummary:
+      type: object
+      required: [deliverableId, deliverableType, status, submittedAt]
+      properties:
+        deliverableId:
+          type: string
+        deliverableType:
+          type: string
+          enum: [proposal, statement_of_work, demo, interim_report, final_report]
+        sprintId:
+          type: string
+        status:
+          type: string
+          enum: [staging, validation_failed, deadline_failed, stored, accepted, under_review, evaluated]
+        submittedAt:
+          type: string
+          format: date-time
+        version:
+          type: integer
+        reviewCount:
+          type: integer
+          description: Count of comments/reviews on this submission
+        scoreReceived:
+          type: boolean
+          description: Whether evaluation scores have been recorded
+
+    # =========================================================================
+    # Deliverable Details
+    # =========================================================================
+    DeliverableDetails:
+      type: object
+      allOf:
+        - $ref: '#/components/schemas/DeliverableSubmission'
+        - type: object
+          properties:
+            validationHistory:
+              type: array
+              items:
+                type: object
+                properties:
+                  step:
+                    type: string
+                    enum: [format_validation, deadline_validation, storage]
+                  passed:
+                    type: boolean
+                  checkedAt:
+                    type: string
+                    format: date-time
+                  errors:
+                    type: array
+                    items:
+                      type: string
+            reviewMetadata:
+              type: object
+              nullable: true
+              properties:
+                reviewStartedAt:
+                  type: string
+                  format: date-time
+                assignedCommitteeMembers:
+                  type: array
+                  items:
+                    type: string
+                commentCount:
+                  type: integer
+            evaluationMetadata:
+              type: object
+              nullable: true
+              properties:
+                evaluationStartedAt:
+                  type: string
+                  format: date-time
+                rubricId:
+                  type: string
+                scores:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      criterion:
+                        type: string
+                      score:
+                        type: number
+                      ratedBy:
+                        type: string
+                      ratedAt:
+                        type: string
+                        format: date-time
+                aggregateScore:
+                  type: number
+                  nullable: true
+
+    # =========================================================================
+    # Validation Error
+    # =========================================================================
+    ValidationError:
+      type: object
+      required: [code, message, details]
+      properties:
+        code:
+          type: string
+          enum: [
+            INVALID_FORMAT,
+            FILE_TOO_LARGE,
+            DEADLINE_EXCEEDED,
+            CORRUPTED_FILE,
+            VIRUS_DETECTED,
+            MISSING_METADATA
+          ]
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: object
+          description: Structured validation failure details
+          additionalProperties: true
+        stagingId:
+          type: string
+          description: Staging ID if still in pipeline
+        timestamp:
+          type: string
+          format: date-time
+
+    # =========================================================================
+    # Error Response
+    # =========================================================================
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Error code for programmatic handling
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: object
+          nullable: true
+          description: Additional context
+          additionalProperties: true
+        requestId:
+          type: string
+          description: Trace ID for debugging
+        timestamp:
+          type: string
+          format: date-time
