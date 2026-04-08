@@ -100,6 +100,18 @@ const groupSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    jiraProjectId: {
+      type: String,
+      default: null,
+    },
+    jiraLastSynced: {
+      type: Date,
+      default: null,
+    },
+    jiraStoryPointOnly: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );

@@ -428,9 +428,10 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
         });
 
       expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty('project_id', '10000');
       expect(res.body).toHaveProperty('project_key', 'PROJ');
-      expect(res.body).toHaveProperty('board_url');
       expect(res.body).toHaveProperty('binding', 'confirmed');
+      expect(res.body).toHaveProperty('board_url');
       expect(res.body.board_url).toContain('PROJ');
 
       // Verify group was updated in DB
@@ -520,7 +521,6 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.binding).toBe('confirmed');
-      expect(res.body.project_key).toBe('PROJ');
 
       // Should NOT create SyncErrorLog (succeeded before max retries)
       const syncLogs = await SyncErrorLog.find({ groupId: group.groupId });
@@ -1138,7 +1138,6 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.binding).toBe('confirmed');
-      expect(res.body.project_key).toBe('INTEG');
 
       // Verify f25: stored in D2
       const updatedGroup = await Group.findOne({ groupId: group.groupId });

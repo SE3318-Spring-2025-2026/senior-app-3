@@ -327,3 +327,28 @@ export const configureGitHub = async (groupId, { pat, org_name, repo_name, visib
     throw error;
   }
 };
+
+/**
+ * Configure JIRA integration for a group (Process 2.7)
+ * @param {string} groupId - The group ID
+ * @param {object} payload
+ * @param {string} payload.host       - JIRA instance base URL
+ * @param {string} payload.email      - JIRA account email
+ * @param {string} payload.api_token  - JIRA API token
+ * @param {string} payload.project_key - JIRA project key
+ * @returns {Promise<{project_id, project_key, binding, board_url}>}
+ */
+export const configureJira = async (groupId, { host, email, api_token, project_key }) => {
+  try {
+    const response = await apiClient.post(`/groups/${groupId}/jira`, {
+      host,
+      email,
+      api_token,
+      project_key,
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error configuring JIRA:', error);
+    throw error;
+  }
+};
