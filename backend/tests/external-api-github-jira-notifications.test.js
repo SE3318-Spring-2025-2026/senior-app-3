@@ -406,7 +406,7 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
   // ──────────────────────────────────────────────────────────────────────────────
 
   describe('JIRA Configuration (POST /groups/:groupId/jira)', () => {
-    it('should successfully configure JIRA with valid credentials (200 response)', async () => {
+    it('should successfully configure JIRA with valid credentials (201 response)', async () => {
       const mockProjectData = {
         id: 10000,
         key: 'PROJ',
@@ -421,25 +421,24 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
         .post(`/api/v1/groups/${group.groupId}/jira`)
         .set('Authorization', `Bearer ${leaderToken}`)
         .send({
-          jira_url: 'https://jira.company.com',
-          jira_username: 'testuser',
-          jira_token: 'jira_token_123',
+          host: 'https://jira.company.com',
+          email: 'testuser@example.com',
+          api_token: 'jira_token_123',
           project_key: 'PROJ',
         });
 
       expect(res.status).toBe(201);
-      expect(res.body).toHaveProperty('jira_url', 'https://jira.company.com');
-      expect(res.body).toHaveProperty('jira_project', 'Test Project');
-      expect(res.body).toHaveProperty('jira_project_key', 'PROJ');
-      expect(res.body).toHaveProperty('jira_board_url');
-      expect(res.body).toHaveProperty('validated', true);
-      expect(res.body.jira_board_url).toContain('PROJ');
+      expect(res.body).toHaveProperty('project_id', '10000');
+      expect(res.body).toHaveProperty('project_key', 'PROJ');
+      expect(res.body).toHaveProperty('binding', 'confirmed');
+      expect(res.body).toHaveProperty('board_url');
+      expect(res.body.board_url).toContain('PROJ');
 
       // Verify group was updated in DB
       const updatedGroup = await Group.findOne({ groupId: group.groupId });
       expect(updatedGroup.jiraUrl).toBe('https://jira.company.com');
       expect(updatedGroup.projectKey).toBe('PROJ');
-      expect(updatedGroup.jiraUsername).toBe('testuser');
+      expect(updatedGroup.jiraUsername).toBe('testuser@example.com');
       expect(updatedGroup.jiraToken).toBe('jira_token_123');
 
       // Verify axios was called correctly
@@ -458,9 +457,9 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
         .post(`/api/v1/groups/${group.groupId}/jira`)
         .set('Authorization', `Bearer ${leaderToken}`)
         .send({
-          jira_url: 'https://jira.company.com',
-          jira_username: 'invalid_user',
-          jira_token: 'invalid_token',
+          host: 'https://jira.company.com',
+          email: 'invalid_user@example.com',
+          api_token: 'invalid_token',
           project_key: 'PROJ',
         });
 
@@ -484,9 +483,9 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
         .post(`/api/v1/groups/${group.groupId}/jira`)
         .set('Authorization', `Bearer ${leaderToken}`)
         .send({
-          jira_url: 'https://jira.company.com',
-          jira_username: 'testuser',
-          jira_token: 'jira_token_123',
+          host: 'https://jira.company.com',
+          email: 'testuser@example.com',
+          api_token: 'jira_token_123',
           project_key: 'INVALID',
         });
 
@@ -514,14 +513,14 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
         .post(`/api/v1/groups/${group.groupId}/jira`)
         .set('Authorization', `Bearer ${leaderToken}`)
         .send({
-          jira_url: 'https://jira.company.com',
-          jira_username: 'testuser',
-          jira_token: 'jira_token_123',
+          host: 'https://jira.company.com',
+          email: 'testuser@example.com',
+          api_token: 'jira_token_123',
           project_key: 'PROJ',
         });
 
       expect(res.status).toBe(201);
-      expect(res.body.validated).toBe(true);
+      expect(res.body.binding).toBe('confirmed');
 
       // Should NOT create SyncErrorLog (succeeded before max retries)
       const syncLogs = await SyncErrorLog.find({ groupId: group.groupId });
@@ -539,9 +538,9 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
         .post(`/api/v1/groups/${group.groupId}/jira`)
         .set('Authorization', `Bearer ${leaderToken}`)
         .send({
-          jira_url: 'https://jira.company.com',
-          jira_username: 'testuser',
-          jira_token: 'jira_token_123',
+          host: 'https://jira.company.com',
+          email: 'testuser@example.com',
+          api_token: 'jira_token_123',
           project_key: 'PROJ',
         });
 
@@ -564,31 +563,31 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
     });
 
     it('should return 400 when required JIRA fields are missing', async () => {
-      // Missing jira_url
+      // Missing host
       let res = await request(app)
         .post(`/api/v1/groups/${group.groupId}/jira`)
         .set('Authorization', `Bearer ${leaderToken}`)
         .send({
-          jira_username: 'testuser',
-          jira_token: 'jira_token_123',
+          email: 'testuser@example.com',
+          api_token: 'jira_token_123',
           project_key: 'PROJ',
         });
 
       expect(res.status).toBe(400);
-      expect(res.body.code).toBe('MISSING_JIRA_URL');
+      expect(res.body.code).toBe('MISSING_HOST');
 
-      // Missing jira_username
+      // Missing email
       res = await request(app)
         .post(`/api/v1/groups/${group.groupId}/jira`)
         .set('Authorization', `Bearer ${leaderToken}`)
         .send({
-          jira_url: 'https://jira.company.com',
-          jira_token: 'jira_token_123',
+          host: 'https://jira.company.com',
+          api_token: 'jira_token_123',
           project_key: 'PROJ',
         });
 
       expect(res.status).toBe(400);
-      expect(res.body.code).toBe('MISSING_JIRA_USERNAME');
+      expect(res.body.code).toBe('MISSING_EMAIL');
     });
 
     it('should return 403 when non-leader tries to configure JIRA', async () => {
@@ -607,9 +606,9 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
         .post(`/api/v1/groups/${group.groupId}/jira`)
         .set('Authorization', `Bearer ${accessToken}`)
         .send({
-          jira_url: 'https://jira.company.com',
-          jira_username: 'testuser',
-          jira_token: 'jira_token_123',
+          host: 'https://jira.company.com',
+          email: 'testuser@example.com',
+          api_token: 'jira_token_123',
           project_key: 'PROJ',
         });
 
@@ -674,9 +673,9 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
         .post(`/api/v1/groups/${group.groupId}/jira`)
         .set('Authorization', `Bearer ${leaderToken}`)
         .send({
-          jira_url: 'https://jira.company.com',
-          jira_username: 'invalid_user',
-          jira_token: 'invalid_token',
+          host: 'https://jira.company.com',
+          email: 'invalid_user@example.com',
+          api_token: 'invalid_token',
           project_key: 'PROJ',
         });
 
@@ -1132,14 +1131,14 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
         .post(`/api/v1/groups/${group.groupId}/jira`)
         .set('Authorization', `Bearer ${leaderToken}`)
         .send({
-          jira_url: 'https://jira.integration.com',
-          jira_username: 'integrationuser',
-          jira_token: 'integration_token_xyz',
+          host: 'https://jira.integration.com',
+          email: 'integrationuser@example.com',
+          api_token: 'integration_token_xyz',
           project_key: 'INTEG',
         });
 
       expect(res.status).toBe(201);
-      expect(res.body.validated).toBe(true);
+      expect(res.body.binding).toBe('confirmed');
 
       // Verify f25: stored in D2
       const updatedGroup = await Group.findOne({ groupId: group.groupId });
@@ -1168,9 +1167,9 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
         .post(`/api/v1/groups/${group.groupId}/jira`)
         .set('Authorization', `Bearer ${leaderToken}`)
         .send({
-          jira_url: 'https://jira.integration.com',
-          jira_username: 'integrationuser',
-          jira_token: 'integration_token_xyz',
+          host: 'https://jira.integration.com',
+          email: 'integrationuser@example.com',
+          api_token: 'integration_token_xyz',
           project_key: 'INTEG',
         });
 
