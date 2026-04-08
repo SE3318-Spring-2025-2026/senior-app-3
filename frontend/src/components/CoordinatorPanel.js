@@ -840,7 +840,9 @@ const CoordinatorPanel = () => {
                       <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Description</th>
                       <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Status</th>
                       <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Advisors</th>
+                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Jury</th>
                       <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Created</th>
+                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -877,8 +879,41 @@ const CoordinatorPanel = () => {
                             <span style={{ color: '#ccc', fontStyle: 'italic' }}>none yet</span>
                           )}
                         </td>
+                        <td style={{ padding: '12px', color: '#444' }}>
+                          {c.juryIds && c.juryIds.length > 0 ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              {c.juryIds.length}
+                              {c.forwardedToJuryValidation && (
+                                <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '8px', background: '#dcffe4', color: '#22863a', fontWeight: '600' }}>
+                                  → 4.4
+                                </span>
+                              )}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#ccc', fontStyle: 'italic' }}>none yet</span>
+                          )}
+                        </td>
                         <td style={{ padding: '12px', color: '#586069', fontSize: '12px' }}>
                           {new Date(c.createdAt).toLocaleDateString()}
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          <button
+                            id={`committee-assign-jury-btn-${c.committeeId}`}
+                            onClick={() => navigate(`/coordinator/committees/${c.committeeId}/jury`)}
+                            style={{
+                              padding: '5px 12px',
+                              backgroundColor: '#f1f8ff',
+                              border: '1px solid #0366d6',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                              fontWeight: '600',
+                              color: '#0366d6',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            ⚖️ Assign Jury
+                          </button>
                         </td>
                       </tr>
                     ))}
