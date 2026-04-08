@@ -1,10 +1,10 @@
 const ScheduleWindow = require('../models/ScheduleWindow');
 
 /**
- * checkScheduleWindow(operationType)
+ * checkScheduleWindow(operationType, options)
  *
  * Returns Express middleware that enforces schedule boundaries for the given
- * operation type ('group_creation' | 'member_addition').
+ * operation type ('group_creation' | 'member_addition' | 'advisor_association').
  *
  * If no active window covers the current timestamp, responds with:
  *   403 { code: 'OUTSIDE_SCHEDULE_WINDOW', reason: '...' }
@@ -15,7 +15,7 @@ const ScheduleWindow = require('../models/ScheduleWindow');
  *
  * The PATCH /groups/:groupId/override endpoint is explicitly exempt (not wrapped).
  */
-const checkScheduleWindow = (operationType) => async (req, res, next) => {
+const checkScheduleWindow = (operationType, options = {}) => async (req, res, next) => {
   try {
     const now = new Date();
     const activeWindow = await ScheduleWindow.findOne({
@@ -26,9 +26,12 @@ const checkScheduleWindow = (operationType) => async (req, res, next) => {
     });
 
     if (!activeWindow) {
-      return res.status(403).json({
+      const statusCode = options.statusCode || 403;
+      const message = options.message || 'Operation not available outside the configured schedule window';
+      return res.status(statusCode).json({
         code: 'OUTSIDE_SCHEDULE_WINDOW',
-        reason: 'Operation not available outside the configured schedule window',
+        reason: message,
+        message,
       });
     }
 
