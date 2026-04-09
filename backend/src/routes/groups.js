@@ -6,6 +6,7 @@ const { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMembe
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
+const { advisorApproveRequest, releaseAdvisorHandler, transferAdvisorHandler } = require('../controllers/advisorDecision');
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
 router.post('/', authMiddleware, roleMiddleware(['student']), createGroup);
@@ -84,6 +85,38 @@ router.patch(
   authMiddleware,
   roleMiddleware(['coordinator', 'committee_member', 'professor', 'admin']),
   transitionStatus
+);
+
+// PATCH /api/v1/advisor-requests/:requestId — Process 3.4+3.5: Professor approves/rejects advisee request
+// Request body: { decision: "approve"|"reject", reason?: string }
+// Response: AdvisorAssignment schema with status, updatedAt
+router.patch(
+  '/advisor-requests/:requestId',
+  authMiddleware,
+  roleMiddleware(['professor', 'admin']),
+  checkScheduleWindow('advisor_association'),
+  advisorApproveRequest
+);
+
+// DELETE /api/v1/groups/:groupId/advisor — Process 3.5 Release Path: Team Leader or Advisor releases assignment
+// Request body: { reason?: string }
+// Response: AdvisorAssignment schema with status: released, professorId: null
+router.delete(
+  '/:groupId/advisor',
+  authMiddleware,
+  checkScheduleWindow('advisor_association'),
+  releaseAdvisorHandler
+);
+
+// POST /api/v1/groups/:groupId/advisor/transfer — Process 3.6→3.5: Coordinator transfers advisor to new professor
+// Request body: { newProfessorId: string, reason?: string }
+// Response: AdvisorAssignment schema with status: transferred
+router.post(
+  '/:groupId/advisor/transfer',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
+  checkScheduleWindow('advisor_association'),
+  transferAdvisorHandler
 );
 
 module.exports = router;

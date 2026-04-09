@@ -15,6 +15,43 @@ const memberSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const advisorRequestSchema = new mongoose.Schema(
+  {
+    requestId: {
+      type: String,
+      default: () => `adv_req_${uuidv4().split('-')[0]}`,
+      unique: true,
+      required: true,
+    },
+    professorId: {
+      type: String,
+      required: true,
+    },
+    requestedBy: {
+      type: String,
+      required: true,
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending',
+    },
+    notificationTriggered: {
+      type: Boolean,
+      default: false,
+    },
+    message: {
+      type: String,
+      default: null,
+    },
+    approvedAt: {
+      type: Date,
+      default: null,
+    },
+  },
+  { _id: false, timestamps: true }
+);
+
 const groupSchema = new mongoose.Schema(
   {
     groupId: {
@@ -37,6 +74,16 @@ const groupSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    advisorStatus: {
+      type: String,
+      enum: ['assigned', 'released', 'transferred'],
+      default: null,
+    },
+    advisorUpdatedAt: {
+      type: Date,
+      default: null,
+    },
+    advisorRequest: advisorRequestSchema,
     status: {
       type: String,
       enum: ['pending_validation', 'active', 'inactive', 'archived'],
@@ -118,6 +165,11 @@ const groupSchema = new mongoose.Schema(
 
 groupSchema.index({ leaderId: 1 });
 groupSchema.index({ status: 1 });
+groupSchema.index({ 'advisorRequest.requestId': 1 });
+groupSchema.index({ 'advisorRequest.professorId': 1 });
+groupSchema.index({ 'advisorRequest.status': 1 });
+groupSchema.index({ advisorId: 1 });
+groupSchema.index({ advisorStatus: 1 });
 
 const Group = mongoose.model('Group', groupSchema);
 
