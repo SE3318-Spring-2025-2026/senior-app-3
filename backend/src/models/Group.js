@@ -1,6 +1,24 @@
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 
+const advisorRequestSchema = new mongoose.Schema(
+  {
+    requestId: { type: String, required: true, unique: true },
+    groupId: { type: String, required: true },
+    professorId: { type: String, required: true },
+    requesterId: { type: String, required: true },
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending',
+    },
+    message: { type: String, default: null },
+    notificationTriggered: { type: Boolean, default: false },
+    createdAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
 const memberSchema = new mongoose.Schema(
   {
     userId: { type: String, required: true },
@@ -35,6 +53,20 @@ const groupSchema = new mongoose.Schema(
     },
     advisorId: {
       type: String,
+      default: null,
+    },
+    advisorStatus: {
+      type: String,
+      enum: ['pending', 'assigned', 'released', 'transferred', 'disbanded'],
+      default: null,
+    },
+    advisorRequestId: {
+      type: String,
+      default: null,
+    },
+    advisorRequest: advisorRequestSchema,
+    advisorUpdatedAt: {
+      type: Date,
       default: null,
     },
     status: {
@@ -118,6 +150,9 @@ const groupSchema = new mongoose.Schema(
 
 groupSchema.index({ leaderId: 1 });
 groupSchema.index({ status: 1 });
+groupSchema.index({ advisorId: 1 });
+groupSchema.index({ advisorStatus: 1 });
+groupSchema.index({ groupId: 1 }, { unique: true });
 
 const Group = mongoose.model('Group', groupSchema);
 
