@@ -122,8 +122,8 @@ paths:
   #
   # DFD Flows:
   #   f2: 5.1 → 5.2 (validation passed / proceed)
+  #   f18: Student → 5.2 (deliverable file upload)
   #   f3: 5.2 → 5.3 (deliverable file)
-  #   f6: D4 → 5.2 (existing deliverable history for versioning)
   #
   # Action: Accept and temporarily store the file for format validation
   # =============================================================================
@@ -218,10 +218,10 @@ paths:
   # 5.3 — Validate Format & File Size
   #
   # DFD Flows:
-  #   f4: 5.2 → 5.3 (deliverable file)
+  #   f3: 5.2 → 5.3 (deliverable file)
   #   f9: D8 → 5.3 (submission format rules)
   #   f13: 5.3 → Student (format/size error / resubmit) — async notification
-  #   f5: 5.3 → 5.4 (on success)
+  #   f4: 5.3 → 5.4 (on success)
   #
   # Action: Validate file format and size against D8 config rules
   # =============================================================================
@@ -282,10 +282,10 @@ paths:
   # 5.4 — Check Requirements & Deadline
   #
   # DFD Flows:
-  #   f5: 5.3 → 5.4 (format validation passed)
+  #   f4: 5.3 → 5.4 (format validation passed)
   #   f10: D8 → 5.4 (deadline / sprint requirements)
   #   f14: 5.4 → Student (deadline exceeded / requirements failed) — async
-  #   f6: 5.4 → 5.5 (on success)
+  #   f5: 5.4 → 5.5 (on success)
   #
   # Action: Verify deadline and any submission requirements from D8 config
   # =============================================================================
@@ -356,9 +356,9 @@ paths:
   # 5.5 — Store Deliverable & Create Record
   #
   # DFD Flows:
-  #   f6: 5.4 → 5.5 (requirements check passed)
+  #   f5: 5.4 → 5.5 (requirements check passed)
   #   f11: 5.5 → D4 (store deliverable + metadata + timestamp)
-  #   f7: 5.5 → 5.6 (submission stored successfully)
+  #   f6: 5.5 → 5.6 (submission stored successfully)
   #
   # Action: Commit file to D4 and create submission record
   # =============================================================================
@@ -419,10 +419,11 @@ paths:
   # 5.6 — Notify Stakeholders
   #
   # DFD Flows:
-  #   f7: 5.5 → 5.6 (submission stored successfully)
+  #   f6: 5.5 → 5.6 (submission stored successfully)
   #   f15: 5.6 → Committee (submission receipt + metadata)
   #   f16: 5.6 → Coordinator (submission log + confirmation)
   #   f17: 5.6 → NotificationService (submission confirmation event)
+  #   f19: 5.6 → Student (submission confirmation / receipt)
   #
   # Action: Trigger async notifications to all stakeholders
   # (Usually automatic, but exposed for testing/retry)
