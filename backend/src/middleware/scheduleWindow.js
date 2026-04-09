@@ -4,16 +4,21 @@ const ScheduleWindow = require('../models/ScheduleWindow');
  * checkScheduleWindow(operationType)
  *
  * Returns Express middleware that enforces schedule boundaries for the given
- * operation type ('group_creation' | 'member_addition').
+ * operation type ('group_creation' | 'member_addition' | 'advisor_association').
  *
  * If no active window covers the current timestamp, responds with:
- *   403 { code: 'OUTSIDE_SCHEDULE_WINDOW', reason: '...' }
+ *   422 { code: 'OUTSIDE_SCHEDULE_WINDOW', message: '...' }
  *
  * Applied to:
- *   POST /groups                      → checkScheduleWindow('group_creation')
- *   POST /groups/:groupId/members     → checkScheduleWindow('member_addition')
+ *   POST /groups                           → checkScheduleWindow('group_creation')
+ *   POST /groups/:groupId/members          → checkScheduleWindow('member_addition')
+ *   POST /advisor-requests                 → checkScheduleWindow('advisor_association')
+ *   PATCH /advisor-requests/{requestId}    → checkScheduleWindow('advisor_association')
+ *   DELETE /groups/{groupId}/advisor       → checkScheduleWindow('advisor_association')
+ *   POST /groups/{groupId}/advisor/transfer → checkScheduleWindow('advisor_association')
  *
  * The PATCH /groups/:groupId/override endpoint is explicitly exempt (not wrapped).
+ * The POST /groups/advisor-sanitization endpoint is exempt (gated by deadline separately).
  */
 const checkScheduleWindow = (operationType) => async (req, res, next) => {
   try {
@@ -26,9 +31,9 @@ const checkScheduleWindow = (operationType) => async (req, res, next) => {
     });
 
     if (!activeWindow) {
-      return res.status(403).json({
+      return res.status(422).json({
         code: 'OUTSIDE_SCHEDULE_WINDOW',
-        reason: 'Operation not available outside the configured schedule window',
+        message: 'Advisor association schedule is closed',
       });
     }
 

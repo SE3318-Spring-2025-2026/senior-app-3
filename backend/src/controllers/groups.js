@@ -1028,4 +1028,194 @@ const getAllGroups = async (req, res) => {
   }
 };
 
-module.exports = { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride };
+/**
+ * Helper: Validate advisor request input and permissions
+ * Returns: { isValid: boolean, error: { status, code, message } | null, data: { group, professor } | null }
+ */
+const validateAdvisorRequest = async (groupId, professorId, requesterId, authUserId) => {
+  // Check requester auth
+  if (authUserId !== requesterId.trim()) {
+    return {
+      isValid: false,
+      error: { status: 403, code: 'FORBIDDEN', message: 'requesterId must match the authenticated user' },
+    };
+  }
+
+  // Check group exists
+  const group = await Group.findOne({ groupId: groupId.trim() });
+  if (!group) {
+    return {
+      isValid: false,
+      error: { status: 404, code: 'GROUP_NOT_FOUND', message: 'Group not found' },
+    };
+  }
+
+  // Check group is active
+  if (group.status !== 'active') {
+    return {
+      isValid: false,
+      error: { status: 409, code: 'GROUP_NOT_ACTIVE', message: 'Advisor requests can only be made for active groups' },
+    };
+  }
+
+  // Check requester is group leader
+  if (group.leaderId !== requesterId.trim()) {
+    return {
+      isValid: false,
+      error: { status: 403, code: 'FORBIDDEN', message: 'Only the group leader can request an advisor' },
+    };
+  }
+
+  // Check professor exists
+  const professor = await User.findOne({ userId: professorId.trim() });
+  if (!professor) {
+    return {
+      isValid: false,
+      error: { status: 404, code: 'PROFESSOR_NOT_FOUND', message: 'Professor not found' },
+    };
+  }
+
+  // Check professor role
+  if (professor.role !== 'professor') {
+    return {
+      isValid: false,
+      error: { status: 400, code: 'INVALID_PROFESSOR', message: 'The specified user is not a professor' },
+    };
+  }
+
+  // Check professor account status
+  if (professor.accountStatus !== 'active') {
+    return {
+      isValid: false,
+      error: { status: 409, code: 'PROFESSOR_ACCOUNT_INACTIVE', message: 'The professor account must be active' },
+    };
+  }
+
+  // Check no existing advisor
+  if (group.advisorId) {
+    return {
+      isValid: false,
+      error: { status: 409, code: 'GROUP_ALREADY_HAS_ADVISOR', message: 'This group already has an assigned advisor' },
+    };
+  }
+
+  // Check no duplicate request
+  if (group.advisorRequest?.professorId === professorId.trim()) {
+    return {
+      isValid: false,
+      error: { status: 409, code: 'DUPLICATE_REQUEST', message: 'A request to this professor already exists for this group' },
+    };
+  }
+
+  return { isValid: true, error: null, data: { group, professor } };
+};
+
+/**
+ * POST /advisor-requests
+ * Process 3.2: Request Validation & D2 Persistence (Issue #61)
+ *
+ * Validates advisor request and persists to D2. Team leader submits an advisor
+ * request to a professor. System validates group/professor existence, checks
+ * for conflicts, and forwards to process 3.3 (notification).
+ */
+const createAdvisorRequest = async (req, res) => {
+  try {
+    const { groupId, professorId, requesterId, message } = req.body;
+    const { userId: authUserId } = req.user;
+
+    // === INPUT VALIDATION ===
+    if (!groupId || typeof groupId !== 'string' || !groupId.trim()) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'groupId is required and must be a non-empty string',
+      });
+    }
+
+    if (!professorId || typeof professorId !== 'string' || !professorId.trim()) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'professorId is required and must be a non-empty string',
+      });
+    }
+
+    if (!requesterId || typeof requesterId !== 'string' || !requesterId.trim()) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'requesterId is required and must be a non-empty string',
+      });
+    }
+
+    if (message !== undefined && message !== null && typeof message !== 'string') {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'message must be a string',
+      });
+    }
+
+    // === VALIDATE REQUEST DATA ===
+    const validation = await validateAdvisorRequest(groupId, professorId, requesterId, authUserId);
+    if (!validation.isValid) {
+      const { status, code, message: errMessage } = validation.error;
+      return res.status(status).json({ code, message: errMessage });
+    }
+
+    // === CALL ADVISOR ASSIGNMENT SERVICE (Process 3.2 validation) ===
+    const advisorAssignmentService = require('../services/advisorAssignmentService');
+    let requestResult;
+    try {
+      requestResult = await advisorAssignmentService.validateAndCreateAdvisorRequest({
+        groupId: groupId.trim(),
+        professorId: professorId.trim(),
+        requesterId: requesterId.trim(),
+        message: message ? message.trim() : null,
+      });
+    } catch (serviceError) {
+      const statusCode = serviceError.statusCode || 500;
+      return res.status(statusCode).json({
+        code: serviceError.code || 'SERVICE_ERROR',
+        message: serviceError.message || 'Advisor request validation failed',
+      });
+    }
+
+    // === AUDIT LOG (non-fatal) ===
+    try {
+      await createAuditLog({
+        action: 'advisor_request_created',
+        actorId: requesterId.trim(),
+        targetId: requestResult.requestId,
+        groupId: groupId.trim(),
+        payload: {
+          group_id: groupId.trim(),
+          professor_id: professorId.trim(),
+          requester_id: requesterId.trim(),
+          request_id: requestResult.requestId,
+          status: 'pending',
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Audit log failed (non-fatal):', auditError.message);
+    }
+
+    // === RETURN SUCCESS RESPONSE (201) ===
+    return res.status(201).json({
+      requestId: requestResult.requestId,
+      groupId: requestResult.group.groupId,
+      professorId: requestResult.group.advisorRequest.professorId,
+      requesterId: requestResult.group.advisorRequest.requesterId,
+      status: requestResult.group.advisorRequest.status,
+      message: requestResult.group.advisorRequest.message,
+      notificationTriggered: requestResult.group.advisorRequest.notificationTriggered,
+      createdAt: requestResult.group.advisorRequest.createdAt.toISOString(),
+    });
+  } catch (err) {
+    console.error('createAdvisorRequest error:', err);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: 'An unexpected error occurred while creating the advisor request',
+    });
+  }
+};
+
+module.exports = { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride, createAdvisorRequest };
