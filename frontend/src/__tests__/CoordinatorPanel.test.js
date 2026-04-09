@@ -563,6 +563,21 @@ describe('CoordinatorPanel', () => {
     });
   });
 
+  it('redirects non-coordinator users to unauthorized view', () => {
+    useAuthStore.mockReturnValue({ user: { role: 'student' } });
+
+    render(
+      <MemoryRouter>
+        <ProtectedRoute requiredRoles={['coordinator']}>
+          <CoordinatorPanel />
+        </ProtectedRoute>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText(/not authorized/i)).toBeInTheDocument();
+    expect(screen.queryByText('Coordinator Dashboard')).not.toBeInTheDocument();
+  });
+
   it('calls getAllGroups on mount', async () => {
     useAuthStore.mockReturnValue({ user: { role: 'coordinator' } });
     getAllGroups.mockResolvedValue({
