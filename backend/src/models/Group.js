@@ -47,12 +47,33 @@ const groupSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    githubOrgId: {
+      type: Number,
+      default: null,
+    },
+    githubOrgName: {
+      type: String,
+      default: null,
+    },
+    githubRepoName: {
+      type: String,
+      default: null,
+    },
     githubRepoUrl: {
       type: String,
       default: null,
     },
+    githubVisibility: {
+      type: String,
+      enum: ['private', 'public', 'internal'],
+      default: 'private',
+    },
     githubPat: {
       type: String,
+      default: null,
+    },
+    githubLastSynced: {
+      type: Date,
       default: null,
     },
     jiraProject: {
@@ -78,6 +99,18 @@ const groupSchema = new mongoose.Schema(
     projectKey: {
       type: String,
       default: null,
+    },
+    jiraProjectId: {
+      type: String,
+      default: null,
+    },
+    jiraLastSynced: {
+      type: Date,
+      default: null,
+    },
+    jiraStoryPointOnly: {
+      type: Boolean,
+      default: false,
     },
   },
   { timestamps: true }

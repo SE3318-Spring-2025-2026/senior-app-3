@@ -63,8 +63,37 @@ const dispatchGroupCreationNotification = async ({ groupId, groupName, leaderId 
   return response.data;
 };
 
+/**
+ * Dispatch a batch APPROVAL_REQUEST notification to multiple students.
+ * Called by Process 2.4 (DFD flow f07: 2.4 → Notification Service).
+ *
+ * @param {object} payload
+ * @param {string} payload.groupId
+ * @param {string} payload.groupName
+ * @param {string[]} payload.recipients  - student IDs to notify
+ * @param {string} payload.invitedBy     - leader who sent the invites
+ * @returns {object} { notification_id, delivered_to[], sent_at }
+ */
+const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipients, invitedBy }) => {
+  const response = await axios.post(
+    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+    {
+      type: 'approval_request',
+      recipients,
+      payload: {
+        group_id: groupId,
+        message: `You have been invited to join the group "${groupName}"`,
+      },
+      invitedBy,
+    },
+    { timeout: 5000 }
+  );
+  return response.data;
+};
+
 module.exports = {
   dispatchInvitationNotification,
   dispatchMembershipDecisionNotification,
   dispatchGroupCreationNotification,
+  dispatchBatchInvitationNotification,
 };

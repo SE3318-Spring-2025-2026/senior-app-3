@@ -3,7 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import useGroupStore from '../store/groupStore';
 import useAuthStore from '../store/authStore';
 import GitHubStatusCard from './GitHubStatusCard';
+import GitHubSetupForm from './GitHubSetupForm';
 import JiraStatusCard from './JiraStatusCard';
+import JiraSetupForm from './JiraSetupForm';
 import GroupMemberList from './GroupMemberList';
 import AddMemberForm from './AddMemberForm';
 import { submitMembershipDecision, getMyPendingInvitation } from '../api/groupService';
@@ -240,6 +242,32 @@ const GroupDashboard = () => {
             isLoading={isLoading}
             groupLeaderId={groupData?.leaderId}
           />
+
+          {/* GitHub Integration Setup — Team Leader only (Process 2.6) */}
+          {isLeader && (
+            <div className="integration-section">
+              <h2 className="integration-title">GitHub Integration Setup</h2>
+              <GitHubSetupForm
+                groupId={groupId}
+                onSuccess={() => fetchGroupDashboard(groupId)}
+                onError={(error) => console.error('GitHub setup error:', error)}
+                isLeader={isLeader}
+              />
+            </div>
+          )}
+
+          {/* JIRA Integration Setup — Team Leader only (Process 2.7) */}
+          {isLeader && (
+            <div className="integration-section">
+              <h2 className="integration-title">JIRA Integration Setup</h2>
+              <JiraSetupForm
+                groupId={groupId}
+                onSuccess={() => fetchGroupDashboard(groupId)}
+                onError={(error) => console.error('JIRA setup error:', error)}
+                isLeader={isLeader}
+              />
+            </div>
+          )}
 
           {/* Add Member — Team Leader only (Process 2.3) */}
           {isLeader && (

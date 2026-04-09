@@ -229,16 +229,18 @@ export const getPendingApprovals = async (groupId) => {
  */
 export const getGroupDashboardData = async (groupId) => {
   try {
-    const [groupData, approvalsData] = await Promise.all([
+    const [groupData, approvalsData, githubData, jiraData] = await Promise.all([
       getGroup(groupId),
       apiClient.get(`/groups/${groupId}/approvals`).then((r) => r.data).catch(() => ({ approvals: [] })),
+      getGitHubStatus(groupId).catch(() => ({ connected: false, repo_url: null, last_synced: null })),
+      getJiraStatus(groupId).catch(() => ({ connected: false, project_key: null, board_url: null })),
     ]);
 
     return {
       group: groupData,
       members: groupData.members || [],
-      github: { connected: false, repo_url: null, last_synced: null },
-      jira: { connected: false, project_key: null, board_url: null },
+      github: githubData,
+      jira: jiraData,
       approvals: approvalsData,
     };
   } catch (error) {
@@ -299,4 +301,54 @@ export const transitionGroupStatus = async (groupId, newStatus, reason) => {
     reason,
   });
   return response.data;
+};
+
+/**
+ * Configure GitHub integration for a group (Process 2.6)
+ * @param {string} groupId - The group ID
+ * @param {object} payload
+ * @param {string} payload.pat - GitHub Personal Access Token
+ * @param {string} payload.org_name - GitHub organization name
+ * @param {string} payload.repo_name - Repository name
+ * @param {string} [payload.visibility] - Visibility setting (private, public, internal); default: 'private'
+ * @returns {Promise<{repo_url, status, org_data}>}
+ */
+export const configureGitHub = async (groupId, { pat, org_name, repo_name, visibility = 'private' }) => {
+  try {
+    const response = await apiClient.post(`/groups/${groupId}/github`, {
+      pat,
+      org_name,
+      repo_name,
+      visibility,
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error configuring GitHub:', error);
+    throw error;
+  }
+};
+
+/**
+ * Configure JIRA integration for a group (Process 2.7)
+ * @param {string} groupId - The group ID
+ * @param {object} payload
+ * @param {string} payload.host       - JIRA instance base URL
+ * @param {string} payload.email      - JIRA account email
+ * @param {string} payload.api_token  - JIRA API token
+ * @param {string} payload.project_key - JIRA project key
+ * @returns {Promise<{project_id, project_key, binding, board_url}>}
+ */
+export const configureJira = async (groupId, { host, email, api_token, project_key }) => {
+  try {
+    const response = await apiClient.post(`/groups/${groupId}/jira`, {
+      host,
+      email,
+      api_token,
+      project_key,
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error configuring JIRA:', error);
+    throw error;
+  }
 };

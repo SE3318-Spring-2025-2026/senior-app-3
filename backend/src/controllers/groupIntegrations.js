@@ -38,10 +38,21 @@ const withRetry = async (fn, maxAttempts = MAX_RETRY_ATTEMPTS) => {
  * Process 2.6 — Validate GitHub PAT + org and store config in D2.
  *
  * DFD flows:
- *   f10 — Team Leader → 2.6 (submit GitHub PAT + org)
+ *   f10 — Team Leader → 2.6 (submit GitHub PAT + org + repo_name + visibility)
  *   f11 — 2.6 → GitHub API (validate PAT, retrieve org data)
  *   f12 — GitHub API → 2.6 (return org data)
  *   f24 — 2.6 → D2 (store validated GitHub config)
+ *
+ * Request body:
+ *   - pat (required): GitHub Personal Access Token
+ *   - org_name (required): GitHub organization name
+ *   - repo_name (required): Repository name
+ *   - visibility (optional): Visibility setting (private, public, internal); default: private
+ *
+ * Response (201 Created):
+ *   - repo_url: Full GitHub repository URL
+ *   - status: "success"
+ *   - org_data: { id, login, name } from GitHub API
  *
  * Error codes:
  *   422 INVALID_PAT         — GitHub API rejects the token (401/403)
@@ -51,13 +62,20 @@ const withRetry = async (fn, maxAttempts = MAX_RETRY_ATTEMPTS) => {
 const configureGithub = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { pat, org } = req.body;
+    const { pat, org_name, repo_name, visibility = 'private' } = req.body;
 
+    // Validate required fields
     if (!pat || typeof pat !== 'string' || !pat.trim()) {
       return res.status(400).json({ code: 'MISSING_PAT', message: 'pat is required' });
     }
-    if (!org || typeof org !== 'string' || !org.trim()) {
-      return res.status(400).json({ code: 'MISSING_ORG', message: 'org is required' });
+    if (!org_name || typeof org_name !== 'string' || !org_name.trim()) {
+      return res.status(400).json({ code: 'MISSING_ORG', message: 'org_name is required' });
+    }
+    if (!repo_name || typeof repo_name !== 'string' || !repo_name.trim()) {
+      return res.status(400).json({ code: 'MISSING_REPO', message: 'repo_name is required' });
+    }
+    if (!['private', 'public', 'internal'].includes(visibility)) {
+      return res.status(400).json({ code: 'INVALID_VISIBILITY', message: 'visibility must be one of: private, public, internal' });
     }
 
     const group = await Group.findOne({ groupId });
@@ -114,7 +132,7 @@ const configureGithub = async (req, res) => {
     // f12: retrieve org data
     try {
       const orgResponse = await withRetry(() =>
-        axios.get(`https://api.github.com/orgs/${org.trim()}`, {
+        axios.get(`https://api.github.com/orgs/${org_name.trim()}`, {
           headers: { Authorization: `Bearer ${pat.trim()}`, 'User-Agent': 'senior-app' },
           timeout: 5000,
         })
@@ -154,8 +172,13 @@ const configureGithub = async (req, res) => {
 
     // f24: store config in D2
     group.githubPat = pat.trim();
-    group.githubOrg = org.trim();
-    group.githubRepoUrl = `https://github.com/${org.trim()}`;
+    group.githubOrg = org_name.trim();
+    group.githubOrgId = orgData.id;
+    group.githubOrgName = orgData.name;
+    group.githubRepoName = repo_name.trim();
+    group.githubVisibility = visibility;
+    group.githubRepoUrl = `https://github.com/${org_name.trim()}/${repo_name.trim()}`;
+    group.githubLastSynced = new Date();
     await group.save();
 
     // Audit log: github_integration_setup (non-fatal)
@@ -167,7 +190,9 @@ const configureGithub = async (req, res) => {
         groupId,
         payload: {
           status: 'success',
-          org: org.trim(),
+          org_name: org_name.trim(),
+          repo_name: repo_name.trim(),
+          visibility: visibility,
           github_repo_url: group.githubRepoUrl,
         },
         ipAddress: req.ip,
@@ -178,10 +203,13 @@ const configureGithub = async (req, res) => {
     }
 
     return res.status(201).json({
-      github_org: group.githubOrg,
-      github_repo_url: group.githubRepoUrl,
-      validated: true,
-      org_data: { login: orgData.login, id: orgData.id, name: orgData.name },
+      repo_url: group.githubRepoUrl,
+      status: 'created',
+      org_data: { 
+        id: orgData.id, 
+        login: orgData.login, 
+        name: orgData.name 
+      },
     });
   } catch (err) {
     console.error('configureGithub error:', err);
@@ -193,6 +221,18 @@ const configureGithub = async (req, res) => {
  * GET /groups/:groupId/github
  *
  * Returns the stored GitHub config for the group (PAT excluded).
+ * 
+ * DFD flow: 2.6 → Student (confirmation status check)
+ * 
+ * Response format:
+ *   - group_id: Group identifier
+ *   - github_org: Stored organization name (legacy field)
+ *   - validated: Boolean indicating if GitHub integration is set up (legacy field)
+ *   - connected: Boolean indicating if GitHub integration is active
+ *   - repo_url: GitHub repository URL (only if connected)
+ *   - org: Organization data { id, login, name } (only if connected)
+ *   - last_synced: Timestamp of last successful validation (only if connected)
+ *   - last_sync_error: Error information if last attempt failed
  */
 const getGithub = async (req, res) => {
   try {
@@ -203,16 +243,22 @@ const getGithub = async (req, res) => {
       return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
     }
 
+    // Check if GitHub integration is connected
+    const isConnected = !!(group.githubOrg && group.githubPat && group.githubRepoUrl);
+
     const lastSyncError = await SyncErrorLog.findOne(
       { groupId, service: 'github' },
       null,
       { sort: { createdAt: -1, _id: -1 } }
     );
 
-    return res.status(200).json({
+    // Build response with core confirmation fields
+    const response = {
       group_id: groupId,
       github_org: group.githubOrg,
       validated: !!group.githubOrg,
+      // New status fields (flow f24: 2.6 → Student)
+      connected: isConnected,
       last_sync_error: lastSyncError
         ? {
             error_id: lastSyncError.errorId,
@@ -221,7 +267,20 @@ const getGithub = async (req, res) => {
             timestamp: lastSyncError.createdAt,
           }
         : null,
-    });
+    };
+
+    // Include confirmation data only if successfully connected
+    if (isConnected) {
+      response.repo_url = group.githubRepoUrl;
+      response.org = {
+        id: group.githubOrgId,
+        login: group.githubOrg,
+        name: group.githubOrgName,
+      };
+      response.last_synced = group.githubLastSynced;
+    }
+
+    return res.status(200).json(response);
   } catch (err) {
     console.error('getGithub error:', err);
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
@@ -231,32 +290,45 @@ const getGithub = async (req, res) => {
 /**
  * POST /groups/:groupId/jira
  *
- * Process 2.7 — Validate JIRA credentials + project key and store config in D2.
+ * Process 2.7 — Validate JIRA credentials + project key and store binding in D2.
+ * JIRA usage is strictly scoped to story point retrieval only.
  *
  * DFD flows:
- *   f13 — Team Leader → 2.7 (submit JIRA credentials)
- *   f14 — 2.7 → JIRA API (validate credentials + project)
- *   f15 — JIRA API → 2.7 (confirm binding)
- *   f25 — 2.7 → D2 (store validated JIRA config)
+ *   f13 — Team Leader → 2.7 (submit host, email, api_token, project_key)
+ *   f14 — 2.7 → JIRA API (validate credentials, fetch project binding)
+ *   f15 — JIRA API → 2.7 (binding confirmation: project_id, board_url)
+ *   f25 — 2.7 → D2 (store binding confirmation)
+ *
+ * Request body:
+ *   host        (required) — JIRA instance base URL
+ *   email       (required) — JIRA account email
+ *   api_token   (required) — JIRA API token
+ *   project_key (required) — JIRA project key
+ *
+ * Response (201 Created):
+ *   project_id  — JIRA project ID
+ *   project_key — confirmed project key
+ *   binding     — 'confirmed'
+ *   board_url   — URL to the JIRA board
  *
  * Error codes:
- *   422 INVALID_JIRA_CREDENTIALS — JIRA rejects username/token (401/403)
+ *   422 INVALID_JIRA_CREDENTIALS — JIRA rejects email/token (401/403)
  *   422 INVALID_PROJECT_KEY      — project key not found in JIRA (404)
  *   503 JIRA_API_UNAVAILABLE     — 3 consecutive timeouts/5xx errors
  */
 const configureJira = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { jira_url, jira_username, jira_token, project_key } = req.body;
+    const { host, email, api_token, project_key } = req.body;
 
-    if (!jira_url || typeof jira_url !== 'string' || !jira_url.trim()) {
-      return res.status(400).json({ code: 'MISSING_JIRA_URL', message: 'jira_url is required' });
+    if (!host || typeof host !== 'string' || !host.trim()) {
+      return res.status(400).json({ code: 'MISSING_HOST', message: 'host is required' });
     }
-    if (!jira_username || typeof jira_username !== 'string' || !jira_username.trim()) {
-      return res.status(400).json({ code: 'MISSING_JIRA_USERNAME', message: 'jira_username is required' });
+    if (!email || typeof email !== 'string' || !email.trim()) {
+      return res.status(400).json({ code: 'MISSING_EMAIL', message: 'email is required' });
     }
-    if (!jira_token || typeof jira_token !== 'string' || !jira_token.trim()) {
-      return res.status(400).json({ code: 'MISSING_JIRA_TOKEN', message: 'jira_token is required' });
+    if (!api_token || typeof api_token !== 'string' || !api_token.trim()) {
+      return res.status(400).json({ code: 'MISSING_API_TOKEN', message: 'api_token is required' });
     }
     if (!project_key || typeof project_key !== 'string' || !project_key.trim()) {
       return res.status(400).json({ code: 'MISSING_PROJECT_KEY', message: 'project_key is required' });
@@ -271,10 +343,10 @@ const configureJira = async (req, res) => {
       return res.status(403).json({ code: 'FORBIDDEN', message: 'Only the group leader can configure JIRA' });
     }
 
-    const baseUrl = jira_url.trim().replace(/\/$/, '');
-    const auth = Buffer.from(`${jira_username.trim()}:${jira_token.trim()}`).toString('base64');
+    const baseUrl = host.trim().replace(/\/$/, '');
+    const auth = Buffer.from(`${email.trim()}:${api_token.trim()}`).toString('base64');
 
-    // f14: validate credentials against JIRA API
+    // f14: validate credentials against JIRA API (with retry)
     try {
       await withRetry(() =>
         axios.get(`${baseUrl}/rest/api/3/myself`, {
@@ -285,9 +357,12 @@ const configureJira = async (req, res) => {
     } catch (err) {
       const status = err.response?.status;
       if (status === 401 || status === 403) {
-        return res.status(422).json({ code: 'INVALID_JIRA_CREDENTIALS', message: 'JIRA credentials are invalid' });
+        return res.status(422).json({
+          code: 'INVALID_JIRA_CREDENTIALS',
+          message: 'JIRA credentials are invalid or have insufficient permissions',
+        });
       }
-      const jiraSyncErr1 = await SyncErrorLog.create({
+      const syncErr = await SyncErrorLog.create({
         service: 'jira',
         groupId,
         actorId: req.user.userId,
@@ -299,12 +374,7 @@ const configureJira = async (req, res) => {
           action: 'sync_error',
           actorId: req.user.userId,
           groupId,
-          payload: {
-            api_type: 'jira',
-            retry_count: MAX_RETRY_ATTEMPTS,
-            last_error: err.message,
-            sync_error_id: jiraSyncErr1.errorId,
-          },
+          payload: { api_type: 'jira', retry_count: MAX_RETRY_ATTEMPTS, last_error: err.message, sync_error_id: syncErr.errorId },
           ipAddress: req.ip,
           userAgent: req.headers['user-agent'],
         });
@@ -314,7 +384,7 @@ const configureJira = async (req, res) => {
       return res.status(503).json({ code: 'JIRA_API_UNAVAILABLE', message: 'JIRA API unavailable after maximum retry attempts' });
     }
 
-    // f15: validate project key
+    // f15: fetch project binding confirmation from JIRA API (with retry)
     let projectData;
     try {
       const projResponse = await withRetry(() =>
@@ -329,7 +399,7 @@ const configureJira = async (req, res) => {
       if (status === 404) {
         return res.status(422).json({ code: 'INVALID_PROJECT_KEY', message: 'JIRA project key not found' });
       }
-      const jiraSyncErr2 = await SyncErrorLog.create({
+      const syncErr2 = await SyncErrorLog.create({
         service: 'jira',
         groupId,
         actorId: req.user.userId,
@@ -341,12 +411,7 @@ const configureJira = async (req, res) => {
           action: 'sync_error',
           actorId: req.user.userId,
           groupId,
-          payload: {
-            api_type: 'jira',
-            retry_count: MAX_RETRY_ATTEMPTS,
-            last_error: err.message,
-            sync_error_id: jiraSyncErr2.errorId,
-          },
+          payload: { api_type: 'jira', retry_count: MAX_RETRY_ATTEMPTS, last_error: err.message, sync_error_id: syncErr2.errorId },
           ipAddress: req.ip,
           userAgent: req.headers['user-agent'],
         });
@@ -356,16 +421,22 @@ const configureJira = async (req, res) => {
       return res.status(503).json({ code: 'JIRA_API_UNAVAILABLE', message: 'JIRA API unavailable after maximum retry attempts' });
     }
 
-    // f25: store config in D2
+    const boardUrl = `${baseUrl}/jira/software/projects/${project_key.trim()}/boards`;
+
+    // f25: store binding confirmation in D2
+    // jiraStoryPointOnly: true — JIRA is strictly scoped to story point retrieval
     group.jiraUrl = baseUrl;
-    group.jiraUsername = jira_username.trim();
-    group.jiraToken = jira_token.trim();
+    group.jiraUsername = email.trim();
+    group.jiraToken = api_token.trim();
     group.projectKey = project_key.trim();
+    group.jiraProjectId = String(projectData.id);
     group.jiraProject = projectData.name || project_key.trim();
-    group.jiraBoardUrl = `${baseUrl}/jira/software/projects/${project_key.trim()}/boards`;
+    group.jiraBoardUrl = boardUrl;
+    group.jiraLastSynced = new Date();
+    group.jiraStoryPointOnly = true;
     await group.save();
 
-    // Audit log: jira_integration_setup (non-fatal)
+    // Audit log (non-fatal)
     try {
       await createAuditLog({
         action: 'jira_integration_setup',
@@ -373,10 +444,11 @@ const configureJira = async (req, res) => {
         targetId: groupId,
         groupId,
         payload: {
-          status: 'success',
-          jira_url: baseUrl,
+          binding: 'confirmed',
           project_key: project_key.trim(),
-          jira_board_url: group.jiraBoardUrl,
+          project_id: group.jiraProjectId,
+          board_url: boardUrl,
+          story_point_only: true,
         },
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
@@ -386,11 +458,10 @@ const configureJira = async (req, res) => {
     }
 
     return res.status(201).json({
-      jira_url: group.jiraUrl,
-      jira_project: group.jiraProject,
-      jira_project_key: group.projectKey,
-      jira_board_url: group.jiraBoardUrl,
-      validated: true,
+      project_id: group.jiraProjectId,
+      project_key: group.projectKey,
+      binding: 'confirmed',
+      board_url: group.jiraBoardUrl,
     });
   } catch (err) {
     console.error('configureJira error:', err);
@@ -401,7 +472,15 @@ const configureJira = async (req, res) => {
 /**
  * GET /groups/:groupId/jira
  *
- * Returns the stored JIRA config for the group (token excluded).
+ * Returns the stored JIRA integration state for the group (token excluded).
+ *
+ * DFD flow: f25 (2.7 → Student) — confirmation status check
+ *
+ * Response:
+ *   connected    — true when project binding is complete
+ *   project_key  — JIRA project key (only if connected)
+ *   board_url    — JIRA board URL (only if connected)
+ *   last_sync_error — most recent sync failure, if any
  */
 const getJira = async (req, res) => {
   try {
@@ -412,19 +491,16 @@ const getJira = async (req, res) => {
       return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
     }
 
+    const isConnected = !!(group.jiraUrl && group.projectKey && group.jiraBoardUrl);
+
     const lastSyncError = await SyncErrorLog.findOne(
       { groupId, service: 'jira' },
       null,
       { sort: { createdAt: -1, _id: -1 } }
     );
 
-    return res.status(200).json({
-      group_id: groupId,
-      jira_url: group.jiraUrl,
-      jira_project: group.jiraProject,
-      jira_project_key: group.projectKey,
-      jira_board_url: group.jiraBoardUrl,
-      validated: !!group.jiraUrl,
+    const response = {
+      connected: isConnected,
       last_sync_error: lastSyncError
         ? {
             error_id: lastSyncError.errorId,
@@ -433,7 +509,14 @@ const getJira = async (req, res) => {
             timestamp: lastSyncError.createdAt,
           }
         : null,
-    });
+    };
+
+    if (isConnected) {
+      response.project_key = group.projectKey;
+      response.board_url = group.jiraBoardUrl;
+    }
+
+    return res.status(200).json(response);
   } catch (err) {
     console.error('getJira error:', err);
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
