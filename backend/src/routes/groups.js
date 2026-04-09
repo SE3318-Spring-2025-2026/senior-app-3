@@ -6,6 +6,7 @@ const { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMembe
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
+const { advisorSanitization } = require('../controllers/sanitizationController');
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
 router.post('/', authMiddleware, roleMiddleware(['student']), createGroup);
@@ -84,6 +85,15 @@ router.patch(
   authMiddleware,
   roleMiddleware(['coordinator', 'committee_member', 'professor', 'admin']),
   transitionStatus
+);
+
+// POST /api/v1/groups/advisor-sanitization — Issue #67: Disband unassigned groups after deadline
+// Process 3.7: sanitization protocol, coordinator or admin only
+router.post(
+  '/advisor-sanitization',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
+  advisorSanitization
 );
 
 module.exports = router;

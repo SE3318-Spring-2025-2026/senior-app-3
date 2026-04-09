@@ -91,9 +91,39 @@ const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipie
   return response.data;
 };
 
+/**
+ * Dispatch a GROUP_DISBAND notification to group members.
+ * Called by Process 3.7 (DFD flow f14: 3.7 → Notification Service).
+ *
+ * @param {object} payload
+ * @param {string} payload.groupId
+ * @param {string} payload.groupName
+ * @param {string[]} payload.recipients  - group member IDs to notify
+ * @param {string} payload.reason        - reason for disbanding (e.g., 'advisor_deadline_missed')
+ * @returns {object} { notification_id, delivered_to[], sent_at }
+ */
+const dispatchDisbandNotification = async ({ groupId, groupName, recipients, reason }) => {
+  const response = await axios.post(
+    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+    {
+      type: 'group_disband',
+      recipients,
+      payload: {
+        group_id: groupId,
+        group_name: groupName,
+        reason,
+        message: `Your group "${groupName}" has been disbanded due to: ${reason}`,
+      },
+    },
+    { timeout: 5000 }
+  );
+  return response.data;
+};
+
 module.exports = {
   dispatchInvitationNotification,
   dispatchMembershipDecisionNotification,
   dispatchGroupCreationNotification,
   dispatchBatchInvitationNotification,
+  dispatchDisbandNotification,
 };

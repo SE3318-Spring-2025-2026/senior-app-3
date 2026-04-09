@@ -37,6 +37,11 @@ const groupSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    advisorStatus: {
+      type: String,
+      enum: ['pending', 'assigned', 'released', 'transferred'],
+      default: null,
+    },
     status: {
       type: String,
       enum: ['pending_validation', 'active', 'inactive', 'archived'],
@@ -118,6 +123,9 @@ const groupSchema = new mongoose.Schema(
 
 groupSchema.index({ leaderId: 1 });
 groupSchema.index({ status: 1 });
+groupSchema.index({ advisorId: 1 });
+groupSchema.index({ advisorStatus: 1 });
+groupSchema.index({ status: 1, advisorId: 1 });
 
 const Group = mongoose.model('Group', groupSchema);
 
