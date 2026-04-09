@@ -1,11 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
-const { checkScheduleWindow } = require('../middleware/scheduleWindow');
-const { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride } = require('../controllers/groups');
+const { checkScheduleWindow, checkAdvisorAssociationSchedule } = require('../middleware/scheduleWindow');
+const { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride, createAdvisorRequest } = require('../controllers/groups');
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
+const { advisorApproveRequest, releaseAdvisorHandler, transferAdvisorHandler } = require('../controllers/advisorDecision');
+const { advisorSanitization } = require('../controllers/sanitizationController');
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
 router.post('/', authMiddleware, roleMiddleware(['student']), createGroup);
@@ -84,6 +86,58 @@ router.patch(
   authMiddleware,
   roleMiddleware(['coordinator', 'committee_member', 'professor', 'admin']),
   transitionStatus
+);
+
+// ============================================================================
+// ADVISOR ASSOCIATION WORKFLOW (Process 3.0 — Level 2.3)
+// ============================================================================
+
+// POST /api/v1/advisor-requests — Process 3.1 + 3.2: Submit & validate advisee request
+// Schedule: Subject to advisor_association window enforcement (422 if outside)
+router.post(
+  '/advisor-requests',
+  authMiddleware,
+  roleMiddleware(['student']),
+  checkAdvisorAssociationSchedule(),
+  createAdvisorRequest
+);
+
+// PATCH /api/v1/advisor-requests/:requestId — Process 3.4: Advisor approve/reject decision
+// Schedule: Subject to advisor_association window enforcement (422 if outside)
+router.patch(
+  '/advisor-requests/:requestId',
+  authMiddleware,
+  roleMiddleware(['professor', 'admin']),
+  checkAdvisorAssociationSchedule(),
+  advisorApproveRequest
+);
+
+// DELETE /api/v1/groups/:groupId/advisor — Process 3.5: Release current advisor
+// Schedule: Subject to advisor_association window enforcement (422 if outside)
+router.delete(
+  '/:groupId/advisor',
+  authMiddleware,
+  checkAdvisorAssociationSchedule(),
+  releaseAdvisorHandler
+);
+
+// POST /api/v1/groups/:groupId/advisor/transfer — Process 3.6: Coordinator transfer
+// Schedule: Subject to advisor_association window enforcement (422 if outside)
+router.post(
+  '/:groupId/advisor/transfer',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
+  checkAdvisorAssociationSchedule(),
+  transferAdvisorHandler
+);
+
+// POST /api/v1/groups/advisor-sanitization — Process 3.7: Disband unassigned groups
+// Note: NOT subject to schedule middleware — uses deadline-based gating instead
+router.post(
+  '/advisor-sanitization',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
+  advisorSanitization
 );
 
 module.exports = router;

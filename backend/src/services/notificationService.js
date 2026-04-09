@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { retryNotificationWithBackoff } = require('./notificationRetry');
 
 const NOTIFICATION_SERVICE_URL =
   process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:4000';
@@ -91,9 +92,83 @@ const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipie
   return response.data;
 };
 
+/**
+ * Dispatch an ADVISEE_REQUEST notification to a professor.
+ * Called by Process 3.3 (DFD flow f05: 3.3 → Notification Service).
+ *
+ * @param {object} payload
+ * @param {string} payload.groupId
+ * @param {string} payload.groupName
+ * @param {string} payload.professorId  - professor receiving the request
+ * @param {string} payload.requesterId  - group leader ID
+ * @param {string} payload.message      - optional message from group leader
+ * @returns {Promise<{ success, notificationId, error }>}
+ */
+const dispatchAdvisorRequestNotification = async ({
+  groupId,
+  groupName,
+  professorId,
+  requesterId,
+  message,
+}) => {
+  const dispatchFn = async () => {
+    const response = await axios.post(
+      `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+      {
+        type: 'advisee_request',
+        groupId,
+        groupName,
+        professorId,
+        requesterId,
+        message,
+      },
+      { timeout: 5000 }
+    );
+    return response.data;
+  };
+
+  return retryNotificationWithBackoff(dispatchFn, {
+    context: { groupId, professorId, operation: 'advisee_request' },
+  });
+};
+
+/**
+ * Dispatch a DISBAND_NOTICE notification to all group members.
+ * Called by Process 3.7 (DFD flow f14: 3.7 → Notification Service).
+ *
+ * @param {object} payload
+ * @param {string} payload.groupId
+ * @param {string} payload.groupName
+ * @param {string[]} payload.recipients  - member IDs to notify
+ * @param {string} payload.reason        - reason for disband
+ * @returns {Promise<{ success, notificationId, error }>}
+ */
+const dispatchDisbandNotification = async ({ groupId, groupName, recipients, reason }) => {
+  const dispatchFn = async () => {
+    const response = await axios.post(
+      `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+      {
+        type: 'group_disband',
+        groupId,
+        groupName,
+        recipients,
+        reason,
+      },
+      { timeout: 5000 }
+    );
+    return response.data;
+  };
+
+  return retryNotificationWithBackoff(dispatchFn, {
+    context: { groupId, operation: 'group_disband' },
+  });
+};
+
 module.exports = {
   dispatchInvitationNotification,
   dispatchMembershipDecisionNotification,
   dispatchGroupCreationNotification,
   dispatchBatchInvitationNotification,
+  dispatchAdvisorRequestNotification,
+  dispatchDisbandNotification,
 };

@@ -6,7 +6,7 @@ const Override = require('../models/Override');
 const User = require('../models/User');
 const { createAuditLog } = require('../services/auditService');
 const { forwardToMemberRequestPipeline, forwardOverrideToReconciliation } = require('../services/groupService');
-const { dispatchGroupCreationNotification } = require('../services/notificationService');
+const { dispatchGroupCreationNotification, dispatchAdvisorRequestNotification } = require('../services/notificationService');
 const { INACTIVE_GROUP_STATUSES, VALID_STATUS_TRANSITIONS } = require('../utils/groupStatusEnum');
 const SyncErrorLog = require('../models/SyncErrorLog');
 
@@ -1028,4 +1028,141 @@ const getAllGroups = async (req, res) => {
   }
 };
 
-module.exports = { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride };
+/**
+ * POST /api/v1/advisor-requests
+ * Process 3.1 (Submit Advisee Request) → 3.2 (Validation & Storage)
+ *
+ * Team Leader submits an advisee request for their group.
+ * Validates requester is the team leader, creates advisorRequest sub-document,
+ * and dispatches notification to the professor.
+ *
+ * Authorization: Only team leader of the group can submit (403 otherwise).
+ * Schedule: Subject to advisor_association window enforcement (422 if outside).
+ *
+ * @param {string} req.body.groupId — Group ID
+ * @param {string} req.body.professorId — Professor ID to request as advisor
+ * @param {string} req.body.message — Optional message to professor
+ */
+const createAdvisorRequest = async (req, res) => {
+  try {
+    const { groupId, professorId, message } = req.body;
+    const requesterId = req.user?.id;
+
+    if (!requesterId) {
+      return res.status(401).json({ code: 'UNAUTHORIZED', message: 'Authentication required' });
+    }
+
+    // Input validation
+    if (!groupId || !professorId) {
+      return res.status(400).json({
+        code: 'MISSING_FIELDS',
+        message: 'groupId and professorId are required',
+      });
+    }
+
+    // Retrieve group
+    const group = await Group.findOne({ groupId });
+    if (!group) {
+      return res.status(404).json({
+        code: 'GROUP_NOT_FOUND',
+        message: 'Group not found',
+      });
+    }
+
+    // Verify requester is team leader
+    if (group.leaderId !== requesterId) {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'Only the team leader can submit an advisee request',
+      });
+    }
+
+    // Check if group already has an advisor or pending request
+    if (group.advisorId) {
+      return res.status(409).json({
+        code: 'GROUP_ALREADY_HAS_ADVISOR',
+        message: 'Group already has an assigned advisor',
+      });
+    }
+
+    if (group.advisorRequest?.status === 'pending') {
+      return res.status(409).json({
+        code: 'REQUEST_ALREADY_PENDING',
+        message: 'Group already has a pending advisor request',
+      });
+    }
+
+    // Verify professor exists
+    const professor = await User.findOne({ userId: professorId });
+    if (!professor) {
+      return res.status(400).json({
+        code: 'INVALID_PROFESSOR',
+        message: 'Specified professor does not exist',
+      });
+    }
+
+    // Create advisor request sub-document
+    group.advisorRequest = {
+      requestId: `adv_req_${Math.random().toString(36).substring(2, 11)}`,
+      professorId,
+      requestedBy: requesterId,
+      status: 'pending',
+      message: message || '',
+      notificationTriggered: false,
+      approvedAt: null,
+    };
+
+    await group.save();
+
+    // Dispatch notification to professor (non-fatal)
+    let notificationTriggered = false;
+    try {
+      const notificationResult = await dispatchAdvisorRequestNotification({
+        groupId: group.groupId,
+        groupName: group.groupName,
+        professorId,
+        requesterId,
+        message: message || '',
+      });
+      notificationTriggered = notificationResult.success;
+
+      if (notificationTriggered) {
+        group.advisorRequest.notificationTriggered = true;
+        await group.save();
+      }
+    } catch (notifErr) {
+      console.error('[createAdvisorRequest] Notification dispatch failed:', notifErr.message);
+      // Non-fatal: request created even if notification fails
+    }
+
+    // Create audit log
+    await createAuditLog({
+      action: 'advisor_request_created',
+      userId: requesterId,
+      resourceType: 'advisor_request',
+      resourceId: group.advisorRequest.requestId,
+      changeDetails: {
+        groupId,
+        professorId,
+        message,
+      },
+    });
+
+    return res.status(201).json({
+      requestId: group.advisorRequest.requestId,
+      groupId,
+      professorId,
+      status: 'pending',
+      notificationTriggered,
+      createdAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('[createAdvisorRequest]', err);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: 'An unexpected error occurred',
+    });
+  }
+};
+
+module.exports = { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride, createAdvisorRequest };

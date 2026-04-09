@@ -15,6 +15,32 @@ const memberSchema = new mongoose.Schema(
   { _id: false }
 );
 
+/**
+ * advisorRequestSchema — Tracks advisor request lifecycle within a group.
+ * Embedded in Group.advisorRequest sub-document.
+ */
+const advisorRequestSchema = new mongoose.Schema(
+  {
+    requestId: {
+      type: String,
+      default: () => `adv_req_${uuidv4().split('-')[0]}`,
+      unique: true,
+      required: true,
+    },
+    professorId: { type: String, required: true },
+    requestedBy: { type: String, required: true }, // Group leader ID
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending',
+    },
+    message: { type: String, default: '' },
+    notificationTriggered: { type: Boolean, default: false },
+    approvedAt: { type: Date, default: null },
+  },
+  { timestamps: true }
+);
+
 const groupSchema = new mongoose.Schema(
   {
     groupId: {
@@ -37,6 +63,16 @@ const groupSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    advisorStatus: {
+      type: String,
+      enum: ['pending', 'assigned', 'released', 'transferred', null],
+      default: null,
+    },
+    advisorUpdatedAt: {
+      type: Date,
+      default: null,
+    },
+    advisorRequest: advisorRequestSchema,
     status: {
       type: String,
       enum: ['pending_validation', 'active', 'inactive', 'archived'],
@@ -118,6 +154,12 @@ const groupSchema = new mongoose.Schema(
 
 groupSchema.index({ leaderId: 1 });
 groupSchema.index({ status: 1 });
+groupSchema.index({ advisorId: 1 });
+groupSchema.index({ advisorStatus: 1 });
+groupSchema.index({ 'advisorRequest.requestId': 1 });
+groupSchema.index({ 'advisorRequest.professorId': 1 });
+groupSchema.index({ 'advisorRequest.status': 1 });
+groupSchema.index({ status: 1, advisorId: 1 });
 
 const Group = mongoose.model('Group', groupSchema);
 
