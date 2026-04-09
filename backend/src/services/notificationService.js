@@ -91,9 +91,50 @@ const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipie
   return response.data;
 };
 
+/**
+ * Dispatch an ADVISEE_REQUEST notification to a professor.
+ * Called by Process 3.3 (DFD flow f33: 3.2 → Notification Service).
+ * Notifies a professor that a group is requesting them as an advisor.
+ *
+ * @param {object} payload
+ * @param {string} payload.requestId     - unique advisor request ID
+ * @param {string} payload.groupId       - group requesting advisor
+ * @param {string} payload.groupName     - name of the requesting group
+ * @param {string} payload.professorId   - professor/advisor to notify
+ * @param {string} payload.requesterId   - group leader requesting
+ * @param {string} [payload.message]     - optional custom message
+ * @returns {object} { notification_id }
+ */
+const dispatchAdvisorRequestNotification = async ({
+  requestId,
+  groupId,
+  groupName,
+  professorId,
+  requesterId,
+  message,
+}) => {
+  const response = await axios.post(
+    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+    {
+      type: 'advisee_request',
+      recipient: professorId,
+      payload: {
+        requestId,
+        groupId,
+        groupName,
+        requesterId,
+        message: message || null,
+      },
+    },
+    { timeout: 5000 }
+  );
+  return response.data;
+};
+
 module.exports = {
   dispatchInvitationNotification,
   dispatchMembershipDecisionNotification,
   dispatchGroupCreationNotification,
   dispatchBatchInvitationNotification,
+  dispatchAdvisorRequestNotification,
 };

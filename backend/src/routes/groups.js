@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const { checkScheduleWindow } = require('../middleware/scheduleWindow');
-const { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride } = require('../controllers/groups');
+const { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride, createAdvisorRequest } = require('../controllers/groups');
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
@@ -47,6 +47,17 @@ router.post(
   authMiddleware,
   roleMiddleware(['committee_member', 'professor', 'admin']),
   forwardApprovalResults
+);
+
+// POST /api/v1/groups/:groupId/advisor-requests — Process 3.2: group leader requests advisor
+// Input: { professorId, message? }
+// Process: Validate group/professor, create advisor request record, dispatch notification (Process 3.3)
+router.post(
+  '/:groupId/advisor-requests',
+  authMiddleware,
+  roleMiddleware(['student']),
+  checkScheduleWindow('advisor_association'),
+  createAdvisorRequest
 );
 
 // POST /api/v1/groups/:groupId/github — Process 2.6: validate PAT + org, store config (f10-f12, f24)
