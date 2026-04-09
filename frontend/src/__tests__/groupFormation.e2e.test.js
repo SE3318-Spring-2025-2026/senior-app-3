@@ -12,6 +12,7 @@ jest.mock('../store/authStore');
 jest.mock('../api/groupService');
 
 describe('Group Formation E2E Flows', () => {
+<<<<<<< Updated upstream
   const mockUser = {
     userId: 'leader1',
     email: 'leader@university.edu',
@@ -22,12 +23,17 @@ describe('Group Formation E2E Flows', () => {
     studentId: 's456',
     email: 'student@university.edu'
   };
+=======
+  const mockUser = { userId: 'leader1', email: 'leader@example.com', role: 'student' };
+  const mockGroupId = 'g1';
+>>>>>>> Stashed changes
 
   beforeEach(() => {
     jest.clearAllMocks();
     useAuthStore.mockReturnValue(mockUser);
   });
 
+<<<<<<< Updated upstream
   describe('Happy Path: Create Group then Add Members', () => {
     it('should create group and then add members in sequence', async () => {
       const user = userEvent.setup();
@@ -54,10 +60,26 @@ describe('Group Formation E2E Flows', () => {
                 </div>
               }
             />
+=======
+  describe('Happy Path: Group Creation', () => {
+    it('create group with name', async () => {
+      const user = userEvent.setup();
+      groupService.createGroup.mockResolvedValue({
+        groupId: mockGroupId,
+        groupName: 'Alpha Team',
+      });
+
+      render(
+        <MemoryRouter initialEntries={['/groups/new']}>
+          <Routes>
+            <Route path="/groups/new" element={<GroupCreationPage />} />
+            <Route path="/groups/:group_id" element={<div>Dashboard</div>} />
+>>>>>>> Stashed changes
           </Routes>
         </MemoryRouter>
       );
 
+<<<<<<< Updated upstream
       // Fill and submit group creation form
       const groupNameInput = screen.getByLabelText(/Group Name/i);
       await user.type(groupNameInput, 'Team Alpha');
@@ -124,10 +146,57 @@ describe('Group Formation E2E Flows', () => {
       const user = userEvent.setup();
       groupService.createGroup.mockRejectedValue({
         response: { data: { code: 'OUTSIDE_SCHEDULE_WINDOW' } }
+=======
+      const input = screen.getByLabelText(/Group Name/i);
+      await user.type(input, 'Alpha Team');
+      const submitButton = screen.getByRole('button', { name: /create/i });
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(groupService.createGroup).toHaveBeenCalledWith(
+          expect.objectContaining({ groupName: 'Alpha Team' })
+        );
+      });
+    });
+  });
+
+  describe('Happy Path: Add Member', () => {
+    it('add member to group', async () => {
+      const user = userEvent.setup();
+      const mockOnMemberAdded = jest.fn();
+      groupService.addGroupMembers.mockResolvedValue({
+        added: [{ studentId: 's1', email: 'student@example.com' }],
+        errors: [],
+      });
+
+      render(
+        <AddMemberForm groupId={mockGroupId} onMemberAdded={mockOnMemberAdded} />
+      );
+
+      const input = screen.getByPlaceholderText(/Student email/i);
+      await user.type(input, 'student@example.com');
+      const submitButton = screen.getByRole('button', { name: /Send Invite/i });
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Invitation sent/i)).toBeInTheDocument();
+      });
+
+      expect(mockOnMemberAdded).toHaveBeenCalled();
+    });
+  });
+
+  describe('Error: Duplicate Group Name', () => {
+    it('shows error for duplicate group name', async () => {
+      const user = userEvent.setup();
+      groupService.createGroup.mockRejectedValue({
+        response: { data: { code: 'GROUP_NAME_TAKEN' } },
+>>>>>>> Stashed changes
       });
 
       render(
         <MemoryRouter initialEntries={['/groups/new']}>
+<<<<<<< Updated upstream
           <Routes>
             <Route path="/groups/new" element={<GroupCreationPage />} />
           </Routes>
@@ -144,10 +213,26 @@ describe('Group Formation E2E Flows', () => {
 
       await waitFor(() => {
         expect(screen.getByText(/currently closed/i)).toBeInTheDocument();
+=======
+          <GroupCreationPage />
+        </MemoryRouter>
+      );
+
+      const input = screen.getByLabelText(/Group Name/i);
+      await user.type(input, 'Duplicate Name');
+      const submitButton = screen.getByRole('button', { name: /create/i });
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/group with this name already exists/i)
+        ).toBeInTheDocument();
+>>>>>>> Stashed changes
       });
     });
   });
 
+<<<<<<< Updated upstream
   describe('Error Path: Duplicate Group Name', () => {
     it('should show error when group name already exists', async () => {
       const user = userEvent.setup();
@@ -206,6 +291,24 @@ describe('Group Formation E2E Flows', () => {
 
       const sendButton = screen.getByRole('button', { name: /Send Invite/i });
       await user.click(sendButton);
+=======
+  describe('Error: Invalid Student', () => {
+    it('shows error for invalid student email', async () => {
+      const user = userEvent.setup();
+      groupService.addGroupMembers.mockResolvedValue({
+        added: [],
+        errors: [{ code: 'STUDENT_NOT_FOUND' }],
+      });
+
+      render(
+        <AddMemberForm groupId={mockGroupId} onMemberAdded={jest.fn()} />
+      );
+
+      const input = screen.getByPlaceholderText(/Student email/i);
+      await user.type(input, 'notastu@example.com');
+      const submitButton = screen.getByRole('button', { name: /Send Invite/i });
+      await user.click(submitButton);
+>>>>>>> Stashed changes
 
       await waitFor(() => {
         expect(screen.getByText(/No student found/i)).toBeInTheDocument();
@@ -213,6 +316,7 @@ describe('Group Formation E2E Flows', () => {
     });
   });
 
+<<<<<<< Updated upstream
   describe('Error Path: Non-Leader Adds Member', () => {
     it('should prevent non-leader from adding members', async () => {
       const user = userEvent.setup();
@@ -244,10 +348,33 @@ describe('Group Formation E2E Flows', () => {
 
       await waitFor(() => {
         expect(screen.getByText(/Only the group leader can add members/i)).toBeInTheDocument();
+=======
+  describe('Error: Forbidden', () => {
+    it('shows error when non-leader adds member', async () => {
+      const user = userEvent.setup();
+      groupService.addGroupMembers.mockRejectedValue({
+        response: { status: 403, data: { code: 'FORBIDDEN' } },
+      });
+
+      render(
+        <AddMemberForm groupId={mockGroupId} onMemberAdded={jest.fn()} />
+      );
+
+      const input = screen.getByPlaceholderText(/Student email/i);
+      await user.type(input, 'student@example.com');
+      const submitButton = screen.getByRole('button', { name: /Send Invite/i });
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Only the group leader can add members/i)
+        ).toBeInTheDocument();
+>>>>>>> Stashed changes
       });
     });
   });
 
+<<<<<<< Updated upstream
   describe('Data Validation', () => {
     it('should trim whitespace from group name', async () => {
       const user = userEvent.setup();
@@ -255,6 +382,12 @@ describe('Group Formation E2E Flows', () => {
         groupId: 'g123',
         groupName: 'Team Alpha'
       });
+=======
+  describe('Form Validation', () => {
+    it('trims whitespace from group name input', async () => {
+      const user = userEvent.setup();
+      groupService.createGroup.mockResolvedValue({ groupId: mockGroupId });
+>>>>>>> Stashed changes
 
       render(
         <MemoryRouter initialEntries={['/groups/new']}>
@@ -265,6 +398,7 @@ describe('Group Formation E2E Flows', () => {
         </MemoryRouter>
       );
 
+<<<<<<< Updated upstream
       const groupNameInput = screen.getByLabelText(/Group Name/i);
       await user.type(groupNameInput, '   Team Alpha   ');
 
@@ -278,10 +412,21 @@ describe('Group Formation E2E Flows', () => {
           expect.objectContaining({
             groupName: 'Team Alpha'
           })
+=======
+      const input = screen.getByLabelText(/Group Name/i);
+      await user.type(input, '   Alpha Team   ');
+      const submitButton = screen.getByRole('button', { name: /create/i });
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(groupService.createGroup).toHaveBeenCalledWith(
+          expect.objectContaining({ groupName: 'Alpha Team' })
+>>>>>>> Stashed changes
         );
       });
     });
 
+<<<<<<< Updated upstream
     it('should trim whitespace from student email', async () => {
       const user = userEvent.setup();
       groupService.addGroupMembers.mockResolvedValue({
@@ -315,11 +460,34 @@ describe('Group Formation E2E Flows', () => {
         expect(groupService.addGroupMembers).toHaveBeenCalledWith(
           'g123',
           ['student@university.edu']
+=======
+    it('trims whitespace from email input', async () => {
+      const user = userEvent.setup();
+      groupService.addGroupMembers.mockResolvedValue({
+        added: [{ studentId: 's1' }],
+        errors: [],
+      });
+
+      render(
+        <AddMemberForm groupId={mockGroupId} onMemberAdded={jest.fn()} />
+      );
+
+      const input = screen.getByPlaceholderText(/Student email/i);
+      await user.type(input, '   student@example.com   ');
+      const submitButton = screen.getByRole('button', { name: /Send Invite/i });
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(groupService.addGroupMembers).toHaveBeenCalledWith(
+          mockGroupId,
+          ['student@example.com']
+>>>>>>> Stashed changes
         );
       });
     });
   });
 
+<<<<<<< Updated upstream
   describe('Recovery After Errors', () => {
     it('should allow retry after failed group creation', async () => {
       const user = userEvent.setup();
@@ -370,10 +538,34 @@ describe('Group Formation E2E Flows', () => {
 
       await waitFor(() => {
         expect(groupService.createGroup).toHaveBeenCalledTimes(2);
+=======
+  describe('Student Already in Group', () => {
+    it('shows error when student already in group', async () => {
+      const user = userEvent.setup();
+      groupService.addGroupMembers.mockResolvedValue({
+        added: [],
+        errors: [{ code: 'STUDENT_ALREADY_IN_GROUP' }],
+      });
+
+      render(
+        <AddMemberForm groupId={mockGroupId} onMemberAdded={jest.fn()} />
+      );
+
+      const input = screen.getByPlaceholderText(/Student email/i);
+      await user.type(input, 'busy@example.com');
+      const submitButton = screen.getByRole('button', { name: /Send Invite/i });
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/already belongs to another group/i)
+        ).toBeInTheDocument();
+>>>>>>> Stashed changes
       });
     });
   });
 
+<<<<<<< Updated upstream
   describe('User Feedback', () => {
     it('should provide clear success feedback after group creation', async () => {
       const user = userEvent.setup();
@@ -439,6 +631,27 @@ describe('Group Formation E2E Flows', () => {
 
       await waitFor(() => {
         expect(screen.getByText(/Invitation sent/i)).toBeInTheDocument();
+=======
+  describe('Already Invited', () => {
+    it('shows error when already invited', async () => {
+      const user = userEvent.setup();
+      groupService.addGroupMembers.mockResolvedValue({
+        added: [],
+        errors: [{ code: 'ALREADY_INVITED' }],
+      });
+
+      render(
+        <AddMemberForm groupId={mockGroupId} onMemberAdded={jest.fn()} />
+      );
+
+      const input = screen.getByPlaceholderText(/Student email/i);
+      await user.type(input, 'invited@example.com');
+      const submitButton = screen.getByRole('button', { name: /Send Invite/i });
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/already been invited/i)).toBeInTheDocument();
+>>>>>>> Stashed changes
       });
     });
   });
