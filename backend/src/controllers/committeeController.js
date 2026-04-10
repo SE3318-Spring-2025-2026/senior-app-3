@@ -1,4 +1,5 @@
 const Committee = require('../models/Committee');
+const User = require('../models/User');
 const { createAuditLog } = require('../services/auditService');
 
 /**
@@ -151,6 +152,8 @@ const listCommittees = async (req, res) => {
         advisorIds: c.advisorIds,
         juryIds: c.juryIds,
         status: c.status,
+        forwardedToAdvisorAssignment: c.forwardedToAdvisorAssignment,
+        forwardedToJuryValidation: c.forwardedToJuryValidation,
         createdAt: c.createdAt,
       })),
       total: committees.length,
@@ -188,6 +191,7 @@ const getCommittee = async (req, res) => {
       juryIds: committee.juryIds,
       status: committee.status,
       forwardedToAdvisorAssignment: committee.forwardedToAdvisorAssignment,
+      forwardedToJuryValidation: committee.forwardedToJuryValidation,
       createdAt: committee.createdAt,
       updatedAt: committee.updatedAt,
     });
@@ -229,6 +233,26 @@ const assignCommitteeAdvisors = async (req, res) => {
       return res.status(404).json({
         code: 'COMMITTEE_NOT_FOUND',
         message: 'Committee not found.',
+      });
+    }
+
+    // ── Validate each advisorId: must exist and have role 'professor' ─────────
+    const users = await User.find({ userId: { $in: advisorIds } }).select('userId role');
+    const foundIds = new Set(users.map((u) => u.userId));
+    const missingIds = advisorIds.filter((id) => !foundIds.has(id));
+
+    if (missingIds.length > 0) {
+      return res.status(400).json({
+        code: 'INVALID_ADVISOR_IDS',
+        message: `The following user IDs were not found: ${missingIds.join(', ')}.`,
+      });
+    }
+
+    const nonProfessors = users.filter((u) => u.role !== 'professor');
+    if (nonProfessors.length > 0) {
+      return res.status(400).json({
+        code: 'INVALID_ADVISOR_IDS',
+        message: `Advisors must have the 'professor' role.`,
       });
     }
 
@@ -299,6 +323,8 @@ const assignCommitteeAdvisors = async (req, res) => {
       advisorIds: committee.advisorIds,
       juryIds: committee.juryIds,
       status: committee.status,
+      forwardedToAdvisorAssignment: committee.forwardedToAdvisorAssignment,
+      forwardedToJuryValidation: committee.forwardedToJuryValidation,
       createdAt: committee.createdAt,
       updatedAt: committee.updatedAt,
     });
@@ -321,6 +347,7 @@ const addJuryMembers = async (req, res) => {
     const requesterId = req.user.userId;
     const requesterRole = req.user.role;
 
+    // ── 1. Role guard: Coordinator only
     if (requesterRole !== 'coordinator') {
       return res.status(403).json({
         code: 'FORBIDDEN',
@@ -328,13 +355,18 @@ const addJuryMembers = async (req, res) => {
       });
     }
 
-    if (!Array.isArray(juryIds) || juryIds.length === 0) {
+    // ── 2. Input validation
+    if (!juryIds || !Array.isArray(juryIds) || juryIds.length === 0) {
       return res.status(400).json({
-        code: 'INVALID_INPUT',
+        code: 'INVALID_JURY_IDS',
         message: 'juryIds must be a non-empty array.',
       });
     }
 
+    // Deduplicate incoming list
+    const uniqueIncoming = [...new Set(juryIds)];
+
+    // ── 3. Committee existence check (D3 query)
     const committee = await Committee.findOne({ committeeId });
     if (!committee) {
       return res.status(404).json({
@@ -343,8 +375,28 @@ const addJuryMembers = async (req, res) => {
       });
     }
 
+    // ── 4. Validate each juryId: must exist and have role 'professor' ─────────
+    const users = await User.find({ userId: { $in: uniqueIncoming } }).select('userId role');
+    const foundIds = new Set(users.map((u) => u.userId));
+    const missingIds = uniqueIncoming.filter((id) => !foundIds.has(id));
+
+    if (missingIds.length > 0) {
+      return res.status(400).json({
+        code: 'INVALID_JURY_IDS',
+        message: `The following user IDs were not found: ${missingIds.join(', ')}.`,
+      });
+    }
+
+    const nonProfessors = users.filter((u) => u.role !== 'professor');
+    if (nonProfessors.length > 0) {
+      return res.status(400).json({
+        code: 'INVALID_JURY_IDS',
+        message: `Jury members must have the 'professor' role.`,
+      });
+    }
+
     // [Critical] Advisor-Jury Overlap Conflict check
-    const overlap = juryIds.filter(id => committee.advisorIds.includes(id));
+    const overlap = uniqueIncoming.filter(id => committee.advisorIds.includes(id));
     if (overlap.length > 0) {
       return res.status(409).json({
         code: 'JURY_ADVISOR_OVERLAP',
@@ -356,8 +408,8 @@ const addJuryMembers = async (req, res) => {
     const globalConflicts = await Committee.find({
       committeeId: { $ne: committeeId },
       $or: [
-        { advisorIds: { $in: juryIds } },
-        { juryIds: { $in: juryIds } }
+        { advisorIds: { $in: uniqueIncoming } },
+        { juryIds: { $in: uniqueIncoming } }
       ],
       status: { $in: ['draft', 'validated', 'published'] }
     });
@@ -365,7 +417,7 @@ const addJuryMembers = async (req, res) => {
     if (globalConflicts.length > 0) {
       const conflictedProfessors = [];
       globalConflicts.forEach(c => {
-        juryIds.forEach(id => {
+        uniqueIncoming.forEach(id => {
           if (c.advisorIds.includes(id) || c.juryIds.includes(id)) {
             conflictedProfessors.push(`${id} (in committee "${c.committeeName}")`);
           }
@@ -378,29 +430,46 @@ const addJuryMembers = async (req, res) => {
       });
     }
 
-    // Filter out duplicates already in juryIds
-    const newJuryMembers = juryIds.filter(id => !committee.juryIds.includes(id));
-    if (newJuryMembers.length > 0) {
-      committee.juryIds.push(...newJuryMembers);
-      await committee.save();
+    // ── 5. Conflict check: IDs already in juryIds array ──────────────────────
+    const existingSet = new Set(committee.juryIds);
+    const conflicting = uniqueIncoming.filter((id) => existingSet.has(id));
 
-      try {
-        await createAuditLog({
-          action: 'COMMITTEE_UPDATED',
-          actorId: requesterId,
-          targetId: committeeId,
-          payload: {
-            addedJuryMembers: newJuryMembers,
-            totalJuryMembers: committee.juryIds.length,
-          },
-          ipAddress: req.ip,
-          userAgent: req.headers['user-agent'],
-        });
-      } catch (auditError) {
-        console.error('Audit log failed for jury assignment:', auditError.message);
-      }
+    if (conflicting.length > 0) {
+      return res.status(409).json({
+        code: 'JURY_ASSIGNMENT_CONFLICT',
+        message: `The following professors are already assigned as jury members: ${conflicting.join(', ')}.`,
+      });
     }
 
+    // ── 6. D3 write: merge new juryIds into committee record ──────────────────
+    committee.juryIds = [...committee.juryIds, ...uniqueIncoming];
+    
+    // ── 7. Forward to Process 4.4 (DFD flow f04: 4.3 → 4.4) ─────────────────
+    committee.forwardedToJuryValidation = true;
+
+    await committee.save();
+
+    // ── 8. Audit log ─────────────────────────────────────────────────────────
+    try {
+      await createAuditLog({
+        action: 'JURY_ASSIGNED',
+        actorId: requesterId,
+        targetId: committee.committeeId,
+        payload: {
+          committeeId: committee.committeeId,
+          committeeName: committee.committeeName,
+          addedJuryMembers: uniqueIncoming,
+          totalJuryMembers: committee.juryIds.length,
+          forwardedToJuryValidation: true,
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    } catch (auditError) {
+      console.error('Jury assignment audit log failed:', auditError.message);
+    }
+
+    // ── 9. Response
     return res.status(200).json({
       committeeId: committee.committeeId,
       committeeName: committee.committeeName,
@@ -409,14 +478,15 @@ const addJuryMembers = async (req, res) => {
       advisorIds: committee.advisorIds,
       juryIds: committee.juryIds,
       status: committee.status,
-      createdAt: committee.createdAt,
+      forwardedToAdvisorAssignment: committee.forwardedToAdvisorAssignment,
+      forwardedToJuryValidation: committee.forwardedToJuryValidation,
       updatedAt: committee.updatedAt,
     });
   } catch (error) {
     console.error('Add jury members error:', error);
     return res.status(500).json({
       code: 'SERVER_ERROR',
-      message: 'An unexpected error occurred.',
+      message: 'An unexpected error occurred while assigning jury members.',
     });
   }
 };

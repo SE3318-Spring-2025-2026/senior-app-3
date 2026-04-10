@@ -1,9 +1,11 @@
 import apiClient from './apiClient';
 
 /**
- * Committee Service — Process 4.1 (Create Committee)
- * OpenAPI: POST /committees
- * DFD Flows: f01 (Coordinator → 4.1), f02 (4.1 → 4.2)
+ * Committee Service
+ * Process 4.1 (Create Committee) — Process 4.3 (Add Jury Members)
+ * OpenAPI: POST /committees  |  POST /committees/{id}/jury
+ * DFD Flows: f01 (Coordinator → 4.1), f02 (4.1 → 4.2),
+ *            f10 (Coordinator → 4.3), f04 (4.3 → 4.4)
  */
 
 /**
@@ -53,14 +55,27 @@ export const assignCommitteeAdvisors = async (committeeId, advisorIds) => {
 };
 
 /**
- * Add jury members to a committee
+ * Process 4.3 — Assign jury members to a committee draft
+ * OpenAPI: POST /committees/{committeeId}/jury
+ * DFD Flow f10 (Coordinator → 4.3), f04 (4.3 → 4.4)
+ *
  * @param {string} committeeId
- * @param {string[]} juryIds
- * @returns {Promise<object>}
+ * @param {string[]} juryIds  — array of professor userId strings
+ * @returns {Promise<object>}  — updated committee object with full juryIds[]
  */
 export const addJuryMembers = async (committeeId, juryIds) => {
   const response = await apiClient.post(`/committees/${committeeId}/jury`, {
     juryIds,
   });
   return response.data;
+};
+
+/**
+ * Fetch the list of professors available for jury assignment
+ * Reuses the existing auth/users endpoint, filtered by role=professor
+ * @returns {Promise<object[]>}
+ */
+export const getProfessorsForJury = async () => {
+  const response = await apiClient.get('/auth/users/professors');
+  return response.data.professors || [];
 };

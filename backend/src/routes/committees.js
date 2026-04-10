@@ -46,7 +46,8 @@ router.post(
 );
 
 // POST /api/v1/committees/:committeeId/jury
-// Process 4.3: Add jury members to committee
+// Process 4.3: Coordinator assigns jury members to a committee draft
+// DFD Flow f10 (Coordinator → 4.3), f04 (4.3 → 4.4)
 router.post(
   '/:committeeId/jury',
   authMiddleware,

@@ -4,6 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 /**
  * D3 Data Store — Committee Draft Record
  * Written by Process 4.1 (Create Committee), forwarded to Process 4.2 (Assign Advisor)
+ * Updated by Process 4.3 (Add Jury Members), forwarded to Process 4.4 (Validate Jury)
  */
 const committeeSchema = new mongoose.Schema(
   {
@@ -45,6 +46,11 @@ const committeeSchema = new mongoose.Schema(
     },
     // DFD flow f02: forwarded flag — marks that 4.1 has forwarded draft to 4.2
     forwardedToAdvisorAssignment: {
+      type: Boolean,
+      default: false,
+    },
+    // DFD flow f04: forwarded flag — marks that 4.3 has forwarded jury list to 4.4
+    forwardedToJuryValidation: {
       type: Boolean,
       default: false,
     },
