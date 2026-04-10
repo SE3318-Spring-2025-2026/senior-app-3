@@ -7,10 +7,10 @@ import apiClient from './apiClient';
 
 /**
  * Submit a new advisee request
- * POST /advisor-requests
+ * POST /api/v1/advisor-requests
  */
 export const submitAdvisorRequest = async ({ groupId, professorId, message }) => {
-  const response = await apiClient.post('/advisor-requests', {
+  const response = await apiClient.post('/api/v1/advisor-requests', {
     groupId,
     professorId,
     message: message?.trim() || undefined,
@@ -23,7 +23,7 @@ export const submitAdvisorRequest = async ({ groupId, professorId, message }) =>
  */
 export const getAdvisorAssociationWindow = async () => {
   try {
-    const response = await apiClient.get('/schedule-window/active', {
+    const response = await apiClient.get('/api/v1/schedule-window/active', {
       params: { operationType: 'advisor_association' },
     });
     return response.data;
@@ -34,20 +34,20 @@ export const getAdvisorAssociationWindow = async () => {
 
 /**
  * Release the assigned advisor from a group
- * DELETE /groups/{groupId}/advisor
+ * DELETE /api/v1/groups/{groupId}/advisor
  */
 export const releaseAdvisor = async (groupId) => {
-  const response = await apiClient.delete(`/groups/${groupId}/advisor`);
+  const response = await apiClient.delete(`/api/v1/groups/${groupId}/advisor`);
   return response.data;
 };
 
 /**
  * Search / list professors for advisor request form
- * This endpoint may need adjustment based on backend OpenAPI.
+ * Fetches users with professor role
  */
 export const searchProfessors = async (query = '') => {
-  const response = await apiClient.get('/professors', {
-    params: query ? { q: query } : {},
+  const response = await apiClient.get('/api/v1/users', {
+    params: { role: 'professor', ...(query && { q: query }) },
   });
   return response.data;
 };

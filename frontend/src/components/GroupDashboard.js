@@ -158,9 +158,9 @@ const GroupDashboard = () => {
             <button
               type="button"
               className="coordinator-panel-btn"
-              title="Open advisor association panel"
+              title={isLeader ? "Open advisor association panel (Edit mode)" : "View current group advisor information (Read-only)"}
             >
-              Advisor Panel
+              {isLeader ? "Advisor Panel" : "View Advisor"}
             </button>
           </Link>
 

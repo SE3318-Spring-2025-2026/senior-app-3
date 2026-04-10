@@ -19,9 +19,61 @@ const AdvisorAssociationPanel = () => {
   const [message, setMessage] = useState('');
   const [status, setStatus] = useState(null);
   const [scheduleOpen, setScheduleOpen] = useState(true);
-  const [loading, setLoading] = useState(false);
+  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+  const [isReleasingAdvisor, setIsReleasingAdvisor] = useState(false);
   const [pageError, setPageError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+
+  // Map HTTP error status codes to user-friendly messages
+  const getErrorMessage = (err) => {
+    const httpStatus = err.response?.status;
+    if (httpStatus === 422) {
+      return 'The advisor association window is currently closed.';
+    }
+    if (httpStatus === 409) {
+      return 'This group already has an active advisor request.';
+    }
+    return err.response?.data?.message || 'An error occurred. Please try again.';
+  };
+
+  // Render semantic badge for advisor status
+  const renderStatusBadge = (statusValue) => {
+    if (!statusValue) return 'No advisor request available';
+
+    let bgColor = '#e5e7eb';
+    let textColor = '#374151';
+    let displayText = statusValue;
+
+    if (statusValue?.toLowerCase() === 'pending') {
+      bgColor = '#fef3c7';
+      textColor = '#b45309';
+      displayText = 'Pending';
+    } else if (statusValue?.toLowerCase() === 'approved') {
+      bgColor = '#dcfce7';
+      textColor = '#166534';
+      displayText = 'Approved';
+    } else if (statusValue?.toLowerCase() === 'rejected') {
+      bgColor = '#fee2e2';
+      textColor = '#b91c1c';
+      displayText = 'Rejected';
+    }
+
+    return (
+      <span
+        style={{
+          display: 'inline-block',
+          backgroundColor: bgColor,
+          color: textColor,
+          padding: '6px 12px',
+          borderRadius: '6px',
+          fontWeight: 500,
+          fontSize: '14px',
+        }}
+      >
+        {displayText}
+      </span>
+    );
+  };
 
   const fetchGroup = async () => {
     try {
@@ -71,7 +123,7 @@ const AdvisorAssociationPanel = () => {
     }
 
     try {
-      setLoading(true);
+      setIsSubmittingRequest(true);
       await submitAdvisorRequest({
         groupId,
         professorId: selectedProfessor,
@@ -82,9 +134,9 @@ const AdvisorAssociationPanel = () => {
       await fetchGroup();
     } catch (err) {
       console.error(err);
-      setPageError(err.response?.data?.message || 'Failed to submit advisor request.');
+      setPageError(getErrorMessage(err));
     } finally {
-      setLoading(false);
+      setIsSubmittingRequest(false);
     }
   };
 
@@ -96,15 +148,15 @@ const AdvisorAssociationPanel = () => {
     if (!confirmed) return;
 
     try {
-      setLoading(true);
+      setIsReleasingAdvisor(true);
       await releaseAdvisor(groupId);
       setSuccessMessage('Advisor released successfully.');
       await fetchGroup();
     } catch (err) {
       console.error(err);
-      setPageError(err.response?.data?.message || 'Failed to release advisor.');
+      setPageError(getErrorMessage(err));
     } finally {
-      setLoading(false);
+      setIsReleasingAdvisor(false);
     }
   };
 
@@ -117,7 +169,7 @@ const AdvisorAssociationPanel = () => {
       <div style={{ maxWidth: '900px', margin: '0 auto' }}>
         <h1 style={{ marginTop: 0 }}>Advisor Association</h1>
 
-        {!scheduleOpen && (
+        {!scheduleOpen && isLeader && (
           <div
             style={{
               backgroundColor: '#fff3cd',
@@ -128,7 +180,7 @@ const AdvisorAssociationPanel = () => {
               marginBottom: '16px',
             }}
           >
-            Advisor association window is currently closed. The form is disabled until the schedule reopens.
+            ⏰ Advisor association window is currently closed. The form is disabled until the schedule reopens.
           </div>
         )}
 
@@ -143,7 +195,7 @@ const AdvisorAssociationPanel = () => {
               marginBottom: '16px',
             }}
           >
-            {pageError}
+            ❌ {pageError}
           </div>
         )}
 
@@ -158,7 +210,7 @@ const AdvisorAssociationPanel = () => {
               marginBottom: '16px',
             }}
           >
-            {successMessage}
+            ✓ {successMessage}
           </div>
         )}
 
@@ -173,7 +225,7 @@ const AdvisorAssociationPanel = () => {
         >
           <h2 style={{ marginTop: 0, fontSize: '18px' }}>Request Status</h2>
           <p style={{ marginBottom: 0 }}>
-            <strong>Status:</strong> {status || 'No advisor request status available'}
+            <strong>Status:</strong> {renderStatusBadge(status)}
           </p>
         </div>
 
@@ -199,17 +251,17 @@ const AdvisorAssociationPanel = () => {
               <button
                 type="button"
                 onClick={handleRelease}
-                disabled={loading}
+                disabled={isReleasingAdvisor}
                 style={{
                   padding: '10px 16px',
                   borderRadius: '8px',
                   border: 'none',
-                  backgroundColor: loading ? '#9ca3af' : '#dc2626',
+                  backgroundColor: isReleasingAdvisor ? '#9ca3af' : '#dc2626',
                   color: 'white',
-                  cursor: loading ? 'not-allowed' : 'pointer',
+                  cursor: isReleasingAdvisor ? 'not-allowed' : 'pointer',
                 }}
               >
-                {loading ? 'Processing...' : 'Release Advisor'}
+                {isReleasingAdvisor ? 'Processing...' : 'Release Advisor'}
               </button>
             )}
           </div>
@@ -234,7 +286,7 @@ const AdvisorAssociationPanel = () => {
                 id="professorSelect"
                 value={selectedProfessor}
                 onChange={(e) => setSelectedProfessor(e.target.value)}
-                disabled={!scheduleOpen || loading}
+                disabled={!scheduleOpen || isSubmittingRequest}
                 style={{
                   width: '100%',
                   padding: '10px 12px',
@@ -264,7 +316,7 @@ const AdvisorAssociationPanel = () => {
                 id="advisorMessage"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                disabled={!scheduleOpen || loading}
+                disabled={!scheduleOpen || isSubmittingRequest}
                 rows={4}
                 placeholder="Write an optional message to the professor"
                 style={{
@@ -280,31 +332,44 @@ const AdvisorAssociationPanel = () => {
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={!scheduleOpen || loading}
+              disabled={!scheduleOpen || isSubmittingRequest}
               style={{
                 padding: '10px 16px',
                 borderRadius: '8px',
                 border: 'none',
-                backgroundColor: !scheduleOpen || loading ? '#9ca3af' : '#2563eb',
+                backgroundColor: !scheduleOpen || isSubmittingRequest ? '#9ca3af' : '#2563eb',
                 color: 'white',
-                cursor: !scheduleOpen || loading ? 'not-allowed' : 'pointer',
+                cursor: !scheduleOpen || isSubmittingRequest ? 'not-allowed' : 'pointer',
               }}
             >
-              {loading ? 'Submitting...' : 'Submit Request'}
+              {isSubmittingRequest ? 'Submitting...' : 'Submit Request'}
             </button>
           </div>
         ) : (
           <div
             style={{
-              background: 'white',
-              border: '1px solid #e5e7eb',
+              background: '#f0f9ff',
+              border: '1px solid #bfdbfe',
               borderRadius: '10px',
               padding: '20px',
             }}
           >
-            <h2 style={{ marginTop: 0, fontSize: '18px' }}>Read Only View</h2>
-            <p style={{ marginBottom: 0 }}>
-              You can view advisor information, but only the team leader can submit or release advisor requests.
+            <div
+              style={{
+                backgroundColor: '#dbeafe',
+                color: '#1e40af',
+                border: '1px solid #93c5fd',
+                padding: '12px 16px',
+                borderRadius: '8px',
+                marginBottom: '16px',
+                fontSize: '14px',
+              }}
+            >
+              📋 You are viewing this panel in read-only mode as a group member. Only the team leader can submit or release advisor requests.
+            </div>
+            <h2 style={{ marginTop: 0, fontSize: '18px' }}>Advisor Information</h2>
+            <p style={{ marginBottom: 0, color: '#666' }}>
+              You can view the current advisor information and request status for your group.
             </p>
           </div>
         )}
