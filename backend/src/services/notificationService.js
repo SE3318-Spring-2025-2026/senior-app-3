@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { retryNotificationWithBackoff } = require('./notificationRetry');
 
 const NOTIFICATION_SERVICE_URL =
   process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:4000';
@@ -91,9 +92,63 @@ const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipie
   return response.data;
 };
 
+/**
+ * Dispatch committee publication notification to all committee members
+ * Process f09: 4.5 → Notification Service
+ * @param {object} committee - Committee object
+ * @param {string} publishedBy - User ID who published
+ * @returns {Promise<object>} Result with success status
+ */
+const dispatchCommitteePublishNotification = async (committee, publishedBy) => {
+  // Aggregate recipients (advisors + jury + optional group members)
+  const recipients = new Set([
+    ...committee.advisorIds,
+    ...committee.juryIds,
+  ]);
+
+  const recipientList = Array.from(recipients);
+
+  console.log(
+    `[Notification] Dispatching committee publication notification to ${recipientList.length} recipients`
+  );
+
+  // Create dispatch function for retry logic
+  const dispatchFn = async () => {
+    const response = await axios.post(NOTIFICATION_SERVICE_URL + '/api/notifications', {
+      type: 'committee_published',
+      committeeId: committee.committeeId,
+      committeeName: committee.committeeName,
+      recipients: recipientList,
+      publishedBy,
+      publishedAt: committee.publishedAt,
+      description: committee.description,
+    });
+
+    return {
+      notificationId: response.data?.notificationId || `NOTIF_${Date.now()}`,
+      ...response.data,
+    };
+  };
+
+  // Use retry logic with exponential backoff
+  const result = await retryNotificationWithBackoff(dispatchFn, {
+    maxRetries: 3,
+    backoffMs: [100, 200, 400],
+    timeout: 5000,
+  });
+
+  return {
+    success: result.success,
+    notificationId: result.notificationId,
+    error: result.error,
+    recipientsNotified: recipientList.length,
+  };
+};
+
 module.exports = {
   dispatchInvitationNotification,
   dispatchMembershipDecisionNotification,
   dispatchGroupCreationNotification,
   dispatchBatchInvitationNotification,
+  dispatchCommitteePublishNotification,
 };
