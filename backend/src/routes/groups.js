@@ -6,6 +6,7 @@ const { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMembe
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
+const { submitDeliverableHandler } = require('../controllers/deliverables');
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
 router.post('/', authMiddleware, roleMiddleware(['student']), createGroup);
@@ -84,6 +85,15 @@ router.patch(
   authMiddleware,
   roleMiddleware(['coordinator', 'committee_member', 'professor', 'admin']),
   transitionStatus
+);
+
+// POST /api/v1/groups/:groupId/deliverables — Process 4.5: Submit deliverable (f11, f12, f13, f14)
+// Validates committee assignment, stores in D4, updates D6, establishes cross-reference
+router.post(
+  '/:groupId/deliverables',
+  authMiddleware,
+  checkScheduleWindow('deliverable_submission'),
+  submitDeliverableHandler
 );
 
 module.exports = router;
