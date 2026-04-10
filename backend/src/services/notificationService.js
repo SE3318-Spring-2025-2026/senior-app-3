@@ -91,9 +91,80 @@ const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipie
   return response.data;
 };
 
+/**
+ * Issue #87: Dispatch COMMITTEE_PUBLISHED notification to all stakeholders
+ * 
+ * Called by committeeService.publishCommittee() in Process 4.5
+ * Implements DFD Flow f09: 4.5 → Notification Service
+ * 
+ * Purpose:
+ * Notify all relevant parties when a committee is published:
+ * - Advisors (assigned in Process 4.2)
+ * - Jury members (assigned in Process 4.3)
+ * - Group members (students who will submit deliverables)
+ * 
+ * HTTP Request:
+ * - URL: {NOTIFICATION_SERVICE_URL}/api/notifications
+ * - Method: POST
+ * - Timeout: 5000ms
+ * - Payload Type: application/json
+ * 
+ * Payload Structure:
+ * {
+ *   type: 'committee_published',
+ *   committeeId: string (from D3),
+ *   committeeName: string (from D3),
+ *   recipients: [userId1, userId2, ...] (deduplicated from advisors + jury + groups),
+ *   recipientCount: number (total unique recipients),
+ *   publishedAt: timestamp,
+ *   publishedBy: coordinatorId
+ * }
+ * 
+ * Response:
+ * {
+ *   notification_id: string,
+ *   recipientCount: number
+ * }
+ * 
+ * Error Handling:
+ * - If HTTP error or timeout: exception thrown
+ * - Caller (sendCommitteeNotification) handles retry logic
+ * - Non-transient errors (4xx): fail immediately, no retry
+ * - Transient errors (5xx, timeout): retried up to 3 times
+ * 
+ * Logging:
+ * - Success: logs to console with recipient count
+ * - Failure: exception bubbles up for caller to handle
+ */
+const dispatchCommitteePublishedNotification = async (payload, publishedBy) => {
+  const response = await axios.post(
+    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+    {
+      type: 'committee_published',
+      committeeId: payload.committeeId,
+      committeeName: payload.committeeName,
+      recipients: payload.recipients,
+      recipientCount: payload.recipientCount,
+      publishedAt: payload.publishedAt,
+      publishedBy,
+    },
+    { timeout: 5000 }
+  );
+
+  console.log(
+    `[Notification] Committee ${payload.committeeId} published notification dispatched to ${payload.recipientCount} recipients`
+  );
+
+  return {
+    notification_id: response.data?.notification_id || `notif_${Date.now()}`,
+    recipientCount: payload.recipientCount,
+  };
+};
+
 module.exports = {
   dispatchInvitationNotification,
   dispatchMembershipDecisionNotification,
   dispatchGroupCreationNotification,
   dispatchBatchInvitationNotification,
+  dispatchCommitteePublishedNotification,
 };
