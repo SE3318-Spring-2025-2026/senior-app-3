@@ -2,6 +2,7 @@ const {
   createCommitteeDraft,
   publishCommitteeRecord,
   getCommitteeById,
+  assignAdvisorsToCommittee: assignAdvisorsService,
 } = require('../services/committeeStoreService');
 
 const createCommittee = async (req, res) => {
@@ -102,8 +103,59 @@ const publishCommittee = async (req, res) => {
   }
 };
 
+const assignAdvisorsToCommittee = async (req, res) => {
+  try {
+    const { committeeId } = req.params;
+    const { advisorIds } = req.body;
+
+    if (!Array.isArray(advisorIds) || advisorIds.length === 0) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'advisorIds must be a non-empty array of strings',
+      });
+    }
+
+    if (!advisorIds.every(id => typeof id === 'string' && id.trim())) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'All advisorIds must be non-empty strings',
+      });
+    }
+
+    const committee = await assignAdvisorsService(committeeId, advisorIds);
+
+    return res.status(200).json({
+      committeeId: committee.committeeId,
+      committeeName: committee.committeeName,
+      advisorIds: committee.advisorIds,
+      status: committee.status,
+      updatedAt: committee.updatedAt,
+    });
+  } catch (error) {
+    if (error.code === 'COMMITTEE_NOT_FOUND') {
+      return res.status(404).json({
+        code: error.code,
+        message: error.message,
+      });
+    }
+    if (error.code === 'INVALID_ADVISOR_IDS' || error.code === 'ADVISOR_CONFLICT') {
+      return res.status(409).json({
+        code: error.code,
+        message: error.message,
+      });
+    }
+
+    console.error('assignAdvisorsToCommittee error:', error);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: 'An unexpected error occurred',
+    });
+  }
+};
+
 module.exports = {
   createCommittee,
   getCommittee,
   publishCommittee,
+  assignAdvisorsToCommittee,
 };
