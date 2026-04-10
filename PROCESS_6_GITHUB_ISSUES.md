@@ -1,485 +1,586 @@
 # Process 6 - GitHub Issues (Ready to Post)
 
+> **Scope note:** The actual DFD (`dfdLevel2_Process6.drawio`) defines **3 sub-processes**: 6.1 Assign Review to Committee, 6.2 Collect Review Comments & Marks, 6.3 Mark Sections & Log Reviews. This matches the API spec (v2.6.0) exactly. There is no rubric scoring or evaluation aggregation in this process. This file implements all 3 sub-processes.
+
 ---
 
-## Issue #1: Backend - Review Assignment & Retrieval Endpoint
+## Issue #1: Backend - Auth Middleware for Review Routes
+
+**Priority:** 🔴 P0 - Critical | **Type:** Backend Infrastructure | **Story Points:** 3  
+**Assigned To:** Full-Stack Developer 1 | **Branch:** `feature/process6-middleware`
+
+### Description
+Wire JWT auth middleware onto all Process 6 routes with role-based access control. Reuses the auth middleware created in Process 5 (Issue #1) but registers it on the new `reviews` and deliverable comment routes with the correct role restrictions.
+
+### Acceptance Criteria
+- [ ] `backend/src/routes/reviews.js` created and mounted at `/api/reviews`
+- [ ] All `/api/reviews/*` routes require JWT (401 if missing/invalid)
+- [ ] `POST /api/reviews/assign` restricted to `coordinator` role — return 403 for others
+- [ ] `GET /api/reviews/status` restricted to `coordinator` role
+- [ ] `/api/deliverables/:deliverableId/comments/*` routes require JWT — accessible by `committee_member`, `coordinator`, and `student` (students can only reply, not initiate comments)
+- [ ] `req.user = { userId, role, groupId }` available in all review controllers
+
+### Files
+- Create: `backend/src/routes/reviews.js`
+- Update: `backend/src/routes/deliverables.js` (add comment sub-routes)
+
+---
+
+## Issue #2: Backend - Review Assignment Endpoint
 
 **Priority:** 🔴 P0 - Critical | **Type:** Backend Feature | **Story Points:** 8  
 **Assigned To:** Full-Stack Developer 1 | **Branch:** `feature/process6-assign-review`
 
 ### Description
-Implement endpoint to assign deliverables to committee members for review. Process 6.1 (Assign Review to Committee) - retrieves pending deliverables and assigns them.
+Implement Process 6.1: coordinator assigns a deliverable to committee members for review. Fetches committee members from D3, creates review task records, and triggers assignment notifications. This is the entry point to the entire Process 6 workflow.
 
 ### Acceptance Criteria
-- [ ] `GET /api/reviews/pending-assignements` endpoint returns:
-  - List of unassigned deliverables from D4
-  - Includes groupId, deliverableId, submittedAt, type
-  - Paginated: limit 20 per page
+- [ ] `POST /api/reviews/assign` endpoint:
+  - Requires JWT (`coordinator` role — return 403 otherwise)
+  - Request body:
+    ```json
+    {
+      "deliverableId": "del_5e8f9d2a3c",
+      "reviewDeadlineDays": 7,
+      "selectedCommitteeMembers": ["userId1", "userId2"],
+      "instructions": "Focus on architecture section."
+    }
+    ```
+  - `reviewDeadlineDays`: required, integer 1–30
+  - `selectedCommitteeMembers`: optional — if omitted, all committee members assigned to the group (from D3) are selected automatically
+  - `instructions`: optional free text
 
-- [ ] `POST /api/reviews/assign` endpoint assigns deliverables:
-  - Body: `{ deliverableId, committeeMembers: [userId] }`
-  - Creates review records with status: 'assigned'
-  - Returns: `{ reviewIds: [], assignedAt }`
+- [ ] Validation:
+  - Deliverable must exist in D4 with `status === 'accepted'` — return 404 if not found, 400 if wrong status
+  - Return 409 if a review is already assigned for this deliverable (prevent duplicate)
+  - Each `selectedCommitteeMembers` userId must exist in D3 as active committee member — return 400 with invalid member IDs
 
-- [ ] Validates:
-  - Committee members exist and are active
-  - Deliverable exists and is in 'submitted' status
-  - No duplicate assignments
+- [ ] Creates one `Review` document with:
+  - `reviewId`, `deliverableId`, `groupId` (from deliverable), `deadline` (now + reviewDeadlineDays)
+  - `assignedMembers`: array of `{ memberId, status: 'notified' }`
+  - `status: 'pending'`
+  - `instructions`
+  - `createdAt`
 
-- [ ] Updates D5 (Reviews &amp; Clarifications) with review assignment
-- [ ] Sends notification to assigned committee members (uses notification service from Process 5)
+- [ ] Updates Deliverable `status` to `'under_review'`
+
+- [ ] Creates review record in D5 (Reviews & Clarifications)
+- [ ] Triggers async notification to each assigned committee member (DFD flow f14: 6.1 → Notification Service) and sends review assignment + deliverable link to committee member (DFD flow f13: 6.1 → Committee Member) — does not block response
+- [ ] This endpoint is triggered automatically when Process 5 completes (DFD flow f1: Student/Team → 6.1 "submission for review") but can also be manually invoked by coordinator (DFD flow f11: Coordinator → 6.1 "review schedule + deadline")
+
+- [ ] Return 201:
+  ```json
+  {
+    "deliverableId": "del_5e8f9d2a3c",
+    "reviewId": "rev_5e8f9d2a3c",
+    "assignedCommitteeMembers": [
+      { "memberId": "u1", "name": "Ali Yılmaz", "email": "ali@uni.edu", "status": "notified" }
+    ],
+    "assignedCount": 3,
+    "deadline": "<ISO>",
+    "notificationsSent": 3,
+    "instructions": "Focus on architecture section."
+  }
+  ```
 
 ### Files
-- Create: `backend/src/routes/reviews.js`
 - Create: `backend/src/controllers/reviewController.js`
+- Update: `backend/src/routes/reviews.js`
+
+### Depends On
+- Issue #1 (auth middleware)
+- Issue #4 (Review model must exist)
 
 ---
 
-## Issue #2: Backend - Collect Review Comments & Marks Endpoint
-
-**Priority:** 🔴 P0 - Critical | **Type:** Backend Feature | **Story Points:** 8  
-**Assigned To:** Full-Stack Developer 1 | **Branch:** `feature/process6-collect-reviews`
-
-### Description
-Create endpoint for committee members to submit review comments and section marks. Process 6.2 (Collect Review Comments &amp; Marks).
-
-### Acceptance Criteria
-- [ ] `POST /api/reviews/:reviewId/submit` endpoint accepts:
-  - reviewId (from Issue #1)
-  - Payload: `{ comments: string, marks: { section1: 0-100, section2: 0-100, ... }, feedback: string }`
-  - Updates review: status='submitted', submittedAt=now(), marksSubmitted=true
-
-- [ ] `GET /api/reviews/:reviewId` endpoint returns:
-  - Current review details
-  - Deliverable content linked
-  - Previous submissions (if any)
-
-- [ ] Validates:
-  - Reviewer has permission (JWT userId matches assigned reviewer)
-  - Marks in valid range (0-100 per section)
-  - Comments not empty
-
-- [ ] Updates D5 with submitted review data
-- [ ] Records submission timestamp for deadline tracking
-
-### Files
-- Update: `backend/src/controllers/reviewController.js`
-
----
-
-## Issue #3: Backend - Review Mark &amp; Section Logging Service
-
-**Priority:** 🔴 P0 - Critical | **Type:** Backend Service | **Story Points:** 8  
-**Assigned To:** Full-Stack Developer 2 | **Branch:** `feature/process6-mark-sections`
-
-### Description
-Implement service to log and store section marks from reviews. Process 6.3 (Mark Sections &amp; Log Reviews).
-
-### Acceptance Criteria
-- [ ] Service `ReviewSectionService.logMarkSubmission()`:
-  - Takes reviewId, sectionMarks object
-  - Validates each section mark (0-100)
-  - Calculates average across sections
-  - Returns: `{ averageMark: 0-100, sections: {}, timestamp }`
-
-- [ ] Service `ReviewSectionService.calculateDeliverableScore()`:
-  - Takes deliverableId
-  - Aggregates all review marks for that deliverable
-  - Calculates weighted average (if weights configured)
-  - Returns: `{ deliverableScore, reviewCount, allSubmitted: true/false }`
-
-- [ ] Service `ReviewSectionService.checkReviewCompletion()`:
-  - Checks if all assigned reviewers submitted marks
-  - Returns: `{ complete: true/false, submittedCount, totalCount }`
-
-- [ ] All mark submissions logged to audit trail
-- [ ] No external dependencies (queries D5 data)
-
-### Files
-- Create: `backend/src/services/reviewSectionService.js`
-
----
-
-## Issue #4: Backend - Deliverable Models & Schema Updates
+## Issue #3: Backend - Review & Comment Models
 
 **Priority:** 🔴 P0 - Critical | **Type:** Backend Infrastructure | **Story Points:** 8  
 **Assigned To:** Full-Stack Developer 2 | **Branch:** `feature/process6-review-models`
 
 ### Description
-Create Review model and update Deliverable model with review tracking fields. Add database migration.
+Create the `Review` and `Comment` Mongoose models for Process 6. The `Comment` model is the core data structure — it covers general comments, clarification requests, and replies in a single unified thread (per API spec design).
 
 ### Acceptance Criteria
-- [ ] Review Mongoose model (`backend/src/models/Review.js`):
-  - Fields: id, deliverableId, reviewerId, status (enum: assigned/submitted/approved), marks (object), comments, feedback, submittedAt, createdAt
-  - Indexes: `{ deliverableId: 1 }`, `{ reviewerId: 1, status: 1 }`
+- [ ] `Review` Mongoose model (`backend/src/models/Review.js`):
+  - `reviewId` (UUID, unique)
+  - `deliverableId` (ref to Deliverable)
+  - `groupId`
+  - `status` enum: `['pending', 'in_progress', 'needs_clarification', 'completed']`
+  - `assignedMembers`: array of `{ memberId, status: enum['notified', 'accepted', 'started'] }`
+  - `deadline` (Date)
+  - `instructions` (String, nullable)
+  - `createdAt`, `updatedAt`
+  - Indexes: `{ deliverableId: 1 }` (unique), `{ status: 1 }`
 
-- [ ] Update Deliverable model:
-  - Add fields: reviews (array of reviewIds), overallScore, reviewStatus (all_submitted/partial/not_started)
-  - Indexes: `{ overallScore: 1 }` for sorting
+- [ ] `Comment` Mongoose model (`backend/src/models/Comment.js`):
+  - `commentId` (UUID, unique)
+  - `deliverableId` (ref to Deliverable)
+  - `authorId` (userId)
+  - `authorName` (String)
+  - `content` (String, 1–5000 chars, markdown supported)
+  - `commentType` enum: `['general', 'question', 'clarification_required', 'suggestion', 'praise']`, default `'general'`
+  - `sectionNumber` (Integer, nullable — for referencing specific section of document)
+  - `needsResponse` (Boolean, default false — marks as requiring acknowledgment from group)
+  - `status` enum: `['open', 'resolved', 'acknowledged']`, default `'open'`
+  - `replies`: array of `{ replyId (UUID), authorId, content (1–2000 chars), createdAt }`
+  - `createdAt`, `updatedAt`
+  - Indexes: `{ deliverableId: 1, createdAt: 1 }`, `{ deliverableId: 1, status: 1 }`
 
 - [ ] Migration `backend/src/migrations/008_create_review_schema.js`:
-  - Creates Review collection
-  - Updates Deliverable collection with new fields
-
-- [ ] Soft delete not needed (keep all reviews)
+  - Creates `Review` collection with indexes
+  - Creates `Comment` collection with indexes
+  - Does NOT modify `Deliverable` collection (score fields are out of scope for this sprint)
 
 ### Files
 - Create: `backend/src/models/Review.js`
-- Update: `backend/src/models/Deliverable.js`
+- Create: `backend/src/models/Comment.js`
 - Create: `backend/src/migrations/008_create_review_schema.js`
 
 ---
 
-## Issue #5: Backend - Review Clarification Request Service
+## Issue #4: Backend - Add Comment & Get Comment Thread Endpoints
 
-**Priority:** 🟠 P1 - High | **Type:** Backend Service | **Story Points:** 8  
-**Assigned To:** Backend Developer | **Branch:** `feature/process6-clarification`
+**Priority:** 🔴 P0 - Critical | **Type:** Backend Feature | **Story Points:** 8  
+**Assigned To:** Full-Stack Developer 1 | **Branch:** `feature/process6-comments`
 
 ### Description
-Implement service to handle clarification requests between committee and students during review.
+Implement Process 6.2 comment endpoints: committee members add comments (general or clarification requests) to a deliverable, and all parties can retrieve the full comment thread. This is the primary interaction mechanism for the review — not a one-shot form submission.
 
 ### Acceptance Criteria
-- [ ] Service `ClarificationService.addClarificationRequest()`:
-  - Takes: deliverableId, reviewerId, question
-  - Creates request in D5 with status: 'pending'
-  - Returns: `{ requestId, timestamp }`
+- [ ] `POST /api/deliverables/:deliverableId/comments` — add a comment:
+  - Requires JWT (`committee_member` or `coordinator` role — students cannot initiate comments, return 403)
+  - Deliverable must exist and have an active review (`status: 'under_review'`) — return 404/400 if not
+  - Request body:
+    ```json
+    {
+      "content": "This section needs clarification.",
+      "commentType": "clarification_required",
+      "sectionNumber": 3,
+      "needsResponse": true
+    }
+    ```
+  - `content`: required, 1–5000 chars
+  - `commentType`: optional, default `'general'`
+  - `sectionNumber`: optional, nullable
+  - `needsResponse`: optional, default false
+  - Creates `Comment` document in D5, return 201 with created comment
+  - If `needsResponse: true` — triggers async notification to student group (DFD flow f10)
+  - Updates Review `status` to `'in_progress'` if it was `'pending'`
+  - If any `needsResponse: true` comment is open, updates Review `status` to `'needs_clarification'`
 
-- [ ] Service `ClarificationService.submitClarification()`:
-  - Takes: clarificationId, answer (from student)
-  - Updates status: 'answered'
-  - Returns: `{ clarificationId, answeredAt }`
-
-- [ ] Service `ClarificationService.getClarificationThread()`:
-  - Returns all Q&A for a deliverable
-  - Ordered by timestamp
-
-- [ ] Email notifications:
-  - Student gets clarification request
-  - Reviewer gets clarification answer
-
-- [ ] Records all interactions in D5
+- [ ] `GET /api/deliverables/:deliverableId/comments` — retrieve comment thread:
+  - Requires JWT (any authenticated role)
+  - Students can only view comments on their own group's deliverables — return 403 otherwise
+  - Query params: `sortBy` (`timestamp`|`author`|`section`|`status`, default `timestamp`), `status` (`open`|`resolved`|`acknowledged`), `page` (default 1)
+  - Return 200:
+    ```json
+    {
+      "deliverableId": "del_5e8f9d2a3c",
+      "comments": [...],
+      "totalCount": 12,
+      "openClarificationCount": 3
+    }
+    ```
 
 ### Files
-- Create: `backend/src/services/clarificationService.js`
+- Update: `backend/src/controllers/reviewController.js`
+- Update: `backend/src/routes/deliverables.js`
+
+### Depends On
+- Issues #1, #3
 
 ---
 
-## Issue #6: Backend - Review Status Tracking &amp; Notifications
+## Issue #5: Backend - Edit/Resolve Comment & Group Reply Endpoints
 
-**Priority:** 🟠 P1 - High | **Type:** Backend Service | **Story Points:** 8  
-**Assigned To:** Backend Developer | **Branch:** `feature/process6-review-notifications`
+**Priority:** 🔴 P0 - Critical | **Type:** Backend Feature | **Story Points:** 8  
+**Assigned To:** Full-Stack Developer 2 | **Branch:** `feature/process6-comment-actions`
 
 ### Description
-Implement service to track review progress and send status notifications to stakeholders.
+Implement the remaining comment interaction endpoints from the API spec: editing/resolving a comment (committee/coordinator) and group replies to clarification requests (students). Together with Issue #4, these form the complete Process 6.2 flow.
 
 ### Acceptance Criteria
-- [ ] Service `ReviewNotificationService.notifyReviewCompleted()`:
-  - Called when all reviews submitted for a deliverable
-  - Notifies: Coordinator, all committee members, students
-  - Email: "Review completed – Score: XX/100"
+- [ ] `PATCH /api/deliverables/:deliverableId/comments/:commentId` — edit or resolve a comment:
+  - Requires JWT
+  - Only the comment author can edit `content` — return 403 otherwise
+  - `coordinator` or comment author can update `status`
+  - Request body (all optional):
+    ```json
+    { "content": "Updated text.", "status": "resolved" }
+    ```
+  - `status` enum: `['open', 'resolved', 'acknowledged']`
+  - After update: if no more `open` comments with `needsResponse: true` exist on the deliverable, update Review `status` back to `'in_progress'`
+  - Return 200 with updated comment
 
-- [ ] Service `ReviewNotificationService.notifyReviewerAssigned()`:
-  - Called when review assigned to committee member
-  - Email: "You have been assigned to review deliverable #{id}"
+- [ ] `POST /api/deliverables/:deliverableId/comments/:commentId/reply` — group replies to clarification:
+  - Requires JWT (`student` role — this is how students respond to clarification requests)
+  - Comment must exist and belong to this deliverable — return 404 otherwise
+  - `coordinator` and `committee_member` can also reply
+  - Request body: `{ "content": "Here is our clarification..." }` (required, 1–2000 chars)
+  - Appends to `comment.replies[]` with `{ replyId, authorId, content, createdAt }`
+  - Return 201 with the updated comment (including new reply)
+  - Triggers async notification to the comment author (reviewer gets notified of student reply, DFD flow back to 6.2)
+  - If `comment.needsResponse` was true, auto-sets `comment.status = 'acknowledged'`
 
-- [ ] Service `ReviewNotificationService.notifyClarificationRequest()`:
-  - Notifies student of clarification needed
-  - Notifies reviewer when answer submitted
+### Files
+- Update: `backend/src/controllers/reviewController.js`
+- Update: `backend/src/routes/deliverables.js`
 
-- [ ] Service `ReviewStatusService.getReviewStatus()`:
-  - Returns: `{ status, completedCount, totalCount, estimatedCompletion }`
+### Depends On
+- Issues #1, #3, #4
 
-- [ ] All notifications logged to audit trail
-- [ ] Retry logic on email failure (3 attempts)
+---
+
+## Issue #6: Backend - Review Status Overview Endpoint
+
+**Priority:** 🟠 P1 - High | **Type:** Backend Feature | **Story Points:** 5  
+**Assigned To:** Full-Stack Developer 2 | **Branch:** `feature/process6-review-status`
+
+### Description
+Implement the coordinator's review status dashboard endpoint (Process 6.3 logging). Gives a live overview of all reviews — how many are pending, in progress, blocked on clarification, or completed.
+
+### Acceptance Criteria
+- [ ] `GET /api/reviews/status` endpoint:
+  - Requires JWT (`coordinator` role — return 403 otherwise)
+  - Query params: `status` (filter: `pending`|`in_progress`|`needs_clarification`|`completed`), `page` (default 1)
+  - Aggregates across all `Review` documents
+  - Return 200:
+    ```json
+    {
+      "total": 24,
+      "statuses": {
+        "pending": 5,
+        "in_progress": 10,
+        "needs_clarification": 4,
+        "completed": 5
+      },
+      "reviews": [
+        {
+          "deliverableId": "del_...",
+          "groupId": "grp_...",
+          "deliverableType": "interim_report",
+          "sprintId": "sprint_2024_s1",
+          "reviewStatus": "needs_clarification",
+          "commentCount": 8,
+          "clarificationsRemaining": 2,
+          "deadline": "<ISO>"
+        }
+      ]
+    }
+    ```
+  - `clarificationsRemaining`: count of `Comment` documents for this deliverable with `needsResponse: true` AND `status: 'open'`
+
+- [ ] A review is automatically marked `'completed'` when:
+  - All `needsResponse` comments are resolved/acknowledged (no open clarifications)
+  - This check runs whenever a comment is resolved (Issues #4, #5) — update Review status accordingly
+
+### Files
+- Update: `backend/src/controllers/reviewController.js`
+- Update: `backend/src/routes/reviews.js`
+
+### Depends On
+- Issues #1, #3
+
+---
+
+## Issue #7: Backend - Review Notification Service
+
+**Priority:** 🟠 P1 - High | **Type:** Backend Service | **Story Points:** 8  
+**Assigned To:** Backend Developer | **Branch:** `feature/process6-notifications`
+
+### Description
+Implement notification functions for all Process 6 events. Uses Nodemailer with SMTP config from env vars (same setup as Process 5). All notifications are async and must not block the API response.
+
+### Acceptance Criteria
+- [ ] Uses **Nodemailer** with env vars: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` (reuse Process 5 mail transport instance if already initialized)
+
+- [ ] `notifyReviewerAssigned(reviewId, memberId)`:
+  - Triggered by Issue #2 (assignment endpoint)
+  - Queries D3 for member email
+  - Template `review-assignment.txt`: `"You have been assigned to review deliverable #{{deliverableId}} from {{groupName}}. Deadline: {{deadline}}. Instructions: {{instructions}}"`
+
+- [ ] `notifyClarificationRequested(commentId, groupId)`:
+  - Triggered by Issue #4 when `needsResponse: true` comment is added
+  - Queries D2 for group member emails
+  - Template `review-clarification-request.txt`: `"Clarification requested on your deliverable #{{deliverableId}}: {{commentContent}}"`
+
+- [ ] `notifyStudentReplied(commentId, reviewerId)`:
+  - Triggered by Issue #5 when a student posts a reply
+  - Queries D3 for reviewer email
+  - Template `review-clarification-reply.txt`: `"Group {{groupName}} replied to your clarification on deliverable #{{deliverableId}}: {{replyContent}}"`
+
+- [ ] `notifyReviewCompleted(reviewId)`:
+  - Triggered when Review status changes to `'completed'` (Issue #6)
+  - Sends to coordinator (D1): template `review-completed-coordinator.txt`: `"Review of deliverable #{{deliverableId}} from {{groupName}} is complete. Open clarifications: 0. See full comment thread at: {{link}}"` (DFD flow f12: 6.3 → Coordinator "review completion + results report")
+  - Sends to group members (D2): template `review-completed-student.txt`: `"The review of your deliverable #{{deliverableId}} is complete. Section feedback summary: {{sectionSummary}}. All clarifications resolved."` (DFD flow f10: 6.3 → Student "section status + final feedback")
+  - Sends to assigned committee members (D3): template `review-completed-committee.txt`: `"Review of deliverable #{{deliverableId}} has been logged as complete."`
+  - DFD flow f17: 6.3 → Notification Service (review complete event)
+
+- [ ] Each function: retry up to **3 times** with exponential backoff (1s, 2s, 4s). Failure is logged, does not throw.
+
+- [ ] All notifications logged to audit trail with `{ type, recipientId, deliverableId, sentAt, success }`
 
 ### Files
 - Create: `backend/src/services/reviewNotificationService.js`
+- Create: `backend/src/templates/review-assignment.txt`
+- Create: `backend/src/templates/review-clarification-request.txt`
+- Create: `backend/src/templates/review-clarification-reply.txt`
+- Create: `backend/src/templates/review-completed-coordinator.txt`
+- Create: `backend/src/templates/review-completed-student.txt`
+- Create: `backend/src/templates/review-completed-committee.txt`
+
+### Depends On
+- Issues #2, #4, #5, #6
 
 ---
 
-## Issue #7: Frontend - Review Assignment List &amp; Dashboard
+## Issue #8: Frontend - Review Management Dashboard (Coordinator)
 
 **Priority:** 🟠 P1 - High | **Type:** Frontend Feature | **Story Points:** 8  
 **Assigned To:** Frontend Developer | **Branch:** `feature/process6-review-dashboard`
 
 ### Description
-Create React page for coordinators to manage review assignments. Shows pending deliverables and assigned reviewers.
+Create the coordinator-only React page for managing review assignments and monitoring review progress. Lives at `/dashboard/reviews`.
 
 ### Acceptance Criteria
-- [ ] Component `frontend/src/pages/ReviewManagement.jsx`:
-  - List of pending deliverables needing assignment
-  - Shows: groupId, deliverableType, submittedAt, submitterName
+- [ ] Page `frontend/src/pages/ReviewManagement.jsx`:
+  - Accessible by `coordinator` role only — redirect to `/dashboard` if student
+  - Calls `GET /api/reviews/status` on load to populate the dashboard
+  - Shows counts: pending / in_progress / needs_clarification / completed (as stat cards)
+
+- [ ] Review list table showing each review with:
+  - `deliverableId`, `deliverableType` (from enum: `proposal`, `statement_of_work`, `demo`, `interim_report`, `final_report`), `groupId`, `sprintId`, `reviewStatus`, `commentCount`, `clarificationsRemaining`, `deadline`
+  - Filter by `status` (dropdown): `pending` | `in_progress` | `needs_clarification` | `completed`
   - Pagination: 20 per page
 
-- [ ] Assignment UI:
-  - Dropdown to select committee members
-  - Button to assign selected members
-  - Confirmation message on success
+- [ ] Assignment form `frontend/src/components/reviews/ReviewAssignmentForm.jsx`:
+  - Triggered by clicking a deliverable with `status: 'accepted'` (not yet assigned)
+  - Fields: `deliverableId` (pre-filled), `reviewDeadlineDays` (number input, 1–30, required), `selectedCommitteeMembers` (multi-select from fetched committee list, optional), `instructions` (textarea, optional)
+  - On submit: calls `POST /api/reviews/assign`
+  - Success: shows confirmation with `assignedCount` and `deadline`, refreshes list
+  - Error: shows message from API `code` field
 
-- [ ] View assigned reviews:
-  - Shows current assignments
-  - Status: pending/submitted/completed
-  - Submitted marks (if available)
-
-- [ ] Filters:
-  - By deliverable type (midterm/final/report)
-  - By review status
-  - By date range
-
+- [ ] Loading states for all API calls
 - [ ] Responsive, TailwindCSS styled
-- [ ] Loading states for API calls
+- [ ] Accessibility: table headers, keyboard navigable form
 
 ### Files
 - Create: `frontend/src/pages/ReviewManagement.jsx`
-- Create: `frontend/src/components/reviews/PendingDeliverablesList.jsx`
 - Create: `frontend/src/components/reviews/ReviewAssignmentForm.jsx`
+- Create: `frontend/src/api/reviewAPI.js`
 
 ### Depends On
-- Issues #1, #2 (API endpoints ready)
+- Issues #2, #6 (API endpoints ready)
 
 ---
 
-## Issue #8: Frontend - Committee Review Form Component
+## Issue #9: Frontend - Comment Thread & Review Form (Committee Member)
 
 **Priority:** 🟠 P1 - High | **Type:** Frontend Feature | **Story Points:** 8  
 **Assigned To:** Frontend Developer | **Branch:** `feature/process6-review-form`
 
 ### Description
-Create React component for committee members to submit reviews with marks, comments, and feedback.
+Create the committee member review interface: view the deliverable, add comments/clarification requests, and see the full comment thread. Also used by students to reply to clarifications.
 
 ### Acceptance Criteria
-- [ ] Component `frontend/src/components/reviews/ReviewSubmissionForm.jsx`:
-  - Display deliverable content (read-only)
-  - Section marks input (0-100 numeric) for each section
-  - Comments textarea (rich text optional)
-  - Feedback textarea
-  - Submit button (disabled until all fields valid)
+- [ ] Page `frontend/src/pages/ReviewPage.jsx` at `/dashboard/reviews/:deliverableId`:
+  - Fetches deliverable details and `GET /api/deliverables/:deliverableId/comments` on load
+  - Left panel: deliverable metadata (type, group, submitted at, sprint)
+  - Right panel: comment thread + add comment form
 
-- [ ] Form validation:
-  - Marks: 0-100, required
-  - Comments: required, min 20 chars
-  - Real-time validation feedback
+- [ ] Comment thread component `frontend/src/components/reviews/CommentThread.jsx`:
+  - Lists all comments sorted by timestamp (default)
+  - Each comment shows: `authorName`, `content` (rendered markdown), `commentType` badge, `sectionNumber` if set, `status` badge (`open`/`resolved`/`acknowledged`), `createdAt`
+  - If `needsResponse: true` → highlighted with a "Needs Response" indicator
+  - Shows replies nested under their parent comment
+  - Filter bar: filter by `status` (`open`|`resolved`|`acknowledged`)
 
-- [ ] Form states:
-  - Initial: empty, ready for input
-  - Loading: submitting to API
-  - Success: "Review submitted successfully"
-  - Error: show error with retry option
+- [ ] Add comment form `frontend/src/components/reviews/AddCommentForm.jsx` (committee/coordinator only):
+  - `content` textarea (required, 1–5000 chars, markdown supported)
+  - `commentType` dropdown: `general` | `question` | `clarification_required` | `suggestion` | `praise`
+  - `sectionNumber` number input (optional)
+  - `needsResponse` checkbox (shown only when `commentType` is `clarification_required`)
+  - Submit → `POST /api/deliverables/:deliverableId/comments`
 
-- [ ] Clarification thread (from Issue #5):
-  - Show previous Q&amp;A
-  - Allow adding new questions
+- [ ] Edit/resolve comment: comment author sees "Edit" button → inline edit, "Resolve" button → calls `PATCH` to set `status: 'resolved'`
 
-- [ ] Progress tracking:
-  - Show how many reviewers submitted
-  - Time until deadline
+- [ ] Reply form (students and committee):
+  - "Reply" button on each comment → expands inline reply textarea
+  - Submit → `POST /api/deliverables/:deliverableId/comments/:commentId/reply`
+  - New reply appears immediately in thread
 
-- [ ] Responsive, mobile-friendly
-- [ ] Accessibility: proper labels, keyboard navigation
+- [ ] Loading and error states for all API calls
+- [ ] Responsive, TailwindCSS styled
+- [ ] Accessibility: proper heading structure, reply forms announced to screen readers
 
 ### Files
-- Create: `frontend/src/components/reviews/ReviewSubmissionForm.jsx`
-- Create: `frontend/src/components/reviews/ClarificationThread.jsx`
+- Create: `frontend/src/pages/ReviewPage.jsx`
+- Create: `frontend/src/components/reviews/CommentThread.jsx`
+- Create: `frontend/src/components/reviews/AddCommentForm.jsx`
+- Update: `frontend/src/api/reviewAPI.js`
 
 ### Depends On
-- Issues #1, #2 (API endpoints ready)
+- Issues #4, #5 (API endpoints ready)
 
 ---
 
-## Issue #9: Backend Testing - Review Assignment &amp; Collection Tests (80% coverage)
+## Issue #10: Backend Testing - Assignment & Comment Endpoints (80% coverage)
 
 **Priority:** 🟡 P2 - Medium | **Type:** Backend Testing | **Story Points:** 8  
 **Assigned To:** Backend Tester | **Branch:** `feature/process6-assignment-tests`
 
 ### Description
-Comprehensive tests for review assignment and mark collection endpoints.
+Comprehensive tests for Issues #2, #4, and #5 (review assignment, add comment, edit/resolve comment, student reply).
 
 ### Acceptance Criteria
-- [ ] Tests for Issue #1 (assignment endpoint):
-  - Retrieve pending deliverables → list returned
-  - Assign to valid committee members → success
-  - Assign to invalid members → error
-  - Duplicate assignment → prevented
+- [ ] Tests for Issue #2 (`POST /reviews/assign`):
+  - Valid assignment with all fields → 201, Review created, Deliverable updated to `under_review`
+  - `selectedCommitteeMembers` omitted → all D3 members assigned
+  - Non-coordinator calls → 403
+  - Deliverable not found → 404
+  - Deliverable not in `'accepted'` status → 400
+  - Review already exists for this deliverable → 409
+  - Invalid member IDs → 400 with list of bad IDs
+  - `reviewDeadlineDays` missing → 400
 
-- [ ] Tests for Issue #2 (collect reviews):
-  - Submit review with valid marks (0-100) → success
-  - Submit with invalid marks (negative/&gt;100) → error
-  - Missing comments → error
-  - Get review details → returns all info
-  - Permission check: only assigned reviewer can submit
+- [ ] Tests for Issue #4 (`POST` and `GET` comments):
+  - Student adds comment → 403
+  - Committee member adds `clarification_required` comment with `needsResponse: true` → 201, Review status updated to `needs_clarification`
+  - GET returns paginated list with `openClarificationCount`
+  - Student fetches comments for own group → 200
+  - Student fetches comments for another group → 403
 
-- [ ] Tests for Issue #3 (mark logging):
-  - Log marks → calculates average correctly
-  - Calculate deliverable score → aggregates all reviews
-  - Check completion → returns correct counts
-
-- [ ] Edge cases:
-  - No reviewers assigned
-  - All reviewers submit
-  - Partial reviews submitted
-  - Late submissions
+- [ ] Tests for Issue #5 (`PATCH` and reply `POST`):
+  - Author edits own comment content → 200
+  - Non-author edits content → 403
+  - Coordinator resolves any comment → 200, Review status updated if no open clarifications remain
+  - Student replies to clarification → 201, `comment.status` auto-set to `'acknowledged'`
+  - Reply on non-existent comment → 404
 
 - [ ] Minimum 80% code coverage
-- [ ] Mock database for all tests
+- [ ] Use mongoose-memory-server for all tests
 
 ### Files
-- Create: `backend/tests/deliverable-reviews.test.js`
+- Create: `backend/tests/review-assignment.test.js`
+- Create: `backend/tests/review-comments.test.js`
+- Create: `backend/tests/fixtures/review-test-data.js`
 
 ### Depends On
-- Issues #1, #2, #3 (code to test)
+- Issues #2, #4, #5
 
 ---
 
-## Issue #10: Backend Testing - Clarification &amp; Notifications Tests (80% coverage)
+## Issue #11: Backend Testing - Status & Notification Tests (80% coverage)
 
 **Priority:** 🟡 P2 - Medium | **Type:** Backend Testing | **Story Points:** 8  
-**Assigned To:** Backend Tester | **Branch:** `feature/process6-clarification-tests`
+**Assigned To:** Backend Tester | **Branch:** `feature/process6-status-tests`
 
 ### Description
-Comprehensive tests for clarification requests and notification services.
+Tests for Issues #6 and #7 (review status endpoint and notification service).
 
 ### Acceptance Criteria
-- [ ] Clarification service tests (Issue #5):
-  - Add clarification request → created with status='pending'
-  - Submit answer → status changed to 'answered'
-  - Get clarification thread → returns Q&amp;A in order
-  - Cannot submit multiple answers
-  - Permissions: only student can answer their question
+- [ ] Status endpoint tests (`GET /reviews/status`):
+  - Non-coordinator → 403
+  - Returns correct counts per status bucket
+  - `clarificationsRemaining` accurately counts open `needsResponse` comments
+  - Filter by status → only matching reviews returned
+  - Review auto-completed when last open clarification resolved
 
-- [ ] Notification tests (Issue #6):
-  - Review completed notification → sent to all stakeholders
-  - Reviewer assigned notification → sent to assigned person
-  - Clarification request notification → sent to relevant parties
-  - All notifications logged to audit
-
-- [ ] Retry logic tests:
-  - Email failure → retries 3 times
-  - Success on retry → stops retrying
-  - After 3 fails → logged without throwing
-
-- [ ] Status tracking tests:
-  - Get review status → correct counts
-  - All submitted → completion detected
-  - Partial → incomplete status
+- [ ] Notification tests:
+  - `notifyReviewerAssigned`: email sent to each assigned member
+  - `notifyClarificationRequested`: all group members emailed
+  - `notifyStudentReplied`: reviewer emailed with reply content
+  - `notifyReviewCompleted`: coordinator, committee, and students all notified
+  - Email failure → not thrown, logged to audit trail
+  - Retry logic → retries 3 times with backoff, stops on success
+  - All notifications appear in audit log with correct fields
 
 - [ ] Minimum 80% code coverage
-- [ ] Mock email service and database
+- [ ] Mock Nodemailer transport, mongoose-memory-server
 
 ### Files
-- Create: `backend/tests/review-clarification-notification.test.js`
+- Create: `backend/tests/review-status.test.js`
+- Create: `backend/tests/review-notifications.test.js`
 
 ### Depends On
-- Issues #5, #6 (code to test)
+- Issues #6, #7
 
 ---
 
-## Issue #11: Frontend Testing - Review Management Page &amp; Assignment (80% coverage)
+## Issue #12: Frontend Testing - Review Dashboard (80% coverage)
 
 **Priority:** 🟡 P2 - Medium | **Type:** Frontend Testing | **Story Points:** 8  
-**Assigned To:** Frontend Tester | **Branch:** `feature/process6-management-tests`
+**Assigned To:** Frontend Tester | **Branch:** `feature/process6-dashboard-tests`
 
 ### Description
-Tests for review management dashboard and assignment form component.
+Unit tests for `ReviewManagement` page and `ReviewAssignmentForm` (Issue #8).
 
 ### Acceptance Criteria
-- [ ] Page rendering tests:
-  - Review dashboard renders
-  - Pending deliverables list visible
-  - Assignment form visible
-
-- [ ] List functionality:
-  - API called to fetch deliverables
-  - List displayed with correct columns
-  - Pagination works (20 per page)
-  - Filters work (by type, status, date)
-
-- [ ] Assignment form:
-  - Committee member dropdown appears
-  - Selection updates state
-  - Submit button calls API
-  - Success message shown
-  - Error handled with retry
-
-- [ ] Status display:
-  - Shows pending/submitted/completed correctly
-  - Shows marks if available
-  - Shows submission timestamps
-
-- [ ] User interactions:
-  - Click deliverable → shows details
-  - Select reviewers → updates UI
-  - Submit assignment → API called
-  - Pagination clicks → fetches new data
-
-- [ ] Accessibility: keyboard navigation, screen reader friendly
-
-- [ ] Minimum 80% code coverage
-- [ ] Mock API calls, loading states
+- [ ] Page renders with stat cards (pending/in_progress/needs_clarification/completed counts)
+- [ ] Review list shows correct columns with data from mocked `GET /reviews/status`
+- [ ] Filter dropdown changes shown list
+- [ ] Pagination fetches next page
+- [ ] Non-coordinator is redirected
+- [ ] Assignment form: renders on deliverable click
+- [ ] `reviewDeadlineDays` required — submit disabled if empty
+- [ ] `selectedCommitteeMembers` multi-select works
+- [ ] Submit calls `POST /reviews/assign` with correct body including `reviewDeadlineDays`
+- [ ] Success → confirmation shown, list refreshes
+- [ ] API error → error message shown with `code` field
+- [ ] Loading states visible during API calls
+- [ ] Minimum 80% code coverage, mock all API calls
 
 ### Files
 - Create: `frontend/src/pages/__tests__/ReviewManagement.test.js`
+- Create: `frontend/src/components/reviews/__tests__/ReviewAssignmentForm.test.js`
 
 ### Depends On
-- Issue #7 (component to test)
+- Issue #8
 
 ---
 
-## Issue #12: Frontend Testing - Review Submission Form &amp; Clarification (80% coverage)
+## Issue #13: Frontend Testing - Comment Thread & Review Form (80% coverage)
 
 **Priority:** 🟡 P2 - Medium | **Type:** Frontend Testing | **Story Points:** 8  
-**Assigned To:** Frontend Tester | **Branch:** `feature/process6-submission-tests`
+**Assigned To:** Frontend Tester | **Branch:** `feature/process6-comment-tests`
 
 ### Description
-Tests for committee review form with marks, comments, and clarification thread.
+Unit tests for `ReviewPage`, `CommentThread`, and `AddCommentForm` (Issue #9).
 
 ### Acceptance Criteria
-- [ ] Form rendering:
-  - Deliverable content displayed (read-only)
-  - Mark input fields present (one per section)
-  - Comments textarea present
-  - Feedback textarea present
-  - Submit button present (initially disabled)
-
-- [ ] Mark validation:
-  - Accepts 0-100 numeric values
-  - Rejects negative/&gt;100 with error
-  - Error clears when valid value entered
-  - Submit disabled until all marks valid
-
-- [ ] Form submission:
-  - Collects all data correctly
-  - Calls POST API endpoint
-  - Shows loading state while submitting
-  - Shows success message on completion
-  - Shows error message on failure with retry
-
-- [ ] Clarification thread:
-  - Displays previous Q&amp;A
-  - Add new question button works
-  - Shows new questions immediately
-  - Shows answers when submitted
-
-- [ ] Progress info:
-  - Shows reviewer count: X/Y submitted
-  - Shows deadline countdown
-  - Shows estimated completion
-
-- [ ] User interactions:
-  - Typing in marks/comments → updates state
-  - Clicking submit → API called
-  - Clicking add question → form opens
-  - Submitting answer → thread updates
-
-- [ ] Accessibility: labels linked, keyboard navigable
-
-- [ ] Minimum 80% code coverage
-- [ ] Mock API calls
+- [ ] `ReviewPage` renders deliverable metadata and comment thread from mocked API
+- [ ] `CommentThread`:
+  - All comments listed with correct badges (`commentType`, `status`)
+  - `needsResponse: true` comments highlighted
+  - Replies shown nested under parent
+  - Filter by status works
+- [ ] `AddCommentForm` (committee only):
+  - All fields render
+  - `needsResponse` checkbox shown only when `commentType === 'clarification_required'`
+  - Submit disabled if `content` empty
+  - Submit calls `POST /api/deliverables/:id/comments` with correct body
+  - Success → new comment appears in thread immediately
+- [ ] Edit comment:
+  - "Edit" button only visible to comment author
+  - Saves updated content via `PATCH`
+- [ ] Resolve comment: "Resolve" sets `status: 'resolved'` via `PATCH`
+- [ ] Reply form:
+  - "Reply" button expands inline textarea
+  - Submit calls `POST .../reply` with `content`
+  - New reply appears immediately
+  - For student role: reply auto-acknowledges parent comment
+- [ ] Loading and error states tested for each API call
+- [ ] Student cannot see `AddCommentForm`
+- [ ] Minimum 80% code coverage, mock all API calls
 
 ### Files
-- Create: `frontend/src/components/reviews/__tests__/ReviewSubmissionForm.test.js`
+- Create: `frontend/src/pages/__tests__/ReviewPage.test.js`
+- Create: `frontend/src/components/reviews/__tests__/CommentThread.test.js`
+- Create: `frontend/src/components/reviews/__tests__/AddCommentForm.test.js`
 
 ### Depends On
-- Issue #8 (component to test)
+- Issue #9
 
 ---
 
@@ -487,17 +588,66 @@ Tests for committee review form with marks, comments, and clarification thread.
 
 | # | Title | Dev | Type | SP | Phase |
 |---|-------|-----|------|-----|-------|
-| 1 | Assignment Endpoint | FS-Dev1 | Backend | 8 | 1-4 |
-| 2 | Collect Reviews Endpoint | FS-Dev1 | Backend | 8 | 1-4 |
-| 3 | Mark &amp; Section Service | FS-Dev2 | Backend | 8 | 1-4 |
-| 4 | Review Models &amp; Migration | FS-Dev2 | Backend | 8 | 1-4 |
-| 5 | Clarification Service | Back-Dev | Backend | 8 | 1-4 |
-| 6 | Notifications Service | Back-Dev | Backend | 8 | 1-4 |
-| 7 | Review Management Page | Front-Dev | Frontend | 8 | 5-7 |
-| 8 | Review Form Component | Front-Dev | Frontend | 8 | 5-7 |
-| 9 | Assignment Tests | Back-Test | Testing | 8 | 8-10 |
-| 10 | Clarification Tests | Back-Test | Testing | 8 | 8-10 |
-| 11 | Management Tests | Front-Test | Testing | 8 | 8-10 |
-| 12 | Submission Form Tests | Front-Test | Testing | 8 | 8-10 |
+| 1 | Auth Middleware for Review Routes | FS-Dev1 | Backend Infra | 3 | 1 |
+| 2 | Review Assignment Endpoint | FS-Dev1 | Backend | 8 | 1-2 |
+| 3 | Review & Comment Models | FS-Dev2 | Backend Infra | 8 | 1 |
+| 4 | Add Comment & Get Thread Endpoints | FS-Dev1 | Backend | 8 | 2-3 |
+| 5 | Edit/Resolve Comment & Reply Endpoints | FS-Dev2 | Backend | 8 | 3-4 |
+| 6 | Review Status Overview Endpoint | FS-Dev2 | Backend | 5 | 4 |
+| 7 | Review Notification Service | Back-Dev | Backend | 8 | 4-5 |
+| 8 | Review Management Dashboard (Coordinator) | Front-Dev | Frontend | 8 | 5-6 |
+| 9 | Comment Thread & Review Form (Committee) | Front-Dev | Frontend | 8 | 6-7 |
+| 10 | Assignment & Comment Tests | Back-Test | Testing | 8 | 7-8 |
+| 11 | Status & Notification Tests | Back-Test | Testing | 8 | 7-8 |
+| 12 | Dashboard Tests | Front-Test | Testing | 8 | 8-9 |
+| 13 | Comment Thread Tests | Front-Test | Testing | 8 | 8-9 |
 
-**Total: 96 SP | Per Dev: 16 SP | Coverage: 80%+ | Conflicts: 0%**
+**Total: 96 SP | Coverage: 80%+ | Conflicts: 0%**
+
+### Process Flow (for reference)
+```
+Coordinator assigns review
+  → Issue #2: POST /reviews/assign → Review created [status: pending]
+      → Issue #7: notifyReviewerAssigned → committee members emailed
+
+Committee member reads deliverable & adds comments
+  → Issue #4: POST /deliverables/:id/comments → Comment created [status: open]
+      → if needsResponse: true → Review [status: needs_clarification]
+      → Issue #7: notifyClarificationRequested → group emailed
+
+Student replies to clarification
+  → Issue #5: POST /deliverables/:id/comments/:commentId/reply
+      → comment.status auto-set to 'acknowledged'
+      → Issue #7: notifyStudentReplied → reviewer emailed
+
+Coordinator/reviewer resolves all clarifications
+  → Issue #5: PATCH /deliverables/:id/comments/:commentId { status: 'resolved' }
+      → when no open needsResponse comments remain → Review [status: completed]
+      → Issue #7: notifyReviewCompleted → all stakeholders emailed
+
+Coordinator monitors progress
+  → Issue #6: GET /reviews/status → live overview of all reviews
+```
+
+### DFD Coverage
+All 3 sub-processes in `dfdLevel2_Process6.drawio` are covered:
+- ✅ 6.1 Assign Review to Committee → Issue #2
+- ✅ 6.2 Collect Review Comments & Marks → Issues #4, #5
+- ✅ 6.3 Mark Sections & Log Reviews → Issue #6 (status), Issue #7 (notifications)
+
+All DFD data flows covered:
+- ✅ f1: Student → 6.1 (auto-triggered from Process 5) → Issue #2
+- ✅ f2: 6.1 → 6.2 (review assignment + instructions) → Issue #2 creates Review, Issue #4 reads it
+- ✅ f3: 6.2 → 6.3 (review data + comments collected) → Issue #6 aggregates
+- ✅ f5: D3 → 6.1 (committee assignment list) → Issue #2
+- ✅ f6: D4 → 6.2 (deliverable content + files) → Issue #4 (deliverable lookup)
+- ✅ f7: 6.2 → D5 (store comments + clarifications) → Issue #4
+- ✅ f8: 6.3 → D5 (store section marks + review status) → Issue #6
+- ✅ f9: 6.2 → Student (clarification request) → Issue #4 (needsResponse notification)
+- ✅ f10: 6.3 → Student (section status + final feedback) → Issue #7 (review-completed-student template)
+- ✅ f11: Coordinator → 6.1 (review schedule + deadline) → Issue #2
+- ✅ f12: 6.3 → Coordinator (review completion + results report) → Issue #7 (review-completed-coordinator template)
+- ✅ f13: 6.1 → Committee Member (review assignment + deliverable link) → Issue #7 (review-assignment notification)
+- ✅ f14: 6.1 → Notification Service (review assigned event) → Issue #7
+- ✅ f16: Committee Member → 6.2 (committee comments + section marks) → Issues #4, #5
+- ✅ f17: 6.3 → Notification Service (review complete event) → Issue #7
