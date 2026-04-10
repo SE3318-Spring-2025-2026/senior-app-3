@@ -264,8 +264,7 @@ const CoordinatorPanel = () => {
     try {
       const result = await transferAdvisor(transferForm.groupId, {
         newProfessorId: transferForm.newProfessorId.trim(),
-        coordinatorId: user.userId,
-        reason: transferForm.reason.trim(),
+        reason: transferForm.reason.trim() || undefined,
       });
       setTransferSuccess(
         `✓ Group ${result.groupId} transferred to ${result.professorId} (${result.status}).`

@@ -37,6 +37,15 @@ const groupSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    advisorStatus: {
+      type: String,
+      enum: ['assigned', 'released', 'transferred'],
+      default: null,
+    },
+    advisorUpdatedAt: {
+      type: Date,
+      default: null,
+    },
     status: {
       type: String,
       enum: ['pending_validation', 'active', 'inactive', 'archived'],

@@ -15,7 +15,7 @@ const ScheduleWindow = require('../models/ScheduleWindow');
  *
  * The PATCH /groups/:groupId/override endpoint is explicitly exempt (not wrapped).
  */
-const checkScheduleWindow = (operationType) => async (req, res, next) => {
+const checkScheduleWindow = (operationType, options = {}) => async (req, res, next) => {
   try {
     const now = new Date();
     const activeWindow = await ScheduleWindow.findOne({
@@ -26,9 +26,9 @@ const checkScheduleWindow = (operationType) => async (req, res, next) => {
     });
 
     if (!activeWindow) {
-      return res.status(403).json({
+      return res.status(options.statusCode || 403).json({
         code: 'OUTSIDE_SCHEDULE_WINDOW',
-        reason: 'Operation not available outside the configured schedule window',
+        reason: options.message || 'Operation not available outside the configured schedule window',
       });
     }
 
