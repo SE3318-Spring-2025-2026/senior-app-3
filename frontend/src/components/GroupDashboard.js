@@ -102,7 +102,16 @@ const GroupDashboard = () => {
       setReleaseReason('');
       fetchGroupDashboard(groupId);
     } catch (err) {
-      setReleaseError(err.response?.data?.message || 'Failed to release advisor. Please check the schedule window.');
+      const status = err.response?.status;
+      if (status === 403) {
+        setReleaseError('You are not authorized to release this advisor.');
+      } else if (status === 409) {
+        setReleaseError('Your group does not currently have an assigned advisor.');
+      } else if (status === 422) {
+        setReleaseError('The advisor association schedule is currently closed.');
+      } else {
+        setReleaseError(err.response?.data?.message || 'Failed to release advisor. Please check the schedule window.');
+      }
     } finally {
       setReleaseLoading(false);
     }
@@ -255,7 +264,7 @@ const GroupDashboard = () => {
                       <span className="info-label">Assigned Advisor:</span>
                       <span className="info-value">Dr. {groupData.advisorName || 'Advisor'}</span>
                     </div>
-                    {(isLeader || isCoordinator) && (
+                    {isLeader && (
                       <button 
                         className="release-advisor-btn-outline"
                         onClick={() => setReleaseModalOpen(true)}

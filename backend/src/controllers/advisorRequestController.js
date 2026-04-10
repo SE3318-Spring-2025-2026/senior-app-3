@@ -1,6 +1,9 @@
+const mongoose = require('mongoose');
+const { v4: uuidv4 } = require('uuid');
 const advisorRequestService = require('../services/advisorRequestService');
 const ScheduleWindow = require('../models/ScheduleWindow');
 const Group = require('../models/Group');
+const AdvisorAssignment = require('../models/AdvisorAssignment');
 const { createAuditLog } = require('../services/auditService');
 
 /**
@@ -97,103 +100,97 @@ const createRequest = async (req, res) => {
  * - Log the action to audit trail
  */
 const releaseAdvisor = async (req, res) => {
+  const session = await mongoose.startSession();
   try {
     const { groupId } = req.params;
     const { professorId, reason } = req.body;
     const requesterId = req.user.userId;
     const requesterRole = req.user.role;
 
-    // 1. Fetch group and check if it exists
-    const group = await Group.findOne({ groupId });
-    if (!group) {
-      return res.status(404).json({
-        code: 'GROUP_NOT_FOUND',
-        message: 'Group not found.'
-      });
-    }
+    let responsePayload;
 
-    // 2. Authorization (Team Leader or Coordinator)
-    const isTeamLeader = group.leaderId === requesterId;
-    const isCoordinator = requesterRole === 'coordinator';
+    await session.withTransaction(async () => {
+      // 1. Fetch group and check if it exists (using session for atomic read-modify-write)
+      const group = await Group.findOne({ groupId }).session(session);
+      if (!group) {
+        throw { status: 404, code: 'GROUP_NOT_FOUND', message: 'Group not found.' };
+      }
 
-    if (!isTeamLeader && !isCoordinator) {
-      return res.status(403).json({
-        code: 'FORBIDDEN',
-        message: 'Only the Team Leader or a Coordinator can release the advisor.'
-      });
-    }
+      // 2. Authorization (Team Leader or Coordinator)
+      const isTeamLeader = group.leaderId === requesterId;
+      const isCoordinator = requesterRole === 'coordinator';
 
-    // 3. Schedule boundary enforcement
-    const now = new Date();
-    const activeWindow = await ScheduleWindow.findOne({
-      operationType: 'advisor_association',
-      startsAt: { $lte: now },
-      endsAt: { $gte: now }
-    });
+      if (!isTeamLeader && !isCoordinator) {
+        throw { status: 403, code: 'FORBIDDEN', message: 'Only the Team Leader or a Coordinator can release the advisor.' };
+      }
 
-    if (!activeWindow) {
-      return res.status(422).json({
-        code: 'WINDOW_CLOSED',
-        message: 'The advisor association window is currently closed. Advisor release is blocked.'
-      });
-    }
+      // 4. Conflict Check: check if group HAS an advisor
+      if (!group.advisorId) {
+        throw { status: 409, code: 'NO_ASSIGNED_ADVISOR', message: 'Group does not currently have an assigned advisor.' };
+      }
 
-    // 4. Conflict Check: check if group HAS an advisor
-    if (!group.advisorId) {
-      return res.status(409).json({
-        code: 'NO_ASSIGNED_ADVISOR',
-        message: 'Group does not currently have an assigned advisor.'
-      });
-    }
+      // Optional: Validation of professorId if provided
+      if (professorId && group.advisorId !== professorId) {
+        throw { status: 400, code: 'ADVISOR_MISMATCH', message: 'The provided professorId does not match the currently assigned advisor.' };
+      }
 
-    // Optional: Validation of professorId if provided
-    if (professorId && group.advisorId !== professorId) {
-      return res.status(400).json({
-        code: 'ADVISOR_MISMATCH',
-        message: 'The provided professorId does not match the currently assigned advisor.'
-      });
-    }
+      const oldAdvisorId = group.advisorId;
 
-    const oldAdvisorId = group.advisorId;
+      // 5. Update Group Record
+      group.advisorId = null;
+      group.advisorStatus = 'released';
+      await group.save({ session });
 
-    // 5. Update D2 Record (Process 3.5 → D2)
-    group.advisorId = null;
-    group.advisorStatus = 'released';
-    await group.save();
-
-    // 6. Audit Log
-    try {
-      await createAuditLog({
-        action: 'ADVISOR_RELEASED',
-        actorId: requesterId,
+      // 6. Persist to Assignment History
+      await AdvisorAssignment.create([{
+        assignmentId: `asn_${uuidv4().split('-')[0]}`,
         groupId: group.groupId,
-        targetId: oldAdvisorId,
-        payload: {
-          previous_advisor: oldAdvisorId,
-          reason: reason || 'No reason provided',
-          requester_role: requesterRole
-        },
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent']
-      });
-    } catch (auditError) {
-      console.error('Advisor release audit log failed:', auditError.message);
-    }
+        professorId: oldAdvisorId,
+        status: 'released',
+        updatedBy: requesterId,
+        reason: reason || 'No reason provided',
+        updatedAt: new Date()
+      }], { session });
 
-    // 7. Response (OpenAPI AdvisorAssignment schema)
-    return res.status(200).json({
-      groupId: group.groupId,
-      professorId: null,
-      status: 'released',
-      updatedAt: group.updatedAt
+      // 7. Audit Log (outside transaction might be better but we'll try to keep it consistent or just catch errors)
+      try {
+        await createAuditLog({
+          action: 'ADVISOR_RELEASED',
+          actorId: requesterId,
+          groupId: group.groupId,
+          targetId: oldAdvisorId,
+          payload: {
+            previous_advisor: oldAdvisorId,
+            reason: reason || 'No reason provided',
+            requester_role: requesterRole
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent']
+        }, session);
+      } catch (auditError) {
+        console.error('Advisor release audit log failed:', auditError.message);
+        // Non-fatal, don't throw
+      }
+
+      responsePayload = {
+        groupId: group.groupId,
+        professorId: null,
+        status: 'released',
+        updatedAt: group.updatedAt
+      };
     });
+
+    return res.status(200).json(responsePayload);
 
   } catch (error) {
     console.error('Release advisor error:', error);
-    return res.status(500).json({
-      code: 'SERVER_ERROR',
-      message: 'An unexpected error occurred while releasing the advisor.'
+    const status = error.status || 500;
+    return res.status(status).json({
+      code: error.code || 'SERVER_ERROR',
+      message: error.message || 'An unexpected error occurred while releasing the advisor.'
     });
+  } finally {
+    session.endSession();
   }
 };
 

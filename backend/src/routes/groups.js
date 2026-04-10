@@ -21,7 +21,13 @@ router.get('/', authMiddleware, roleMiddleware(['coordinator']), getAllGroups);
 router.get('/:groupId', authMiddleware, getGroup);
 
 // DELETE /api/v1/groups/:groupId/advisor — Process 3.5: release current advisor
-router.delete('/:groupId/advisor', authMiddleware, advisorRequestController.releaseAdvisor);
+router.delete(
+  '/:groupId/advisor', 
+  authMiddleware, 
+  roleMiddleware(['student', 'coordinator', 'admin']),
+  checkScheduleWindow('advisor_association'),
+  advisorRequestController.releaseAdvisor
+);
 
 // POST /api/v1/groups/:groupId/members — Process 2.3: leader invites a student (f05, f19)
 router.post('/:groupId/members', authMiddleware, checkScheduleWindow('member_addition'), addMember);
