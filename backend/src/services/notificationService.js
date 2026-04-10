@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { retryNotificationWithBackoff } = require('./notificationRetry');
 
 const NOTIFICATION_SERVICE_URL =
   process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:4000';
@@ -91,9 +92,92 @@ const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipie
   return response.data;
 };
 
+/**
+ * Dispatch a COMMITTEE_PUBLISHED notification to advisors, jury members, and optionally group members.
+ * Called by Process 4.5 (DFD flow f09: 4.5 → Notification Service).
+ *
+ * Uses retry logic with exponential backoff (3 attempts: 100ms, 200ms, 400ms).
+ * Non-fatal failures: notification dispatch errors are logged but do not block committee publish.
+ *
+ * @param {object} payload
+ * @param {string} payload.committeeId - Committee identifier
+ * @param {string} payload.committeeName - Committee name
+ * @param {string[]} payload.advisorIds - Advisor user IDs to notify
+ * @param {string[]} payload.juryIds - Jury member user IDs to notify
+ * @param {string[]} [payload.groupMemberIds] - Optional group member user IDs to notify
+ * @param {string} payload.coordinatorId - Coordinator who published the committee
+ * @returns {Promise<object>} { success: boolean, notificationId: string|null, error: object|null }
+ */
+const dispatchCommitteePublishNotification = async ({
+  committeeId,
+  committeeName,
+  advisorIds,
+  juryIds,
+  groupMemberIds,
+  coordinatorId,
+}) => {
+  // Aggregate recipients: advisors, jury members, and optional group members
+  const recipientSet = new Set();
+
+  if (advisorIds && Array.isArray(advisorIds)) {
+    advisorIds.forEach((id) => recipientSet.add(id));
+  }
+
+  if (juryIds && Array.isArray(juryIds)) {
+    juryIds.forEach((id) => recipientSet.add(id));
+  }
+
+  if (groupMemberIds && Array.isArray(groupMemberIds)) {
+    groupMemberIds.forEach((id) => recipientSet.add(id));
+  }
+
+  const recipients = Array.from(recipientSet);
+
+  // Dispatch function to retry
+  const dispatchFn = async () => {
+    try {
+      const response = await axios.post(
+        `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+        {
+          type: 'committee_published',
+          committeeId,
+          committeeName,
+          recipients,
+          publishedBy: coordinatorId,
+          publishedAt: new Date().toISOString(),
+        },
+        { timeout: 5000 }
+      );
+      return {
+        success: true,
+        notificationId: response.data.notification_id || response.data.notificationId,
+        error: null,
+      };
+    } catch (err) {
+      return {
+        success: false,
+        notificationId: null,
+        error: err,
+      };
+    }
+  };
+
+  // Use retry logic with exponential backoff
+  const result = await retryNotificationWithBackoff(dispatchFn, {
+    context: {
+      committeeId,
+      operation: 'committee_published',
+      actorId: coordinatorId,
+    },
+  });
+
+  return result;
+};
+
 module.exports = {
   dispatchInvitationNotification,
   dispatchMembershipDecisionNotification,
   dispatchGroupCreationNotification,
   dispatchBatchInvitationNotification,
+  dispatchCommitteePublishNotification,
 };
