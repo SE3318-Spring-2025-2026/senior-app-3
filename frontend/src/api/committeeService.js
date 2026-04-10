@@ -38,3 +38,29 @@ export const getCommittee = async (committeeId) => {
   const response = await apiClient.get(`/committees/${committeeId}`);
   return response.data;
 };
+
+/**
+ * Assign advisors to a committee
+ * @param {string} committeeId
+ * @param {string[]} advisorIds
+ * @returns {Promise<object>}
+ */
+export const assignCommitteeAdvisors = async (committeeId, advisorIds) => {
+  const response = await apiClient.post(`/committees/${committeeId}/advisors`, {
+    advisorIds,
+  });
+  return response.data;
+};
+
+/**
+ * Add jury members to a committee
+ * @param {string} committeeId
+ * @param {string[]} juryIds
+ * @returns {Promise<object>}
+ */
+export const addJuryMembers = async (committeeId, juryIds) => {
+  const response = await apiClient.post(`/committees/${committeeId}/jury`, {
+    juryIds,
+  });
+  return response.data;
+};

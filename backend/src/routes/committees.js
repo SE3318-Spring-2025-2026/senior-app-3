@@ -5,6 +5,8 @@ const {
   createCommittee,
   listCommittees,
   getCommittee,
+  assignCommitteeAdvisors,
+  addJuryMembers,
 } = require('../controllers/committeeController');
 
 // POST /api/v1/committees
@@ -32,6 +34,24 @@ router.get(
   authMiddleware,
   roleMiddleware(['coordinator', 'admin']),
   getCommittee
+);
+
+// POST /api/v1/committees/:committeeId/advisors
+// Process 4.2: Assign advisors to committee
+router.post(
+  '/:committeeId/advisors',
+  authMiddleware,
+  roleMiddleware(['coordinator']),
+  assignCommitteeAdvisors
+);
+
+// POST /api/v1/committees/:committeeId/jury
+// Process 4.3: Add jury members to committee
+router.post(
+  '/:committeeId/jury',
+  authMiddleware,
+  roleMiddleware(['coordinator']),
+  addJuryMembers
 );
 
 module.exports = router;

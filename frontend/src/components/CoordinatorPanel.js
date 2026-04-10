@@ -840,7 +840,8 @@ const CoordinatorPanel = () => {
                       <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Description</th>
                       <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Status</th>
                       <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Advisors</th>
-                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Created</th>
+                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Jury</th>
+                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -866,19 +867,41 @@ const CoordinatorPanel = () => {
                             borderRadius: '12px',
                             fontSize: '12px',
                             fontWeight: '600',
-                            backgroundColor: c.status === 'draft' ? '#fff3cd' : c.status === 'active' ? '#dcffe4' : '#f1f8ff',
-                            color: c.status === 'draft' ? '#856404' : c.status === 'active' ? '#22863a' : '#0366d6',
+                            backgroundColor: c.status === 'draft' ? '#fff3cd' : c.status === 'validated' ? '#dcffe4' : '#f1f8ff',
+                            color: c.status === 'draft' ? '#856404' : c.status === 'validated' ? '#22863a' : '#0366d6',
                           }}>
                             {c.status}
                           </span>
                         </td>
                         <td style={{ padding: '12px', color: '#444' }}>
-                          {c.advisorIds && c.advisorIds.length > 0 ? c.advisorIds.length : (
-                            <span style={{ color: '#ccc', fontStyle: 'italic' }}>none yet</span>
+                          {c.advisorIds && c.advisorIds.length > 0 ? (
+                            <span title={c.advisorIds.join(', ')}>{c.advisorIds.length}</span>
+                          ) : (
+                            <span style={{ color: '#ccc', fontStyle: 'italic' }}>none</span>
                           )}
                         </td>
-                        <td style={{ padding: '12px', color: '#586069', fontSize: '12px' }}>
-                          {new Date(c.createdAt).toLocaleDateString()}
+                        <td style={{ padding: '12px', color: '#444' }}>
+                          {c.juryIds && c.juryIds.length > 0 ? (
+                            <span title={c.juryIds.join(', ')}>{c.juryIds.length}</span>
+                          ) : (
+                            <span style={{ color: '#ccc', fontStyle: 'italic' }}>none</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          <button
+                            onClick={() => navigate(`/coordinator/committees/${c.committeeId}/jury`)}
+                            style={{
+                              padding: '4px 8px',
+                              backgroundColor: '#fafbfc',
+                              border: '1px solid #d1d5da',
+                              borderRadius: '4px',
+                              fontSize: '11px',
+                              cursor: 'pointer',
+                              fontWeight: '600',
+                            }}
+                          >
+                            Manage Jury
+                          </button>
                         </td>
                       </tr>
                     ))}

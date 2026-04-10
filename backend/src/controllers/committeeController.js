@@ -200,8 +200,231 @@ const getCommittee = async (req, res) => {
   }
 };
 
+/**
+ * POST /committees/:committeeId/advisors — Assign Advisors to Committee (Process 4.2)
+ */
+const assignCommitteeAdvisors = async (req, res) => {
+  try {
+    const { committeeId } = req.params;
+    const { advisorIds } = req.body;
+    const requesterId = req.user.userId;
+    const requesterRole = req.user.role;
+
+    if (requesterRole !== 'coordinator') {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'Only a Coordinator can assign advisors to a committee.',
+      });
+    }
+
+    if (!Array.isArray(advisorIds) || advisorIds.length === 0) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'advisorIds must be a non-empty array.',
+      });
+    }
+
+    const committee = await Committee.findOne({ committeeId });
+    if (!committee) {
+      return res.status(404).json({
+        code: 'COMMITTEE_NOT_FOUND',
+        message: 'Committee not found.',
+      });
+    }
+
+    // [Critical] Advisor-Jury Overlap Conflict check
+    const overlap = advisorIds.filter(id => committee.juryIds.includes(id));
+    if (overlap.length > 0) {
+      return res.status(409).json({
+        code: 'JURY_ADVISOR_OVERLAP',
+        message: `Professor(s) ${overlap.join(', ')} are already assigned as jury members on this committee.`,
+      });
+    }
+
+    // [High] Global Conflicting Role Check
+    const globalConflicts = await Committee.find({
+      committeeId: { $ne: committeeId },
+      $or: [
+        { advisorIds: { $in: advisorIds } },
+        { juryIds: { $in: advisorIds } }
+      ],
+      status: { $in: ['draft', 'validated', 'published'] }
+    });
+
+    if (globalConflicts.length > 0) {
+      const conflictedProfessors = [];
+      globalConflicts.forEach(c => {
+        advisorIds.forEach(id => {
+          if (c.advisorIds.includes(id) || c.juryIds.includes(id)) {
+            conflictedProfessors.push(`${id} (in committee "${c.committeeName}")`);
+          }
+        });
+      });
+
+      return res.status(409).json({
+        code: 'GLOBAL_ROLE_CONFLICT',
+        message: `The following professor(s) are already assigned to other committees: ${conflictedProfessors.join(', ')}.`,
+      });
+    }
+
+    // Filter out duplicates already in advisorIds
+    const newAdvisors = advisorIds.filter(id => !committee.advisorIds.includes(id));
+    if (newAdvisors.length > 0) {
+      committee.advisorIds.push(...newAdvisors);
+      await committee.save();
+
+      try {
+        await createAuditLog({
+          action: 'COMMITTEE_UPDATED',
+          actorId: requesterId,
+          targetId: committeeId,
+          payload: {
+            committeeId: committee.committeeId,
+            addedAdvisors: newAdvisors,
+            totalAdvisors: committee.advisorIds.length,
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      } catch (auditError) {
+        console.error('Audit log failed for advisor assignment:', auditError.message);
+      }
+    }
+
+    return res.status(200).json({
+      committeeId: committee.committeeId,
+      committeeName: committee.committeeName,
+      description: committee.description,
+      coordinatorId: committee.coordinatorId,
+      advisorIds: committee.advisorIds,
+      juryIds: committee.juryIds,
+      status: committee.status,
+      createdAt: committee.createdAt,
+      updatedAt: committee.updatedAt,
+    });
+  } catch (error) {
+    console.error('Assign advisors error:', error);
+    return res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'An unexpected error occurred.',
+    });
+  }
+};
+
+/**
+ * POST /committees/:committeeId/jury — Add Jury Members (Process 4.3)
+ */
+const addJuryMembers = async (req, res) => {
+  try {
+    const { committeeId } = req.params;
+    const { juryIds } = req.body;
+    const requesterId = req.user.userId;
+    const requesterRole = req.user.role;
+
+    if (requesterRole !== 'coordinator') {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'Only a Coordinator can assign jury members to a committee.',
+      });
+    }
+
+    if (!Array.isArray(juryIds) || juryIds.length === 0) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'juryIds must be a non-empty array.',
+      });
+    }
+
+    const committee = await Committee.findOne({ committeeId });
+    if (!committee) {
+      return res.status(404).json({
+        code: 'COMMITTEE_NOT_FOUND',
+        message: 'Committee not found.',
+      });
+    }
+
+    // [Critical] Advisor-Jury Overlap Conflict check
+    const overlap = juryIds.filter(id => committee.advisorIds.includes(id));
+    if (overlap.length > 0) {
+      return res.status(409).json({
+        code: 'JURY_ADVISOR_OVERLAP',
+        message: `Professor(s) ${overlap.join(', ')} are already assigned as advisors on this committee.`,
+      });
+    }
+
+    // [High] Global Conflicting Role Check
+    const globalConflicts = await Committee.find({
+      committeeId: { $ne: committeeId },
+      $or: [
+        { advisorIds: { $in: juryIds } },
+        { juryIds: { $in: juryIds } }
+      ],
+      status: { $in: ['draft', 'validated', 'published'] }
+    });
+
+    if (globalConflicts.length > 0) {
+      const conflictedProfessors = [];
+      globalConflicts.forEach(c => {
+        juryIds.forEach(id => {
+          if (c.advisorIds.includes(id) || c.juryIds.includes(id)) {
+            conflictedProfessors.push(`${id} (in committee "${c.committeeName}")`);
+          }
+        });
+      });
+
+      return res.status(409).json({
+        code: 'GLOBAL_ROLE_CONFLICT',
+        message: `The following professor(s) are already assigned to other committees: ${conflictedProfessors.join(', ')}.`,
+      });
+    }
+
+    // Filter out duplicates already in juryIds
+    const newJuryMembers = juryIds.filter(id => !committee.juryIds.includes(id));
+    if (newJuryMembers.length > 0) {
+      committee.juryIds.push(...newJuryMembers);
+      await committee.save();
+
+      try {
+        await createAuditLog({
+          action: 'COMMITTEE_UPDATED',
+          actorId: requesterId,
+          targetId: committeeId,
+          payload: {
+            addedJuryMembers: newJuryMembers,
+            totalJuryMembers: committee.juryIds.length,
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      } catch (auditError) {
+        console.error('Audit log failed for jury assignment:', auditError.message);
+      }
+    }
+
+    return res.status(200).json({
+      committeeId: committee.committeeId,
+      committeeName: committee.committeeName,
+      description: committee.description,
+      coordinatorId: committee.coordinatorId,
+      advisorIds: committee.advisorIds,
+      juryIds: committee.juryIds,
+      status: committee.status,
+      createdAt: committee.createdAt,
+      updatedAt: committee.updatedAt,
+    });
+  } catch (error) {
+    console.error('Add jury members error:', error);
+    return res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'An unexpected error occurred.',
+    });
+  }
+};
+
 module.exports = {
   createCommittee,
   listCommittees,
   getCommittee,
+  assignCommitteeAdvisors,
+  addJuryMembers,
 };
