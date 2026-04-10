@@ -70,16 +70,9 @@ const createCommittee = async (req, res) => {
       advisorIds: [],
       juryIds: [],
       status: 'draft',
-      forwardedToAdvisorAssignment: false,
+      forwardedToAdvisorAssignment: true,
     });
 
-    await committee.save();
-
-    // ── 5. Forward to Process 4.2 (DFD flow f02: 4.1 → 4.2) ─────────────────
-    // Mark the draft as forwarded; Process 4.2 (advisor assignment) will pick
-    // this up via the committeeId. In a message-queue architecture this would
-    // publish an event — here we flip the forwarded flag atomically.
-    committee.forwardedToAdvisorAssignment = true;
     await committee.save();
 
     // ── 6. Audit log ─────────────────────────────────────────────────────────
@@ -89,6 +82,7 @@ const createCommittee = async (req, res) => {
         actorId: requesterId,
         targetId: committee.committeeId,
         payload: {
+          committeeId: committee.committeeId,
           committeeName: committee.committeeName,
           description: committee.description,
           coordinatorId: requesterId,
@@ -111,6 +105,7 @@ const createCommittee = async (req, res) => {
       advisorIds: committee.advisorIds,
       juryIds: committee.juryIds,
       status: committee.status,
+      forwardedToAdvisorAssignment: committee.forwardedToAdvisorAssignment,
       createdAt: committee.createdAt,
     });
   } catch (error) {

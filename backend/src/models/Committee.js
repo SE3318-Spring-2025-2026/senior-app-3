@@ -37,10 +37,10 @@ const committeeSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
-    // Lifecycle status: draft → active → closed
+    // Lifecycle status: draft → validated → published
     status: {
       type: String,
-      enum: ['draft', 'active', 'closed'],
+      enum: ['draft', 'validated', 'published'],
       default: 'draft',
     },
     // DFD flow f02: forwarded flag — marks that 4.1 has forwarded draft to 4.2
