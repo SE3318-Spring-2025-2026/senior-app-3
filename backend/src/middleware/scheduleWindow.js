@@ -30,7 +30,6 @@ const checkScheduleWindow = (operationType, options = {}) => async (req, res, ne
       const message = options.message || 'Operation not available outside the configured schedule window';
       return res.status(statusCode).json({
         code: 'OUTSIDE_SCHEDULE_WINDOW',
-        reason: message,
         message,
       });
     }

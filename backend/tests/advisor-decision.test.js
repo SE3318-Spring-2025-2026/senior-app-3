@@ -174,6 +174,37 @@ describe('PATCH /api/v1/advisor-requests/:requestId', () => {
     expect(res.status).toBe(409);
   });
 
+  it('returns 409 when group already has a different advisor', async () => {
+    await createAdvisorWindow();
+    const professor = await createUser({ userId: 'usr_prof_7', role: 'professor' });
+    await createUser({ userId: 'usr_student_6', role: 'student' });
+    await Group.create({
+      groupName: 'Advisor Group 6',
+      groupId: 'grp_ad_6',
+      leaderId: 'usr_student_6',
+      status: 'active',
+      advisorId: 'usr_prof_existing',
+    });
+    const requestDoc = await AdvisorRequest.create({
+      requestId: 'arq_test_6',
+      groupId: 'grp_ad_6',
+      professorId: professor.userId,
+      requesterId: 'usr_student_6',
+      status: 'pending',
+    });
+
+    const res = await request(app)
+      .patch(`/api/v1/advisor-requests/${requestDoc.requestId}`)
+      .set('Authorization', authHeader(professor.userId, 'professor'))
+      .send({ decision: 'approve', reason: 'Approving this team' });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('GROUP_ALREADY_HAS_ADVISOR');
+
+    const updatedGroup = await Group.findOne({ groupId: 'grp_ad_6' });
+    expect(updatedGroup.advisorId).toBe('usr_prof_existing');
+  });
+
   it('returns 422 when advisor association schedule is closed', async () => {
     const professor = await createUser({ userId: 'usr_prof_6', role: 'professor' });
     await createUser({ userId: 'usr_student_5', role: 'student' });
@@ -198,5 +229,7 @@ describe('PATCH /api/v1/advisor-requests/:requestId', () => {
 
     expect(res.status).toBe(422);
     expect(res.body.code).toBe('OUTSIDE_SCHEDULE_WINDOW');
+    expect(res.body.reason).toBeUndefined();
+    expect(res.body.message).toBeDefined();
   });
 });
