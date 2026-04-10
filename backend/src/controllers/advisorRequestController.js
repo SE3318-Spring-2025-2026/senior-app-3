@@ -16,10 +16,13 @@ const createRequest = async (req, res) => {
     const requesterId = req.user.userId;
 
     // 1. Input validation
-    if (!groupId || !professorId) {
+    if (
+      typeof groupId !== 'string' || !groupId.trim() ||
+      typeof professorId !== 'string' || !professorId.trim()
+    ) {
       return res.status(400).json({
-        code: 'MISSING_FIELDS',
-        message: 'groupId and professorId are required.'
+        code: 'INVALID_INPUT',
+        message: 'groupId and professorId must be non-empty strings.',
       });
     }
 
@@ -27,6 +30,7 @@ const createRequest = async (req, res) => {
     const now = new Date();
     const activeWindow = await ScheduleWindow.findOne({
       operationType: 'advisor_association',
+      isActive: true,
       startsAt: { $lte: now },
       endsAt: { $gte: now }
     });

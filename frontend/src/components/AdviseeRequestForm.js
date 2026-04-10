@@ -56,8 +56,17 @@ const AdviseeRequestForm = () => {
       }, 3000);
     } catch (err) {
       console.error('Submission failed:', err);
-      const msg = err.response?.data?.message || 'Failed to submit request.';
-      setError(msg);
+      
+      const status = err.response?.status;
+      if (status === 403) {
+        setError('You must be the team leader to perform this action.');
+      } else if (status === 422) {
+        setError('The advisor request window is currently closed.');
+      } else if (status === 409) {
+        setError('Your group already has a pending request or an assigned advisor.');
+      } else {
+        setError(err.response?.data?.message || 'Failed to submit the request.');
+      }
     } finally {
       setIsSubmitting(false);
     }

@@ -44,4 +44,10 @@ const advisorRequestSchema = new mongoose.Schema({
   timestamps: true
 });
 
+// Partial unique index: Only one 'pending' request per group at a time
+advisorRequestSchema.index(
+  { groupId: 1, status: 1 },
+  { unique: true, partialFilterExpression: { status: 'pending' } }
+);
+
 module.exports = mongoose.model('AdvisorRequest', advisorRequestSchema);

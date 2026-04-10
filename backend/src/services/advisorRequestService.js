@@ -49,7 +49,14 @@ const submitRequest = async (data) => {
     notificationTriggered: true // Placeholder for Process 3.3
   });
 
-  await advisorRequest.save();
+  try {
+    await advisorRequest.save();
+  } catch (error) {
+    if (error.code === 11000) {
+      throw { status: 409, code: 'PENDING_REQUEST_EXISTS', message: 'Group already has a pending advisor request.' };
+    }
+    throw error;
+  }
 
   return advisorRequest;
 };
