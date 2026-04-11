@@ -29,3 +29,13 @@ export const checkAdvisorWindow = async () => {
   });
   return response.data;
 };
+
+/**
+ * Team Leader: release the currently assigned advisor (backend uses a transaction)
+ */
+export const releaseAdvisor = async (groupId, reason = '') => {
+  const response = await apiClient.post(`/groups/${groupId}/release-advisor`, {
+    reason,
+  });
+  return response.data;
+};

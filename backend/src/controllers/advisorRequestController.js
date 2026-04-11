@@ -1,12 +1,11 @@
 const advisorRequestService = require('../services/advisorRequestService');
-const ScheduleWindow = require('../models/ScheduleWindow');
 const Group = require('../models/Group');
 
 /**
  * Process 3.1: Submit Advisee Request
- * 
+ *
  * Logic:
- * - Enforce schedule window boundary (422)
+ * - Schedule window is enforced by checkScheduleWindow('advisor_association') on the route
  * - Authorize requester: must be the Team Leader of the specified group (403)
  * - Forward valid data to Process 3.2 (Service)
  */
@@ -26,39 +25,23 @@ const createRequest = async (req, res) => {
       });
     }
 
-    // 2. Schedule boundary enforcement (Coordinator set window)
-    const now = new Date();
-    const activeWindow = await ScheduleWindow.findOne({
-      operationType: 'advisor_association',
-      isActive: true,
-      startsAt: { $lte: now },
-      endsAt: { $gte: now }
-    });
-
-    if (!activeWindow) {
-      return res.status(422).json({
-        code: 'WINDOW_CLOSED',
-        message: 'The advisor association window is currently closed. Please check the coordinator schedule.'
-      });
-    }
-
-    // 3. Authorization (Team Leader Guard)
+    // 2. Authorization (Team Leader Guard)
     const group = await Group.findOne({ groupId });
     if (!group) {
-        return res.status(404).json({
-          code: 'GROUP_NOT_FOUND',
-          message: 'Group not found.'
-        });
+      return res.status(404).json({
+        code: 'GROUP_NOT_FOUND',
+        message: 'Group not found.',
+      });
     }
 
     if (group.leaderId !== requesterId) {
       return res.status(403).json({
         code: 'FORBIDDEN',
-        message: 'Only the Team Leader of the group can submit an advisor request.'
+        message: 'Only the Team Leader of the group can submit an advisor request.',
       });
     }
 
-    // 4. Forward to Process 3.2
+    // 3. Forward to Process 3.2
     const result = await advisorRequestService.submitRequest({
       groupId,
       professorId,
@@ -74,7 +57,7 @@ const createRequest = async (req, res) => {
 
   } catch (error) {
     console.error('Advisor request error:', error);
-    
+
     if (error.status) {
       return res.status(error.status).json({
         code: error.code,
@@ -89,6 +72,46 @@ const createRequest = async (req, res) => {
   }
 };
 
+/**
+ * POST /groups/:groupId/release-advisor — Team Leader releases current advisor
+ */
+const releaseAdvisor = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const requesterId = req.user.userId;
+    const { reason } = req.body || {};
+
+    if (typeof groupId !== 'string' || !groupId.trim()) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'groupId is required.',
+      });
+    }
+
+    await advisorRequestService.releaseAdvisor({ groupId, requesterId, reason });
+
+    return res.status(200).json({
+      status: 'ok',
+      message: 'Advisor has been released from this group.',
+    });
+  } catch (error) {
+    console.error('releaseAdvisor error:', error);
+
+    if (error.status) {
+      return res.status(error.status).json({
+        code: error.code,
+        message: error.message,
+      });
+    }
+
+    return res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'An unexpected error occurred while releasing the advisor.',
+    });
+  }
+};
+
 module.exports = {
-  createRequest
+  createRequest,
+  releaseAdvisor,
 };

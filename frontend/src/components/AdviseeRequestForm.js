@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import useAuthStore from '../store/authStore';
+import { getGroup } from '../api/groupService';
 import { getProfessors, submitAdvisorRequest, checkAdvisorWindow } from '../api/advisorService';
 import './AdviseeRequestForm.css';
 
 const AdviseeRequestForm = () => {
   const { group_id: groupId } = useParams();
   const navigate = useNavigate();
+  const user = useAuthStore((state) => state.user);
 
   const [professors, setProfessors] = useState([]);
   const [selectedProfessor, setSelectedProfessor] = useState('');
@@ -17,16 +20,24 @@ const AdviseeRequestForm = () => {
   const [windowInfo, setWindowInfo] = useState({ open: null });
 
   useEffect(() => {
+    if (!groupId || !user?.userId) return;
+
     const fetchData = async () => {
       setIsLoading(true);
       try {
+        const group = await getGroup(groupId);
+        if (group.leaderId !== user.userId) {
+          navigate(`/groups/${groupId}`, { replace: true });
+          return;
+        }
+
         const [profList, winStatus] = await Promise.all([
           getProfessors(),
-          checkAdvisorWindow()
+          checkAdvisorWindow(),
         ]);
         setProfessors(profList);
         setWindowInfo(winStatus);
-        
+
         if (!winStatus.open) {
           setError('The advisor association window is currently closed.');
         }
@@ -39,7 +50,7 @@ const AdviseeRequestForm = () => {
     };
 
     fetchData();
-  }, [groupId]);
+  }, [groupId, user?.userId, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -56,7 +67,7 @@ const AdviseeRequestForm = () => {
       }, 3000);
     } catch (err) {
       console.error('Submission failed:', err);
-      
+
       const status = err.response?.status;
       if (status === 403) {
         setError('You must be the team leader to perform this action.');

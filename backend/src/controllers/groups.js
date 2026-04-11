@@ -428,6 +428,7 @@ const formatGroupResponse = (group) => ({
   jiraProjectKey: group.projectKey,
   jiraBoardUrl: group.jiraBoardUrl,
   advisorName: group.advisorName || null,
+  advisorAssignedAt: group.advisorAssignedAt || null,
   advisorRequest: group.advisorRequest || null,
   createdAt: group.createdAt,
   updatedAt: group.updatedAt,
@@ -547,7 +548,16 @@ const coordinatorOverride = async (req, res) => {
       const oldStatus = group.status;
 
       // f21: Apply partial update to D2 group record
+      const prevAdvisorId = group.advisorId;
       Object.assign(group, updates);
+      if (updates.advisorId !== undefined) {
+        const nextAdvisorId = updates.advisorId;
+        if (nextAdvisorId && String(nextAdvisorId) !== String(prevAdvisorId)) {
+          group.advisorAssignedAt = timestamp;
+        } else if (!nextAdvisorId) {
+          group.advisorAssignedAt = null;
+        }
+      }
       await group.save();
 
       const override = await Override.create({

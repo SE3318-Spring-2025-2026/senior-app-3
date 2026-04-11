@@ -8,6 +8,7 @@ import JiraStatusCard from './JiraStatusCard';
 import GroupMemberList from './GroupMemberList';
 import AddMemberForm from './AddMemberForm';
 import { submitMembershipDecision, getMyPendingInvitation } from '../api/groupService';
+import { releaseAdvisor } from '../api/advisorService';
 import './GroupDashboard.css';
 
 /**
@@ -23,6 +24,7 @@ const GroupDashboard = () => {
   const [invitationInfo, setInvitationInfo] = useState(null);
   const [decisionLoading, setDecisionLoading] = useState(false);
   const [decisionMsg, setDecisionMsg] = useState('');
+  const [releaseLoading, setReleaseLoading] = useState(false);
 
   // Group store state
   const {
@@ -104,6 +106,26 @@ const GroupDashboard = () => {
   const handleCoordinatorPanel = () => {
     // Navigate to coordinator panel for this group
     navigate(`/groups/${groupId}/coordinator`);
+  };
+
+  const handleReleaseAdvisor = async () => {
+    if (!groupId) return;
+    const confirmed = window.confirm(
+      'Release the current advisor from this group? You can request a new advisor later if the schedule allows.'
+    );
+    if (!confirmed) return;
+
+    const reason = window.prompt('Optional reason (stored in assignment history):', '') ?? '';
+
+    setReleaseLoading(true);
+    try {
+      await releaseAdvisor(groupId, reason);
+      await fetchGroupDashboard(groupId);
+    } catch (err) {
+      window.alert(err.response?.data?.message || 'Could not release the advisor. Please try again.');
+    } finally {
+      setReleaseLoading(false);
+    }
   };
 
   if (!groupId) {
@@ -226,10 +248,22 @@ const GroupDashboard = () => {
               </div>
               <div className="card-content">
                 {groupData?.advisorId ? (
-                  <div className="info-row">
-                    <span className="info-label">Assigned Advisor:</span>
-                    <span className="info-value">Dr. {groupData.advisorName || 'Advisor'}</span>
-                  </div>
+                  <>
+                    <div className="info-row">
+                      <span className="info-label">Assigned Advisor:</span>
+                      <span className="info-value">Dr. {groupData.advisorName || 'Advisor'}</span>
+                    </div>
+                    {isLeader && (
+                      <button
+                        type="button"
+                        className="release-advisor-btn"
+                        onClick={handleReleaseAdvisor}
+                        disabled={releaseLoading}
+                      >
+                        {releaseLoading ? 'Releasing…' : 'Release Advisor'}
+                      </button>
+                    )}
+                  </>
                 ) : groupData?.advisorRequest?.status === 'pending' ? (
                   <div className="advisor-empty-state">
                     <p>You have a pending request sent to a professor.</p>
