@@ -107,19 +107,24 @@ async function assignAdvisor(groupId, professorId, options = {}) {
  * @returns {Promise<object>} Updated group document with cleared advisor
  * @throws {Error} if group not found or has no assigned advisor
  */
+// FIX #4: ATOMIC REPOSITORY OPERATIONS (releaseAdvisor)
+// DEFICIENCY: Two separate DB operations create TOCTOU race condition
+// PROBLEM: Between findOne validation and findOneAndUpdate execution, concurrent process could:
+//          - Change advisorId to different value (validation passes, wrong advisor cleared)
+//          - Delete group (validation passes, update fails silently)
+//          Result: Data inconsistency without proper error handling
+// SOLUTION: Combine into single atomic findOneAndUpdate with guard condition ($ne: null)
+//           Ensures validation and update happen atomically in single DB round-trip
+//           If condition fails (advisorId became null), operation returns null for error handling
 async function releaseAdvisor(groupId) {
-  const group = await Group.findOne({ groupId });
-
-  if (!group) {
-    throw new Error(`Group ${groupId} not found`);
-  }
-
-  if (!group.advisorId) {
-    throw new Error(`Group ${groupId} has no assigned advisor to release`);
-  }
-
+  // FIX #4 CHANGE: Atomic conditional update replaces read-then-write pattern
+  // Guard condition: advisorId must exist to proceed (prevents race condition)
+  // If advisorId was cleared between check and update, operation returns null and we throw
   const updated = await Group.findOneAndUpdate(
-    { groupId },
+    {
+      groupId,
+      advisorId: { $ne: null }, // GUARD: Only update if advisor currently assigned
+    },
     {
       $set: {
         advisorId: null,
@@ -130,6 +135,10 @@ async function releaseAdvisor(groupId) {
     },
     { new: true, runValidators: true }
   );
+
+  if (!updated) {
+    throw new Error(`Group ${groupId} not found or has no assigned advisor to release`);
+  }
 
   return updated;
 }
@@ -144,19 +153,24 @@ async function releaseAdvisor(groupId) {
  * @returns {Promise<object>} Updated group document with new advisor
  * @throws {Error} if group not found or has no assigned advisor
  */
+// FIX #4: ATOMIC REPOSITORY OPERATIONS (transferAdvisor)
+// DEFICIENCY: Two separate DB operations create TOCTOU race condition
+// PROBLEM: Between findOne validation and findOneAndUpdate execution, concurrent process could:
+//          - Clear advisorId to null (validation passes, transfer to wrong state)
+//          - Delete group (validation passes, update fails silently)
+//          Result: Transferred state without valid advisor or orphaned data
+// SOLUTION: Combine into single atomic findOneAndUpdate with guard condition ($ne: null)
+//           Ensures validation and update happen atomically in single DB round-trip
+//           If condition fails (advisorId cleared), operation returns null for error handling
 async function transferAdvisor(groupId, newProfessorId) {
-  const group = await Group.findOne({ groupId });
-
-  if (!group) {
-    throw new Error(`Group ${groupId} not found`);
-  }
-
-  if (!group.advisorId) {
-    throw new Error(`Group ${groupId} has no assigned advisor to transfer`);
-  }
-
+  // FIX #4 CHANGE: Atomic conditional update replaces read-then-write pattern
+  // Guard condition: advisorId must exist to proceed (prevents race condition)
+  // If advisorId was cleared between check and update, operation returns null and we throw
   const updated = await Group.findOneAndUpdate(
-    { groupId },
+    {
+      groupId,
+      advisorId: { $ne: null }, // GUARD: Only update if advisor currently assigned
+    },
     {
       $set: {
         advisorId: newProfessorId,
@@ -166,6 +180,10 @@ async function transferAdvisor(groupId, newProfessorId) {
     },
     { new: true, runValidators: true }
   );
+
+  if (!updated) {
+    throw new Error(`Group ${groupId} not found or has no assigned advisor to transfer`);
+  }
 
   return updated;
 }

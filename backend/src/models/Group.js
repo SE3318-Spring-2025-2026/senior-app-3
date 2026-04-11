@@ -1,9 +1,17 @@
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 
+// FIX #3: UNIQUE INDEX CORRECTION
+// DEFICIENCY: unique: true on embedded subdocument field is meaningless
+// PROBLEM: Mongoose does not create global uniqueness for fields within embedded documents
+//          This creates false sense of constraint protection; duplicates can exist
+// SOLUTION: Remove unique: true from subdocument, add sparse unique compound index to parent schema
+//           This ensures true global uniqueness while allowing null values
 const advisorRequestSchema = new mongoose.Schema(
   {
-    requestId: { type: String, required: true, unique: true },
+    // FIX #3 CHANGE: Removed unique: true from requestId
+    // Uniqueness will be enforced by sparse compound index on parent schema instead
+    requestId: { type: String, required: true },
     groupId: { type: String, required: true },
     professorId: { type: String, required: true },
     requesterId: { type: String, required: true },
@@ -54,7 +62,13 @@ const groupSchema = new mongoose.Schema(
     advisorId: {
       type: String,
       default: null,
-    },
+    },    // FIX #2: DISBAND STATE CONSOLIDATION
+    // DEFICIENCY: Two conflicting sources of disband state (advisorStatus vs status enum)
+    // PROBLEM: advisorStatus has 'disbanded' but status enum uses 'archived' for inactive groups
+    //          This creates ambiguity in state machine (which field represents group lifecycle?)
+    // SOLUTION: Add 'disbanded' to advisorStatus enum for advisor-specific lifecycle tracking
+    //           Keep 'archived' in status enum for overall group lifecycle
+    //           disbandGroup() transition: advisorStatus='disbanded' + status='archived'
     advisorStatus: {
       type: String,
       enum: ['pending', 'assigned', 'released', 'transferred', 'disbanded'],
@@ -153,6 +167,19 @@ groupSchema.index({ status: 1 });
 groupSchema.index({ advisorId: 1 });
 groupSchema.index({ advisorStatus: 1 });
 groupSchema.index({ groupId: 1 }, { unique: true });
+
+// FIX #3 ADDITION: Enforce global uniqueness on advisor request ID
+// SOLUTION: Sparse unique compound index allows null values (no active request)
+//           This is the correct way to enforce uniqueness in Mongoose
+groupSchema.index({ 'advisorRequest.requestId': 1 }, { unique: true, sparse: true });
+
+// FIX #5: INDEX DRIFT RESOLUTION
+// DEFICIENCY: Compound index exists in migration but not in model schema
+// PROBLEM: Index created in migration (006) is not reflected in model schema,
+//          causing dev/prod mismatch and confusion about which indices are active
+// SOLUTION: Add compound index definition to model schema as single source of truth
+//           Query optimizer now clearly understands multi-field queries (advisorId + advisorStatus)
+groupSchema.index({ advisorId: 1, advisorStatus: 1 });
 
 const Group = mongoose.model('Group', groupSchema);
 

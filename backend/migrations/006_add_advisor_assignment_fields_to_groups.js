@@ -33,30 +33,45 @@ module.exports = {
 
     const coll = conn.collection('groups');
 
-    // Check if fields already exist (idempotent)
-    const sampleDoc = await coll.findOne({});
-    const fieldsExist = sampleDoc && (
-      sampleDoc.hasOwnProperty('advisorStatus') ||
-      sampleDoc.hasOwnProperty('advisorRequestId') ||
-      sampleDoc.hasOwnProperty('advisorRequest')
+    // FIX #1: MIGRATION IDEMPOTENCY
+    // DEFICIENCY: Sample doc check prevents partial migrations from completing
+    // PROBLEM: If ANY document has ANY advisor field, the entire backfill is skipped,
+    //          leaving other documents without advisor fields (inconsistent state)
+    // SOLUTION: Use $exists: false filters to only update documents missing each field
+    // This allows the migration to complete safely even if run multiple times
+    // Each field is backfilled independently with proper conflict prevention
+
+    // Backfill advisorStatus on documents that don't have it
+    const resultStatus = await coll.updateMany(
+      { advisorStatus: { $exists: false } },
+      { $set: { advisorStatus: null } }
+    );
+    console.log(
+      `[MIGRATION] Backfilled advisorStatus on ${resultStatus.modifiedCount} group document(s)`
     );
 
-    if (fieldsExist) {
-      console.log('[MIGRATION] Advisor assignment fields already exist, skipping migration');
-      return;
-    }
+    // Backfill advisorRequestId on documents that don't have it
+    const resultRequestId = await coll.updateMany(
+      { advisorRequestId: { $exists: false } },
+      { $set: { advisorRequestId: null } }
+    );
+    console.log(
+      `[MIGRATION] Backfilled advisorRequestId on ${resultRequestId.modifiedCount} group document(s)`
+    );
 
-    // Backfill existing documents with advisor assignment fields
+    // Backfill advisorRequest on documents that don't have it
+    const resultRequest = await coll.updateMany(
+      { advisorRequest: { $exists: false } },
+      { $set: { advisorRequest: null } }
+    );
+    console.log(
+      `[MIGRATION] Backfilled advisorRequest on ${resultRequest.modifiedCount} group document(s)`
+    );
+
+    // Backfill advisorUpdatedAt on documents that don't have it
     const result = await coll.updateMany(
-      {},
-      {
-        $set: {
-          advisorStatus: null,
-          advisorRequestId: null,
-          advisorRequest: null,
-          advisorUpdatedAt: null,
-        },
-      }
+      { advisorUpdatedAt: { $exists: false } },
+      { $set: { advisorUpdatedAt: null } }
     );
     console.log(
       `[MIGRATION] Backfilled advisor assignment fields on ${result.modifiedCount} group document(s)`
