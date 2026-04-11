@@ -63,9 +63,57 @@ const forwardOverrideToReconciliation = async (override) => {
   return override;
 };
 
+/**
+ * Issue #66: Validate schedule window for advisor association operations
+ * 
+ * Checks if the current time falls within the configured open_at and close_at
+ * window for the advisor_association operation type.
+ * 
+ * @param {string} operationType - Operation type (e.g., 'advisor_association')
+ * @returns {Promise} { isOpen: boolean, message: string, window: { open_at, close_at } }
+ */
+const validateScheduleWindow = async (operationType = 'advisor_association') => {
+  const ScheduleWindow = require('../models/ScheduleWindow');
+  
+  try {
+    const window = await ScheduleWindow.findOne({ operation_type: operationType });
+    
+    if (!window) {
+      // No schedule configured, assume open
+      return {
+        isOpen: true,
+        message: 'No schedule window configured',
+        window: null,
+      };
+    }
+    
+    const now = new Date();
+    const openAt = new Date(window.open_at);
+    const closeAt = new Date(window.close_at);
+    
+    const isOpen = now >= openAt && now <= closeAt;
+    
+    return {
+      isOpen,
+      message: isOpen 
+        ? `Schedule window is open (${openAt.toISOString()} to ${closeAt.toISOString()})`
+        : `Schedule window is closed. Opens at ${openAt.toISOString()}, closes at ${closeAt.toISOString()}`,
+      window: {
+        open_at: openAt,
+        close_at: closeAt,
+      },
+    };
+  } catch (error) {
+    console.error('Error checking schedule window:', error);
+    throw error;
+  }
+};
+
 module.exports = {
   forwardToMemberRequestPipeline,
   forwardOverrideToReconciliation,
   // Issue #52: Export transition functions for group lifecycle management
   activateGroup,
+  // Issue #66: Schedule window validation for advisor association
+  validateScheduleWindow,
 };

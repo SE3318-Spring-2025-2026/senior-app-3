@@ -37,6 +37,28 @@ const groupSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    // Issue #66: Advisor Association View fields (Level 2.3)
+    advisorStatus: {
+      type: String,
+      enum: ['pending', 'assigned', 'released', 'transferred', 'disbanded'],
+      default: 'pending',
+      description: 'Tracks the state of advisor assignment for this group',
+    },
+    professorId: {
+      type: String,
+      default: null,
+      description: 'ID of the professor assigned as advisor (nullable if not assigned)',
+    },
+    advisorUpdatedAt: {
+      type: Date,
+      default: null,
+      description: 'Timestamp of last advisor assignment status change',
+    },
+    advisorRequestId: {
+      type: String,
+      default: null,
+      description: 'Reference to the AdvisorRequest record (for audit trail)',
+    },
     status: {
       type: String,
       enum: ['pending_validation', 'active', 'inactive', 'archived'],
@@ -118,6 +140,9 @@ const groupSchema = new mongoose.Schema(
 
 groupSchema.index({ leaderId: 1 });
 groupSchema.index({ status: 1 });
+groupSchema.index({ advisorStatus: 1 });
+groupSchema.index({ professorId: 1 });
+groupSchema.index({ advisorStatus: 1, professorId: 1 });
 
 const Group = mongoose.model('Group', groupSchema);
 

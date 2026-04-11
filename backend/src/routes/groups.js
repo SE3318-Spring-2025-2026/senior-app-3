@@ -6,12 +6,23 @@ const { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMembe
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
+const { coordinatorTransferAdvisor, disbandUnassignedGroups } = require('../controllers/groupAdvisor');
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
 router.post('/', authMiddleware, roleMiddleware(['student']), createGroup);
 
 // GET /api/v1/groups/pending-invitation — return current user's pending invitation with group info
 router.get('/pending-invitation', authMiddleware, getMyPendingInvitation);
+
+// Issue #66: Advisor Association Management (Process 3.6 & 3.7)
+// POST /api/v1/groups/advisor-sanitization — Disband unassigned groups (Process 3.7)
+// Place this before parameterized /:groupId routes to avoid route conflicts
+router.post(
+  '/advisor-sanitization',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
+  disbandUnassignedGroups
+);
 
 // GET /api/v1/groups — List all groups (coordinator only) for group management dashboard
 router.get('/', authMiddleware, roleMiddleware(['coordinator']), getAllGroups);
@@ -84,6 +95,15 @@ router.patch(
   authMiddleware,
   roleMiddleware(['coordinator', 'committee_member', 'professor', 'admin']),
   transitionStatus
+);
+
+// Issue #66: Advisor Association Management (Process 3.6 & 3.7)
+// POST /api/v1/groups/:groupId/advisor/transfer — Coordinator transfer group to new advisor (Process 3.6)
+router.post(
+  '/:groupId/advisor/transfer',
+  authMiddleware,
+  roleMiddleware(['coordinator']),
+  coordinatorTransferAdvisor
 );
 
 module.exports = router;
