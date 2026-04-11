@@ -91,9 +91,83 @@ const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipie
   return response.data;
 };
 
+/**
+ * Dispatch an ADVISOR_REQUEST notification to a professor.
+ *
+ * @param {object} payload
+ * @param {string} payload.groupId
+ * @param {string} payload.professorId
+ * @returns {object} { notification_id }
+ */
+const dispatchAdvisorRequestNotification = async ({ groupId, professorId }) => {
+  const response = await axios.post(
+    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+    { type: 'advisor_request', groupId, professorId },
+    { timeout: 5000 }
+  );
+  return response.data;
+};
+
+/**
+ * Dispatch an ADVISOR_DECISION notification to a group.
+ *
+ * @param {object} payload
+ * @param {string} payload.groupId
+ * @param {string} payload.professorId
+ * @param {string} payload.decision    - 'approve' | 'reject'
+ * @returns {object} { notification_id }
+ */
+const dispatchAdvisorDecisionNotification = async ({ groupId, professorId, decision }) => {
+  const response = await axios.post(
+    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+    { type: 'advisor_decision', groupId, professorId, decision },
+    { timeout: 5000 }
+  );
+  return response.data;
+};
+
+/**
+ * Dispatch an ADVISOR_TRANSFER notification to old and new professors.
+ *
+ * @param {object} payload
+ * @param {string} payload.groupId
+ * @param {string} payload.oldProfessorId
+ * @param {string} payload.newProfessorId
+ * @returns {object} { notification_id }
+ */
+const dispatchAdvisorTransferNotification = async ({ groupId, oldProfessorId, newProfessorId }) => {
+  const response = await axios.post(
+    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+    { type: 'advisor_transfer', groupId, oldProfessorId, newProfessorId },
+    { timeout: 5000 }
+  );
+  return response.data;
+};
+
+/**
+ * Dispatch a GROUP_DISBANDED notification to all group members.
+ *
+ * @param {object} payload
+ * @param {string} payload.groupId
+ * @param {string} payload.reason
+ * @returns {object} { notification_id }
+ */
+const dispatchGroupDisbandNotification = async ({ groupId, reason }) => {
+  const response = await axios.post(
+    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+    { type: 'group_disbanded', groupId, reason },
+    { timeout: 5000 }
+  );
+  return response.data;
+};
+
 module.exports = {
   dispatchInvitationNotification,
   dispatchMembershipDecisionNotification,
   dispatchGroupCreationNotification,
   dispatchBatchInvitationNotification,
+  dispatchAdvisorRequestNotification,
+  dispatchAdvisorDecisionNotification,
+  dispatchAdvisorTransferNotification,
+  dispatchGroupDisbandNotification,
 };
