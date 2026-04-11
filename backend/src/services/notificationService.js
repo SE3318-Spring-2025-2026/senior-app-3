@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { NOTIFICATION_TYPES } = require('../utils/operationTypes');
 
 const NOTIFICATION_SERVICE_URL =
   process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:4000';
@@ -13,6 +14,7 @@ const NOTIFICATION_SERVICE_URL =
 
 /**
  * Dispatch a GROUP_INVITATION notification to a student.
+ * Called by Process 2.3 (DFD flow f06: 2.3 → Notification Service).
  */
 const dispatchInvitationNotification = async ({ groupId, groupName, inviteeId, invitedBy }) => {
   const response = await axios.post(
@@ -33,6 +35,7 @@ const dispatchInvitationNotification = async ({ groupId, groupName, inviteeId, i
 
 /**
  * Dispatch a MEMBERSHIP_DECISION notification after a student accepts/rejects.
+ * Called by Process 2.4 (DFD flow f08: 2.4 → Notification Service).
  */
 const dispatchMembershipDecisionNotification = async ({ groupId, groupName, studentId, decision, decidedAt }) => {
   const response = await axios.post(
@@ -54,6 +57,7 @@ const dispatchMembershipDecisionNotification = async ({ groupId, groupName, stud
 
 /**
  * Dispatch a GROUP_CREATED notification after a group is successfully created.
+ * Called by Process 2.1 (DFD flow f03: 2.1 → Notification Service).
  */
 const dispatchGroupCreationNotification = async ({ groupId, groupName, leaderId }) => {
   const response = await axios.post(
@@ -73,6 +77,7 @@ const dispatchGroupCreationNotification = async ({ groupId, groupName, leaderId 
 
 /**
  * Dispatch a batch APPROVAL_REQUEST notification to multiple students.
+ * Called by Process 2.4 (DFD flow f07: 2.4 → Notification Service).
  */
 const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipients, invitedBy }) => {
   const response = await axios.post(
@@ -94,6 +99,7 @@ const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipie
 
 /**
  * Dispatch an ADVISEE_REQUEST notification to a professor.
+ * Called by Process 3.2 (Team Leader submits advisor request).
  */
 const dispatchAdvisorRequestNotification = async ({
   groupId,
@@ -120,29 +126,8 @@ const dispatchAdvisorRequestNotification = async ({
 };
 
 /**
- * Dispatch a GROUP_DISBAND notification to group members (Process 3.7).
- */
-const dispatchDisbandNotification = async ({ groupId, groupName, recipients, reason }) => {
-  const response = await axios.post(
-    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-    {
-      type: 'group_disband',
-      recipients,
-      payload: {
-        group_id: groupId,
-        group_name: groupName,
-        reason,
-        message: `Your group "${groupName}" has been disbanded due to: ${reason}`,
-      },
-    },
-    { timeout: 5000 }
-  );
-  return response.data;
-};
-
-/**
- * FIX #1: REJECTION_NOTICE DISPATCHER (NEW)
  * Dispatch a REJECTION_NOTICE notification to the Team Leader.
+ * Called by Process 3.4 when professor rejects advisor request.
  */
 const dispatchRejectionNotification = async ({
   groupId,
@@ -174,7 +159,8 @@ const dispatchRejectionNotification = async ({
 };
 
 /**
- * Dispatch an ADVISOR_STATUS_CHANGE notification to team leader or professor (Process 3.5).
+ * Dispatch an ADVISOR_STATUS_CHANGE notification to team leader or professor.
+ * Called by Process 3.5 (Advisor Decision notification).
  */
 const dispatchAdvisorStatusNotification = async ({
   groupId,
@@ -196,7 +182,29 @@ const dispatchAdvisorStatusNotification = async ({
         professor_id: professorId,
         professor_name: professorName,
         status,
-        message: message || null
+        message: message || null,
+      },
+    },
+    { timeout: 5000 }
+  );
+  return response.data;
+};
+
+/**
+ * Dispatch a GROUP_DISBAND notification to group members.
+ * Called by Process 3.7 (Advisor Sanitization).
+ */
+const dispatchDisbandNotification = async ({ groupId, groupName, recipients, reason }) => {
+  const response = await axios.post(
+    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+    {
+      type: 'group_disband',
+      recipients,
+      payload: {
+        group_id: groupId,
+        group_name: groupName,
+        reason,
+        message: `Your group "${groupName}" has been disbanded due to: ${reason}`,
       },
     },
     { timeout: 5000 }
@@ -206,6 +214,7 @@ const dispatchAdvisorStatusNotification = async ({
 
 /**
  * Issue #62 Fix #3 (CRITICAL): Transient Error Detection
+ * Determines if an error is transient (safe to retry) or permanent.
  */
 const isTransientError = (error) => {
   if (!error.response) return true;
@@ -215,7 +224,8 @@ const isTransientError = (error) => {
 };
 
 /**
- * Dispatch an ADVISEE_REQUEST notification to a professor with smart retry logic.
+ * Dispatch an ADVISEE_REQUEST notification with smart retry logic.
+ * Called by Process 3.2 with automatic retry on transient failures.
  */
 const dispatchAdvisorRequestWithRetry = async ({ groupId, requesterId, message }) => {
   let lastError = null;
@@ -223,13 +233,13 @@ const dispatchAdvisorRequestWithRetry = async ({ groupId, requesterId, message }
     try {
       const response = await axios.post(
         `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-        { 
-          type: 'advisee_request', 
+        {
+          type: 'advisee_request',
           payload: {
-            group_id: groupId, 
-            requester_id: requesterId, 
-            message: message || null 
-          }
+            group_id: groupId,
+            requester_id: requesterId,
+            message: message || null,
+          },
         },
         { timeout: 5000 }
       );
@@ -252,8 +262,8 @@ module.exports = {
   dispatchBatchInvitationNotification,
   dispatchAdvisorRequestNotification,
   dispatchRejectionNotification,
-  dispatchDisbandNotification,
   dispatchAdvisorStatusNotification,
+  dispatchDisbandNotification,
   dispatchAdvisorRequestWithRetry,
-  isTransientError
+  isTransientError,
 };

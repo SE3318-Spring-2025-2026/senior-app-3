@@ -8,7 +8,6 @@ const groupRoutes = require('./routes/groups');
 const advisorRequestRoutes = require('./routes/advisorRequests');
 const scheduleWindowRoutes = require('./routes/scheduleWindow');
 const auditLogRoutes = require('./routes/auditLogs');
-const advisorRequestRoutes = require('./routes/advisorRequests');
 const { errorHandler } = require('./middleware/auth');
 
 const app = express();
@@ -48,8 +47,10 @@ const connectDB = async () => {
   }
 };
 
-// Connect to database
-connectDB();
+// Connect to database only if not in test
+if (process.env.NODE_ENV !== 'test') {
+  connectDB();
+}
 
 // Routes
 app.use('/api/v1/auth', authRoutes);
@@ -58,7 +59,6 @@ app.use('/api/v1/groups', groupRoutes);
 app.use('/api/v1/advisor-requests', advisorRequestRoutes);
 app.use('/api/v1/schedule-window', scheduleWindowRoutes);
 app.use('/api/v1/audit-logs', auditLogRoutes);
-app.use('/api/v1/advisor-requests', advisorRequestRoutes);
 
 // 404 handler
 app.use((req, res) => {

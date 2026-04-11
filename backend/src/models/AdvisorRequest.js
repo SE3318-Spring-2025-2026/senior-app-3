@@ -1,21 +1,13 @@
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 
-/**
- * Issue #61: AdvisorRequest Model (D2 Extension)
- * Data Store: D2 - Advisory Assignment Tracking
- * Purpose:
- * Stores advisor request records for Process 3.0-3.7 workflow.
- * Tracks all advisor association requests and their lifecycle.
- */
 const advisorRequestSchema = new mongoose.Schema(
   {
     requestId: {
       type: String,
-      default: () => `req_${uuidv4().split('-')[0]}`, // Main'in otomatik ID üretimi
+      default: () => `arq_${uuidv4().split('-')[0]}`,
       unique: true,
       required: true,
-      index: true,
     },
     groupId: {
       type: String,
@@ -25,81 +17,41 @@ const advisorRequestSchema = new mongoose.Schema(
     professorId: {
       type: String,
       required: true,
-      index: true,
-    },
-    requesterId: {
-      type: String,
-      required: true,
-    },
-    message: {
-      type: String,
-      default: '',
-      maxlength: 1000, // Main'in karakter sınırı
     },
     status: {
       type: String,
-      enum: ['pending', 'approved', 'rejected', 'cancelled'],
+      enum: ['pending', 'approved', 'rejected'],
       default: 'pending',
-      index: true,
     },
     reason: {
       type: String,
-      default: '', // feature/63 dalından
+      default: null,
+    },
+    createdBy: {
+      type: String,
+      required: true,
+    },
+    processedAt: {
+      type: Date,
+      default: null,
     },
     notificationTriggered: {
       type: Boolean,
       default: false,
     },
-    decision: {
-      type: String,
-      enum: ['approved', 'rejected'],
-      default: null,
-    },
-    rejectionReason: {
-      type: String,
-      default: '',
-    },
-    decisionReason: {
-      type: String, // Main'den gelen olası veri kayıplarını önlemek için eklendi
-    },
-    decidedAt: {
-      type: Date,
-      default: null,
-    },
-    decidedBy: {
-      type: String,
-    },
-    processedAt: {
-      type: Date,
-      default: null, // feature/63 dalından süreç takibi için
-    },
   },
   {
     timestamps: true,
+    collection: 'advisorrequests',
   }
 );
 
-/**
- * Unique Partial Index for Duplicate Prevention
- * Prevents concurrent duplicate pending requests per group
- */
 advisorRequestSchema.index(
-  { groupId: 1, status: 1 },
+  { groupId: 1, professorId: 1, status: 1 },
   {
     unique: true,
     partialFilterExpression: { status: 'pending' },
-    name: 'groupId_pending_status_unique',
   }
 );
 
-// Additional Indexes for Query Optimization
-advisorRequestSchema.index({ professorId: 1 });
-advisorRequestSchema.index({ status: 1, createdAt: -1 });
-advisorRequestSchema.index({ groupId: 1, status: 1 });
-
-// feature/63 kompozit indeksi (Profesörlerin isteklerini listelerken performansı artırır)
-advisorRequestSchema.index({ professorId: 1, status: 1, createdAt: -1 });
-
-const AdvisorRequest = mongoose.model('AdvisorRequest', advisorRequestSchema);
-
-module.exports = AdvisorRequest;
+module.exports = mongoose.model('AdvisorRequest', advisorRequestSchema);

@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const { authMiddleware, roleMiddleware, flexibleSystemOrRoleAuth } = require('../middleware/auth');
-const { checkScheduleWindow } = require('../middleware/scheduleWindow');
+const { authMiddleware, roleMiddleware } = require('../middleware/auth');
+const { checkScheduleWindow, checkAdvisorOperationWindow } = require('../middleware/scheduleWindow');
+const OPERATION_TYPES = require('../utils/operationTypes');
 const {
   forwardApprovalResults,
   createGroup,
@@ -10,15 +11,13 @@ const {
   createMemberRequest,
   decideMemberRequest,
   coordinatorOverride,
-  createAdvisorRequest,
-  transferAdvisor,
 } = require('../controllers/groups');
+const { releaseAdvisor, transferAdvisor } = require('../controllers/advisorAssociation');
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
 const { decideAdvisorRequest } = require('../controllers/advisorDecision');
 const { advisorSanitization } = require('../controllers/sanitizationController');
-const advisorRequestController = require('../controllers/advisorRequestController');
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
 router.post('/', authMiddleware, roleMiddleware(['student']), createGroup);
@@ -29,23 +28,19 @@ router.get('/pending-invitation', authMiddleware, getMyPendingInvitation);
 // GET /api/v1/groups — List all groups (coordinator only) for group management dashboard
 router.get('/', authMiddleware, roleMiddleware(['coordinator']), getAllGroups);
 
-// POST /api/v1/groups/:groupId/release-advisor — Team Leader releases assigned advisor (transactional)
-router.post('/:groupId/release-advisor', authMiddleware, advisorRequestController.releaseAdvisor);
+// POST /api/v1/groups/advisor-sanitization — Issue #75 (must be registered before /:groupId routes)
+router.post(
+  '/advisor-sanitization',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'system']),
+  advisorSanitization
+);
 
 // GET /api/v1/groups/:groupId — Process 2.2: retrieve validated group record from D2
 router.get('/:groupId', authMiddleware, getGroup);
 
-// DELETE /api/v1/groups/:groupId/advisor — Process 3.5: release current advisor
-router.delete(
-  '/:groupId/advisor', 
-  authMiddleware, 
-  roleMiddleware(['student', 'coordinator', 'admin']),
-  checkScheduleWindow('advisor_association'),
-  advisorRequestController.releaseAdvisor
-);
-
 // POST /api/v1/groups/:groupId/members — Process 2.3: leader invites a student (f05, f19)
-router.post('/:groupId/members', authMiddleware, checkScheduleWindow('member_addition'), addMember);
+router.post('/:groupId/members', authMiddleware, checkScheduleWindow(OPERATION_TYPES.MEMBER_ADDITION), addMember);
 
 // GET /api/v1/groups/:groupId/members — return current member list from D2
 router.get('/:groupId/members', authMiddleware, getMembers);
@@ -74,17 +69,6 @@ router.post(
   forwardApprovalResults
 );
 
-// POST /api/v1/groups/:groupId/advisor-requests — Process 3.2: group leader requests advisor
-// Input: { professorId, message? }
-// Process: Validate group/professor, create advisor request record, dispatch notification (Process 3.3)
-router.post(
-  '/:groupId/advisor-requests',
-  authMiddleware,
-  roleMiddleware(['student']),
-  checkScheduleWindow('advisor_association'),
-  createAdvisorRequest
-);
-
 // POST /api/v1/groups/:groupId/github — Process 2.6: validate PAT + org, store config (f10-f12, f24)
 router.post('/:groupId/github', authMiddleware, configureGithub);
 
@@ -106,17 +90,6 @@ router.patch(
   coordinatorOverride
 );
 
-// POST /api/v1/groups/:groupId/advisor/transfer — Process 3.6: Coordinator transfers advisor to new professor
-// Request body: { newProfessorId: string, reason?: string }
-// Response: AdvisorAssignment schema with status: transferred
-router.post(
-  '/:groupId/advisor/transfer',
-  authMiddleware,
-  roleMiddleware(['coordinator', 'admin']),
-  checkScheduleWindow('advisor_association'),
-  transferAdvisor
-);
-
 // GET /api/v1/groups/:groupId/status — Issue #52: Retrieve current group status
 router.get(
   '/:groupId/status',
@@ -125,6 +98,7 @@ router.get(
 );
 
 // PATCH /api/v1/groups/:groupId/status — Issue #52: Transition group to new status
+// Allowed transitions: pending_validation→active/rejected, active→inactive/rejected, inactive→active/rejected
 router.patch(
   '/:groupId/status',
   authMiddleware,
@@ -132,34 +106,30 @@ router.patch(
   transitionStatus
 );
 
-// PATCH /api/v1/advisor-requests/:requestId — Process 3.4+3.5: Professor approves/rejects advisee request
-// Request body: { decision: "approve"|"reject", reason?: string }
-// Response: AdvisorAssignment schema with status, updatedAt
+// DELETE /api/v1/groups/:groupId/advisor — Issue #75 release advisor
+router.delete(
+  '/:groupId/advisor',
+  authMiddleware,
+  checkAdvisorOperationWindow(OPERATION_TYPES.ADVISOR_RELEASE),
+  releaseAdvisor
+);
+
+// POST /api/v1/groups/:groupId/advisor/transfer — Issue #75 transfer advisor (coordinator)
+router.post(
+  '/:groupId/advisor/transfer',
+  authMiddleware,
+  roleMiddleware(['coordinator']),
+  checkAdvisorOperationWindow(OPERATION_TYPES.ADVISOR_TRANSFER),
+  transferAdvisor
+);
+
+// PATCH /api/v1/advisor-requests/:requestId — Process 3.4+3.5: Professor approves/rejects request
 router.patch(
   '/advisor-requests/:requestId',
   authMiddleware,
   roleMiddleware(['professor', 'admin']),
-  checkScheduleWindow('advisor_association'),
+  checkScheduleWindow(OPERATION_TYPES.ADVISOR_ASSOCIATION),
   decideAdvisorRequest
-);
-
-/**
- * ========================================
- * POST /api/v1/groups/advisor-sanitization
- * Issue #67: Disband Unassigned Groups After Advisor Association Deadline
- * ========================================
- * * Process 3.7 of Level 2.3 (Advisor Association) Flow
- * * AUTHORIZATION:
- * ✅ Coordinator user (JWT + role:coordinator)
- * ✅ Admin user (JWT + role:admin)
- * ✅ System service account (X-Service-Auth header with SYSTEM_SERVICE_TOKEN)
- */
-// Issue #67: Service token (X-Service-Auth) does not require Bearer JWT
-router.post(
-  '/advisor-sanitization', 
-  flexibleSystemOrRoleAuth, 
-  roleMiddleware(['coordinator', 'admin']), // Role check applies if JWT is used
-  advisorSanitization
 );
 
 module.exports = router;

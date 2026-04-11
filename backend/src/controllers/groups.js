@@ -390,35 +390,15 @@ const getGroup = async (req, res) => {
         professorId: latestAdvisorRequest.professorId,
         professorName: displayNameFromUser(professorUser),
         status: latestAdvisorRequest.status,
-        message: latestAdvisorRequest.message,
+        message: latestAdvisorRequest.reason ?? '',
         notificationTriggered: latestAdvisorRequest.notificationTriggered,
         createdAt: latestAdvisorRequest.createdAt
           ? new Date(latestAdvisorRequest.createdAt).toISOString()
           : null,
       };
-      if (latestAdvisorRequest.decidedAt) {
-        advisorRequest.decidedAt = new Date(latestAdvisorRequest.decidedAt).toISOString();
+      if (latestAdvisorRequest.processedAt) {
+        advisorRequest.decidedAt = new Date(latestAdvisorRequest.processedAt).toISOString();
       }
-    if (group.advisorId) {
-      const advisor = await User.findOne({ userId: group.advisorId });
-      if (advisor) {
-        group.advisorName = advisor.firstName && advisor.lastName 
-          ? `${advisor.firstName} ${advisor.lastName}` 
-          : (advisor.name || advisor.email);
-      }
-    }
-
-    // Fetch latest pending/approved/rejected advisor request for UI status
-    const latestRequest = await AdvisorRequest.findOne({ groupId })
-      .sort({ createdAt: -1 });
-    
-    if (latestRequest) {
-      group.advisorRequest = {
-        requestId: latestRequest.requestId,
-        status: latestRequest.status,
-        professorId: latestRequest.professorId,
-        createdAt: latestRequest.createdAt
-      };
     }
 
     // Audit log (non-fatal)
@@ -458,9 +438,11 @@ const formatGroupResponse = (group, extras = {}) => ({
   groupName: group.groupName,
   leaderId: group.leaderId,
   advisorId: group.advisorId,
-  advisorStatus: group.advisorStatus || null,
-  advisorName: extras.advisorName ?? null,
-  advisorRequest: extras.advisorRequest ?? null,
+  professorId: group.professorId ?? null,
+  advisorStatus: group.advisorStatus ?? null,
+  advisorName: extras.advisorName ?? group.advisorName ?? null,
+  advisorAssignedAt: group.advisorAssignedAt || null,
+  advisorRequest: extras.advisorRequest ?? group.advisorRequest ?? null,
   status: group.status,
   members: group.members.map((m) => ({
     userId: m.userId,
@@ -472,9 +454,6 @@ const formatGroupResponse = (group, extras = {}) => ({
   githubRepoUrl: group.githubRepoUrl,
   jiraProjectKey: group.projectKey,
   jiraBoardUrl: group.jiraBoardUrl,
-  advisorName: group.advisorName || null,
-  advisorAssignedAt: group.advisorAssignedAt || null,
-  advisorRequest: group.advisorRequest || null,
   createdAt: group.createdAt,
   updatedAt: group.updatedAt,
 });

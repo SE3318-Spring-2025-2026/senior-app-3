@@ -1,17 +1,14 @@
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
+const { VALID_OPERATION_TYPES } = require('../utils/operationTypes');
 
 /**
  * ScheduleWindow — stores coordinator-defined schedule windows per operation type.
  *
- * Each window is scoped to an operationType:
- * - 'group_creation': window for group creation (Process 2.1)
- * - 'member_addition': window for member addition (Process 2.3)
- * - 'advisor_association': window for advisor association (Process 3.0)
- *
+ * Each window is scoped to an operationType (e.g. 'group_creation', 'member_addition', 'advisor_association').
  * Only one active window per operationType may cover a given point in time.
- * Boundary checks in createGroup (2.1), addMember (2.3), and advisor endpoints reject requests
- * outside an active window for their respective operationType.
+ * Boundary checks in middleware reject requests outside an active window
+ * for their respective operationType.
  */
 const scheduleWindowSchema = new mongoose.Schema(
   {
@@ -23,7 +20,7 @@ const scheduleWindowSchema = new mongoose.Schema(
     },
     operationType: {
       type: String,
-      enum: ['group_creation', 'member_addition', 'advisor_association'],
+      enum: VALID_OPERATION_TYPES,
       required: true,
     },
     startsAt: { type: Date, required: true },

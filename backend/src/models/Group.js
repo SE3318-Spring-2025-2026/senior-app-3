@@ -86,16 +86,15 @@ const groupSchema = new mongoose.Schema(
     advisorRequest: advisorRequestSchema,
     advisorUpdatedAt: {
       type: Date,
-      default: null,
+      default: null
     },
-    /** Set when advisorId is assigned/changed; cleared when advisor is removed */
     advisorAssignedAt: {
       type: Date,
-      default: null,
+      default: null
     },
     status: {
       type: String,
-      enum: ['pending_validation', 'active', 'inactive', 'archived'],
+      enum: ['pending_validation', 'active', 'inactive', 'archived', 'rejected'],
       default: 'pending_validation',
     },
     members: [memberSchema],
