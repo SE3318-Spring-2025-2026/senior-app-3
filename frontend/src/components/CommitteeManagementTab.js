@@ -365,7 +365,7 @@ const CommitteeManagementTab = () => {
                 style={{ width: '100%', minHeight: '180px', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5da' }}
               >
                 {selectedCommitteeCandidates.map((candidate) => (
-                  <option key={candidate.userId} value={candidate.userId}>
+                  <option key={candidate.userId} value={candidate.userId} disabled={jurySelection.includes(candidate.userId)}>
                     {candidate.email}
                   </option>
                 ))}
@@ -398,7 +398,7 @@ const CommitteeManagementTab = () => {
                 style={{ width: '100%', minHeight: '180px', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5da' }}
               >
                 {selectedCommitteeCandidates.map((candidate) => (
-                  <option key={candidate.userId} value={candidate.userId}>
+                  <option key={candidate.userId} value={candidate.userId} disabled={advisorSelection.includes(candidate.userId)}>
                     {candidate.email}
                   </option>
                 ))}
