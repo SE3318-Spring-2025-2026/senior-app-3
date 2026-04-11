@@ -1,7 +1,15 @@
+/**
+ * ========================================
+ * Issue #67 & #69: Post-Deadline Sanitization Service
+ * ========================================
+ * * Process 3.7 of the advisor association flow.
+ * Identifies and disbands groups without advisors using high-performance bulk operations.
+ */
+
 const Group = require('../models/Group');
 const ScheduleWindow = require('../models/ScheduleWindow');
-const { createAuditLog } = require('./auditService');
 const SyncErrorLog = require('../models/SyncErrorLog');
+const { createAuditLog } = require('../utils/auditLogger');
 
 /**
  * Custom error class for sanitization service operations.
@@ -15,18 +23,49 @@ class SanitizationServiceError extends Error {
 }
 
 /**
- * Check if the advisor_association schedule deadline has elapsed.
- * Throws 409 if triggered before deadline passes.
- *
- * @param {Date} scheduleDeadline - The deadline to check against (ISO string or Date)
- * @returns {Promise<void>}
- * @throws {SanitizationServiceError} 409 if current time < deadline
+ * Fix #1: SECURITY - Fetch deadline from ScheduleWindow DB
+ * Use the authoritative endsAt timestamp from the database to prevent manipulation.
+ */
+const checkScheduleWindowDeadline = async () => {
+  const now = new Date();
+  
+  const window = await ScheduleWindow.findOne({
+    operationType: 'advisor_association',
+    isActive: true,
+  })
+    .sort({ endsAt: -1 })
+    .lean();
+
+  if (!window) {
+    throw new SanitizationServiceError(
+      409,
+      'NO_ACTIVE_SCHEDULE',
+      'No active advisor association schedule window found'
+    );
+  }
+
+  if (now < window.endsAt) {
+    return {
+      allowed: false,
+      message: `Advisor association window is still active. Deadline: ${window.endsAt.toISOString()}`,
+      deadlineAt: window.endsAt,
+    };
+  }
+
+  return {
+    allowed: true,
+    message: 'Deadline has passed. Sanitization allowed.',
+    deadlineAt: window.endsAt,
+  };
+};
+
+/**
+ * Legacy check for backward compatibility.
+ * @deprecated Use checkScheduleWindowDeadline instead
  */
 const checkDeadlineElapsed = async (scheduleDeadline) => {
   const deadline = new Date(scheduleDeadline);
-  const now = new Date();
-
-  if (now < deadline) {
+  if (new Date() < deadline) {
     throw new SanitizationServiceError(
       409,
       'DEADLINE_NOT_REACHED',
@@ -37,10 +76,7 @@ const checkDeadlineElapsed = async (scheduleDeadline) => {
 
 /**
  * Fetch all unassigned groups eligible for sanitization.
- * Criteria: status === 'active' AND advisorId === null
- *
- * @param {string[]} optionalGroupIds - Optional subset of group IDs to check
- * @returns {Promise<object[]>} Array of groups with { groupId, groupName, leaderId, members }
+ * Optimized with .lean() and specific field selection.
  */
 const fetchUnassignedGroups = async (optionalGroupIds) => {
   const query = {
@@ -52,46 +88,80 @@ const fetchUnassignedGroups = async (optionalGroupIds) => {
     query.groupId = { $in: optionalGroupIds };
   }
 
-  const groups = await Group.find(query).select(
-    'groupId groupName leaderId members advisorId advisorStatus'
-  );
-
-  return groups;
+  return Group.find(query)
+    .select('groupId groupName leaderId members advisorId advisorStatus')
+    .lean();
 };
 
 /**
- * Batch disband groups by updating their status to 'inactive'.
- * Creates audit logs for each disband operation.
- *
- * @param {object[]} groups - Array of group objects to disband
- * @param {string} coordinatorId - ID of coordinator/system triggering sanitization
- * @param {object} options - Additional options
- * @returns {Promise<{disbanded_count: number, failed_count: number, disbanded_ids: string[], errors: object[]}>}
+ * Batch disband groups using Mongoose bulkWrite for database efficiency.
+ * Fix #3: Single DB round-trip instead of N+1 writes.
  */
-const disbandGroupBatch = async (groups, coordinatorId, options = {}) => {
-  const disbanded = [];
-  const failed = [];
-  const errors = [];
+const BULK_WRITE_MAX_ATTEMPTS = 3;
 
-  for (const group of groups) {
-    try {
-      // Update group status to 'inactive'
-      const updatedGroup = await Group.findOneAndUpdate(
-        { groupId: group.groupId },
-        {
-          status: 'inactive',
+const disbandGroupBatch = async (groups, coordinatorId, options = {}) => {
+  const errors = [];
+  if (!groups.length) return { disbanded_count: 0, failed_count: 0, disbanded_ids: [], errors: [] };
+
+  // Prepare bulk operations
+  const ops = groups.map((group) => ({
+    updateOne: {
+      filter: { groupId: group.groupId, status: 'active', advisorId: null },
+      update: {
+        $set: {
+          status: 'disbanded',
           advisorId: null,
           advisorStatus: null,
+          sanitizedAt: new Date(),
           updatedAt: new Date(),
         },
-        { new: true }
-      );
+      },
+    },
+  }));
 
-      if (!updatedGroup) {
-        throw new Error(`Group ${group.groupId} not found during disband`);
+  // Execute bulkWrite with retry logic
+  for (let attempt = 0; attempt < BULK_WRITE_MAX_ATTEMPTS; attempt++) {
+    try {
+      await Group.bulkWrite(ops, { ordered: false });
+      break;
+    } catch (bulkErr) {
+      if (attempt === BULK_WRITE_MAX_ATTEMPTS - 1) {
+        throw new SanitizationServiceError(500, 'BULK_WRITE_FAILED', bulkErr.message);
       }
+    }
+  }
 
-      // Create audit log for disband operation
+  // Verify results for auditing
+  const groupIds = groups.map((g) => g.groupId);
+  const disbandedRows = await Group.find({ groupId: { $in: groupIds }, status: 'disbanded' })
+    .select('groupId')
+    .lean();
+
+  const disbandedSet = new Set(disbandedRows.map((r) => r.groupId));
+  const disbanded_ids = groupIds.filter((id) => disbandedSet.has(id));
+  const failed = groupIds.filter((id) => !disbandedSet.has(id));
+
+  // Handle Failures & Logging (from feature/69)
+  for (const gid of failed) {
+    const errorMsg = 'Group not found or status already changed';
+    errors.push({ groupId: gid, error: errorMsg });
+    
+    await SyncErrorLog.create({
+      errorType: 'advisor_sanitization_failed',
+      targetId: gid,
+      groupId: gid,
+      message: errorMsg,
+      timestamp: new Date(),
+      details: { operation: 'disband_group', reason: 'advisor_association_deadline_missed' },
+    }).catch(e => console.error(`Failed to log error for ${gid}:`, e.message));
+  }
+
+  // Audit successful disbands
+  const groupById = new Map(groups.map((g) => [g.groupId, g]));
+  for (const gid of disbanded_ids) {
+    const group = groupById.get(gid);
+    if (!group) continue;
+    try {
       await createAuditLog({
         action: 'group_sanitized',
         actorId: coordinatorId,
@@ -99,53 +169,27 @@ const disbandGroupBatch = async (groups, coordinatorId, options = {}) => {
         groupId: group.groupId,
         payload: {
           previous_status: 'active',
-          new_status: 'inactive',
+          new_status: 'disbanded',
           reason: 'advisor_association_deadline_missed',
-          previous_advisor_id: group.advisorId,
         },
         ipAddress: options.ipAddress || 'system',
         userAgent: options.userAgent || 'advisor-sanitization-job',
       });
-
-      disbanded.push(group.groupId);
-    } catch (err) {
-      failed.push(group.groupId);
-      errors.push({
-        groupId: group.groupId,
-        error: err.message,
-      });
-
-      // Log sync error for tracking
-      try {
-        await SyncErrorLog.create({
-          errorType: 'advisor_sanitization_failed',
-          targetId: group.groupId,
-          groupId: group.groupId,
-          message: err.message,
-          timestamp: new Date(),
-          details: {
-            operation: 'disband_group',
-            reason: 'advisor_association_deadline_missed',
-          },
-        });
-      } catch (logErr) {
-        console.error(
-          `Failed to log sync error for group ${group.groupId}:`,
-          logErr.message
-        );
-      }
+    } catch (auditErr) {
+      console.error(`Audit log failed for ${gid}:`, auditErr.message);
     }
   }
 
   return {
-    disbanded_count: disbanded.length,
+    disbanded_count: disbanded_ids.length,
     failed_count: failed.length,
-    disbanded_ids: disbanded,
+    disbanded_ids,
     errors,
   };
 };
 
 module.exports = {
+  checkScheduleWindowDeadline,
   checkDeadlineElapsed,
   fetchUnassignedGroups,
   disbandGroupBatch,

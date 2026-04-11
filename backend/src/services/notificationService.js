@@ -7,29 +7,14 @@ const NOTIFICATION_SERVICE_URL =
  * FIX #5: STANDARDIZED NOTIFICATION PAYLOAD CONTRACTS
  * All notification dispatchers now follow consistent contract:
  * - type: notification type identifier
- * - recipient/recipients: at root level (not in payload)
+ * - recipient/recipients: at root level
  * - payload: object with snake_case fields only
- * 
- * DEFICIENCY: Previous payloads mixed camelCase, snake_case, and inconsistent structures
- * PROBLEM: Notification Service rejects requests with inconsistent contracts
- *          Leads to silent failures when payload doesn't match expected schema
- * SOLUTION: Enforce strict structure across all 7 dispatchers for contract consistency
  */
 
 /**
  * Dispatch a GROUP_INVITATION notification to a student.
- * Called by Process 2.3 (DFD flow f06: 2.3 → Notification Service).
- *
- * @param {object} payload
- * @param {string} payload.groupId
- * @param {string} payload.groupName
- * @param {string} payload.inviteeId   - student receiving the invitation
- * @param {string} payload.invitedBy   - leader who sent the invite
- * @returns {object} { notification_id }
  */
 const dispatchInvitationNotification = async ({ groupId, groupName, inviteeId, invitedBy }) => {
-  // FIX #5 CHANGE: Standardized payload contract with snake_case only
-  // recipient moved to root level for consistency; all data in payload object
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
     {
@@ -48,19 +33,8 @@ const dispatchInvitationNotification = async ({ groupId, groupName, inviteeId, i
 
 /**
  * Dispatch a MEMBERSHIP_DECISION notification after a student accepts/rejects.
- * Called by Process 2.4 (DFD flow f08: 2.4 → Notification Service).
- *
- * @param {object} payload
- * @param {string} payload.groupId
- * @param {string} payload.groupName
- * @param {string} payload.studentId   - student who made the decision
- * @param {string} payload.decision    - 'accepted' | 'rejected' (sent as membership_decision in JSON body)
- * @param {Date}   payload.decidedAt
- * @returns {object} { notification_id }
  */
 const dispatchMembershipDecisionNotification = async ({ groupId, groupName, studentId, decision, decidedAt }) => {
-  // FIX #5 CHANGE: Standardized payload contract with snake_case only
-  // recipient at root; membership_decision + decided_at in payload object
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
     {
@@ -80,17 +54,8 @@ const dispatchMembershipDecisionNotification = async ({ groupId, groupName, stud
 
 /**
  * Dispatch a GROUP_CREATED notification after a group is successfully created.
- * Called by Process 2.1 (DFD flow f03: 2.1 → Notification Service).
- *
- * @param {object} payload
- * @param {string} payload.groupId
- * @param {string} payload.groupName
- * @param {string} payload.leaderId
- * @returns {object} { notification_id }
  */
 const dispatchGroupCreationNotification = async ({ groupId, groupName, leaderId }) => {
-  // FIX #5 CHANGE: Standardized payload contract with snake_case only
-  // recipient at root; notification data in payload object
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
     {
@@ -108,18 +73,8 @@ const dispatchGroupCreationNotification = async ({ groupId, groupName, leaderId 
 
 /**
  * Dispatch a batch APPROVAL_REQUEST notification to multiple students.
- * Called by Process 2.4 (DFD flow f07: 2.4 → Notification Service).
- *
- * @param {object} payload
- * @param {string} payload.groupId
- * @param {string} payload.groupName
- * @param {string[]} payload.recipients  - student IDs to notify
- * @param {string} payload.invitedBy     - leader who sent the invites
- * @returns {object} { notification_id, delivered_to[], sent_at }
  */
 const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipients, invitedBy }) => {
-  // FIX #5 CHANGE: Standardized payload contract with snake_case only
-  // recipients at root level; all notification data in payload object
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
     {
@@ -139,15 +94,6 @@ const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipie
 
 /**
  * Dispatch an ADVISEE_REQUEST notification to a professor.
- * Called by Process 3.3 (DFD flow f05: 3.3 → Notification Service).
- *
- * @param {object} payload
- * @param {string} payload.groupId
- * @param {string} payload.groupName
- * @param {string} payload.professorId  - professor receiving the request
- * @param {string} payload.requesterId  - group leader requesting
- * @param {string} payload.message      - optional custom message
- * @returns {object} { notification_id }
  */
 const dispatchAdvisorRequestNotification = async ({
   groupId,
@@ -156,8 +102,6 @@ const dispatchAdvisorRequestNotification = async ({
   requesterId,
   message,
 }) => {
-  // FIX #5 CHANGE: Standardized payload contract with snake_case only
-  // recipient at root level; all notification data in payload object
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
     {
@@ -176,19 +120,9 @@ const dispatchAdvisorRequestNotification = async ({
 };
 
 /**
- * Dispatch a GROUP_DISBAND notification to group members.
- * Called by Process 3.7 (DFD flow f14: 3.7 → Notification Service).
- *
- * @param {object} payload
- * @param {string} payload.groupId
- * @param {string} payload.groupName
- * @param {string[]} payload.recipients  - group member IDs to notify
- * @param {string} payload.reason        - reason for disbanding
- * @returns {object} { notification_id, delivered_to[], sent_at }
+ * Dispatch a GROUP_DISBAND notification to group members (Process 3.7).
  */
 const dispatchDisbandNotification = async ({ groupId, groupName, recipients, reason }) => {
-  // FIX #5 CHANGE: Standardized payload contract with snake_case only
-  // recipients at root level; all notification data in payload object
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
     {
@@ -209,22 +143,6 @@ const dispatchDisbandNotification = async ({ groupId, groupName, recipients, rea
 /**
  * FIX #1: REJECTION_NOTICE DISPATCHER (NEW)
  * Dispatch a REJECTION_NOTICE notification to the Team Leader.
- * Called by Process 3.4 after professor rejects an advisee request.
- * 
- * DEFICIENCY: This dispatcher was completely missing
- * PROBLEM: When a professor rejects a request, the Team Leader is never notified
- *          No communication back to requester about rejection reason
- * SOLUTION: Implement rejection_notice dispatcher with snake_case payload contract
- *           Sends notification to group leader with rejection reason for audit trail
- *
- * @param {object} payload
- * @param {string} payload.groupId - Group whose request was rejected
- * @param {string} payload.groupName - Name of group
- * @param {string} payload.teamLeaderId - Team Leader to notify (recipient)
- * @param {string} payload.professorId - Professor who rejected
- * @param {string} payload.requestId - Request ID for reference
- * @param {string} payload.reason - Maps to payload.rejection_reason (snake_case) in the notification API body
- * @returns {object} { notification_id }
  */
 const dispatchRejectionNotification = async ({
   groupId,
@@ -234,7 +152,6 @@ const dispatchRejectionNotification = async ({
   requestId,
   reason,
 }) => {
-  // Outbound JSON payload uses group_id, request_id, professor_id, rejection_reason (snake_case only)
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
     {
@@ -256,6 +173,78 @@ const dispatchRejectionNotification = async ({
   return response.data;
 };
 
+/**
+ * Dispatch an ADVISOR_STATUS_CHANGE notification to team leader or professor (Process 3.5).
+ */
+const dispatchAdvisorStatusNotification = async ({
+  groupId,
+  groupName,
+  professorId,
+  professorName,
+  status,
+  recipientId,
+  message,
+}) => {
+  const response = await axios.post(
+    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+    {
+      type: 'advisor_status_change',
+      recipient: recipientId,
+      payload: {
+        group_id: groupId,
+        group_name: groupName,
+        professor_id: professorId,
+        professor_name: professorName,
+        status,
+        message: message || null
+      },
+    },
+    { timeout: 5000 }
+  );
+  return response.data;
+};
+
+/**
+ * Issue #62 Fix #3 (CRITICAL): Transient Error Detection
+ */
+const isTransientError = (error) => {
+  if (!error.response) return true;
+  const status = error.response.status;
+  if (status >= 400 && status < 500) return false;
+  return true;
+};
+
+/**
+ * Dispatch an ADVISEE_REQUEST notification to a professor with smart retry logic.
+ */
+const dispatchAdvisorRequestWithRetry = async ({ groupId, requesterId, message }) => {
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const response = await axios.post(
+        `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+        { 
+          type: 'advisee_request', 
+          payload: {
+            group_id: groupId, 
+            requester_id: requesterId, 
+            message: message || null 
+          }
+        },
+        { timeout: 5000 }
+      );
+      return { ok: true, notificationId: response.data.notification_id || response.data.id, attempts: attempt };
+    } catch (err) {
+      lastError = err.message;
+      if (!isTransientError(err)) {
+        return { ok: false, attempts: attempt, lastError: `Permanent error: ${lastError}` };
+      }
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+    }
+  }
+  return { ok: false, attempts: 3, lastError: `All retries failed: ${lastError}` };
+};
+
 module.exports = {
   dispatchInvitationNotification,
   dispatchMembershipDecisionNotification,
@@ -264,4 +253,7 @@ module.exports = {
   dispatchAdvisorRequestNotification,
   dispatchRejectionNotification,
   dispatchDisbandNotification,
+  dispatchAdvisorStatusNotification,
+  dispatchAdvisorRequestWithRetry,
+  isTransientError
 };

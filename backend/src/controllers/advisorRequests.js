@@ -1,343 +1,224 @@
+const mongoose = require('mongoose');
+const AdvisorRequest = require('../models/AdvisorRequest');
 const Group = require('../models/Group');
 const User = require('../models/User');
 const { createAuditLog } = require('../services/auditService');
-const {
-  dispatchAdvisorRequestNotification,
-  dispatchRejectionNotification,
+const { 
+  dispatchAdvisorStatusNotification, 
+  dispatchRejectionNotification 
 } = require('../services/notificationService');
 const { retryNotificationWithBackoff } = require('../utils/notificationRetry');
-const { markNotificationTriggered } = require('../repositories/AdvisorAssignmentRepository');
 
-const formatAdvisorRequestBody = (group) => {
-  const ar = group.advisorRequest;
-  return {
-    requestId: ar.requestId,
-    groupId: group.groupId,
-    professorId: ar.professorId,
-    requesterId: ar.requestedBy,
-    status: ar.status,
-    message: ar.message || null,
-    notificationTriggered: ar.notificationTriggered,
-    createdAt: ar.createdAt ? ar.createdAt.toISOString() : new Date().toISOString(),
-  };
+/**
+ * Helper to create standardized HTTP errors
+ */
+const createHttpError = (status, code, message, extra = {}) => {
+  const error = new Error(message);
+  error.status = status;
+  error.code = code;
+  return Object.assign(error, extra);
 };
 
 /**
- * POST /api/v1/groups/advisor-requests — Process 3.1–3.3: leader submits advisee request.
+ * GET /api/v1/advisor-requests/mine
+ * List pending advisor requests for the authenticated professor.
  */
-const submitAdviseeRequest = async (req, res) => {
+const listProfessorPendingRequests = async (req, res) => {
   try {
-    const { groupId, professorId, requesterId, message } = req.body;
-
-    if (!groupId || !professorId || !requesterId) {
-      return res.status(400).json({
-        code: 'INVALID_INPUT',
-        message: 'groupId, professorId, and requesterId are required',
-      });
-    }
-
-    if (req.user.userId !== requesterId) {
-      return res.status(403).json({
-        code: 'FORBIDDEN',
-        message: 'requesterId must match the authenticated user',
-      });
-    }
-
-    const group = await Group.findOne({ groupId });
-    if (!group) {
-      return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
-    }
-
-    if (group.leaderId !== requesterId) {
-      return res.status(403).json({
-        code: 'FORBIDDEN',
-        message: 'Only the team leader can submit an advisor request',
-      });
-    }
-
-    if (group.status !== 'active') {
-      return res.status(409).json({
-        code: 'INVALID_GROUP_STATE',
-        message: 'Advisor requests can only be submitted for active groups',
-      });
-    }
-
-    if (group.advisorId) {
-      return res.status(409).json({
-        code: 'ADVISOR_ALREADY_ASSIGNED',
-        message: 'This group already has an assigned advisor',
-      });
-    }
-
-    if (group.advisorRequest && group.advisorRequest.status === 'pending') {
-      return res.status(409).json({
-        code: 'PENDING_REQUEST_EXISTS',
-        message: 'A pending advisor request already exists for this group',
-      });
-    }
-
-    const professor = await User.findOne({
-      userId: professorId,
-      role: 'professor',
-      accountStatus: 'active',
-    });
-    if (!professor) {
-      return res.status(404).json({
-        code: 'PROFESSOR_NOT_FOUND',
-        message: 'Professor not found or inactive',
-      });
-    }
-
-    group.advisorRequest = {
+    const professorId = req.user.userId;
+    const requests = await AdvisorRequest.find({
       professorId,
-      requestedBy: requesterId,
       status: 'pending',
-      notificationTriggered: false,
-      message: typeof message === 'string' && message.trim() ? message.trim() : null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+    })
+      .sort({ createdAt: -1 })
+      .lean();
 
-    await group.save();
-
-    const responseBody = formatAdvisorRequestBody(group);
-    const requestIdForNotif = group.advisorRequest.requestId;
-
-    try {
-      await createAuditLog({
-        action: 'advisor_request_submitted',
-        actorId: requesterId,
-        targetId: groupId,
-        groupId,
-        payload: {
-          request_id: requestIdForNotif,
-          professor_id: professorId,
-        },
-        ipAddress: req.ip,
-        userAgent: req.get('user-agent'),
-      });
-    } catch (auditErr) {
-      console.error('Audit log failed (non-fatal):', auditErr.message);
-    }
-
-    res.status(201).json(responseBody);
-
-    setImmediate(async () => {
-      try {
-        const notificationResult = await retryNotificationWithBackoff(
-          () =>
-            dispatchAdvisorRequestNotification({
-              groupId: group.groupId,
-              groupName: group.groupName,
-              professorId,
-              requesterId,
-              message: group.advisorRequest.message,
-            }),
-          {
-            maxAttempts: 3,
-            initialBackoffMs: 100,
-            identifier: requestIdForNotif,
-            identifierType: 'requestId',
-          }
-        );
-
-        if (notificationResult.success) {
-          try {
-            await markNotificationTriggered(requestIdForNotif);
-          } catch (flagErr) {
-            console.warn(
-              `[AdvisorRequest] Failed to persist notificationTriggered for ${requestIdForNotif}:`,
-              flagErr.message
-            );
-          }
-        }
-      } catch (bgErr) {
-        console.error('[AdvisorRequest] Background notification error:', bgErr.message);
-      }
+    return res.status(200).json({
+      requests: requests.map((item) => ({
+        requestId: item.requestId,
+        groupId: item.groupId,
+        professorId: item.professorId,
+        requesterId: item.requesterId,
+        status: item.status,
+        message: item.message || '',
+        createdAt: item.createdAt,
+      })),
     });
-  } catch (err) {
-    console.error('submitAdviseeRequest error:', err);
+  } catch (error) {
+    console.error('listProfessorPendingRequests error:', error);
     return res.status(500).json({
-      code: 'INTERNAL_SERVER_ERROR',
-      message: 'Failed to submit advisor request',
+      code: 'INTERNAL_ERROR',
+      message: 'An unexpected error occurred',
     });
   }
 };
 
 /**
- * PATCH /api/v1/groups/advisor-requests/:requestId — Process 3.4: professor approves or rejects.
+ * PATCH /api/v1/advisor-requests/:requestId
+ * Professor approves or rejects an advisor request.
+ * Implements Process 3.4 (Advisor Decision) and triggers Process 3.5 (Notification).
  */
-const handleAdvisorDecision = async (req, res) => {
+const decideAdvisorRequest = async (req, res) => {
+  let responsePayload = null;
+  let notificationData = null;
+  const session = await mongoose.startSession();
+
   try {
     const { requestId } = req.params;
     const { decision, reason } = req.body;
 
-    if (!decision || typeof decision !== 'string') {
-      return res.status(400).json({
-        code: 'INVALID_INPUT',
-        message: 'decision is required',
-      });
-    }
-
-    const normalized = decision.toLowerCase().trim();
-    if (!['approve', 'reject'].includes(normalized)) {
+    // 1. Validation
+    if (!decision || !['approve', 'reject'].includes(decision)) {
       return res.status(400).json({
         code: 'INVALID_DECISION',
         message: 'decision must be "approve" or "reject"',
       });
     }
 
-    const group = await Group.findOne({ 'advisorRequest.requestId': requestId });
-    if (!group || !group.advisorRequest) {
-      return res.status(404).json({
-        code: 'REQUEST_NOT_FOUND',
-        message: 'Advisor request not found',
-      });
-    }
+    const now = new Date();
 
-    const isAdmin = req.user.role === 'admin';
-    if (!isAdmin && group.advisorRequest.professorId !== req.user.userId) {
-      return res.status(403).json({
-        code: 'FORBIDDEN',
-        message: 'Only the assigned professor can respond to this request',
-      });
-    }
-
-    if (group.advisorRequest.status !== 'pending') {
-      return res.status(409).json({
-        code: 'REQUEST_ALREADY_PROCESSED',
-        message: 'This advisor request has already been processed',
-      });
-    }
-
-    const rejectionReason =
-      typeof reason === 'string' && reason.trim() ? reason.trim() : null;
-
-    const processedAt = new Date();
-
-    if (normalized === 'approve') {
-      group.advisorId = group.advisorRequest.professorId;
-      group.advisorStatus = 'assigned';
-      group.advisorUpdatedAt = processedAt;
-      group.advisorRequest.status = 'approved';
-      group.advisorRequest.approvedAt = processedAt;
-      group.advisorRequest.updatedAt = processedAt;
-
-      await group.save();
-
-      try {
-        await createAuditLog({
-          action: 'advisor_request_approved',
-          actorId: req.user.userId,
-          targetId: group.groupId,
-          groupId: group.groupId,
-          payload: {
-            request_id: requestId,
-            professor_id: group.advisorRequest.professorId,
-          },
-          ipAddress: req.ip,
-          userAgent: req.get('user-agent'),
-        });
-      } catch (auditErr) {
-        console.error('Audit log failed (non-fatal):', auditErr.message);
+    // 2. Transactional Update (Process 3.4)
+    await session.withTransaction(async () => {
+      const advisorRequest = await AdvisorRequest.findOne({ requestId }).session(session);
+      if (!advisorRequest) {
+        throw createHttpError(404, 'REQUEST_NOT_FOUND', 'Advisor request not found');
       }
 
-      return res.status(200).json({
-        requestId,
-        decision: 'approve',
-        approvalStatus: 'approved',
-        assignedGroupId: group.groupId,
-        professorId: group.advisorRequest.professorId,
-        processedAt: processedAt.toISOString(),
-      });
-    }
+      // Authorization check: Only the targeted professor can decide
+      if (advisorRequest.professorId !== req.user.userId && req.user.role !== 'admin') {
+        throw createHttpError(403, 'FORBIDDEN', 'Only the assigned professor can respond to this request');
+      }
 
-    // reject
-    group.advisorRequest.status = 'rejected';
-    group.advisorRequest.updatedAt = processedAt;
-    await group.save();
+      if (advisorRequest.status !== 'pending') {
+        throw createHttpError(409, 'REQUEST_ALREADY_PROCESSED', `Request has already been processed as ${advisorRequest.status}`);
+      }
 
-    const responsePayload = {
-      requestId,
-      decision: 'reject',
-      approvalStatus: 'rejected',
-      assignedGroupId: null,
-      professorId: group.advisorRequest.professorId,
-      processedAt: processedAt.toISOString(),
-    };
+      const group = await Group.findOne({ groupId: advisorRequest.groupId }).session(session);
+      if (!group) {
+        throw createHttpError(404, 'GROUP_NOT_FOUND', 'Group not found');
+      }
 
-    res.status(200).json(responsePayload);
+      let assignedGroupId = null;
+      if (decision === 'approve') {
+        if (group.advisorId && group.advisorId !== advisorRequest.professorId) {
+          throw createHttpError(409, 'GROUP_ALREADY_HAS_ADVISOR', 'Group already has an assigned advisor');
+        }
 
-    const snapshot = {
-      groupId: group.groupId,
-      groupName: group.groupName,
-      teamLeaderId: group.leaderId,
-      professorId: group.advisorRequest.professorId,
-      requestId: group.advisorRequest.requestId,
-      reason: rejectionReason,
-    };
+        // Update Group Record
+        group.advisorId = advisorRequest.professorId;
+        group.advisorStatus = 'assigned';
+        group.advisorUpdatedAt = now;
+        group.advisorAssignedAt = now;
+        await group.save({ session });
 
+        advisorRequest.status = 'approved';
+        assignedGroupId = advisorRequest.groupId;
+      } else {
+        advisorRequest.status = 'rejected';
+      }
+
+      advisorRequest.reason = typeof reason === 'string' ? reason.trim().slice(0, 1000) : '';
+      advisorRequest.decidedAt = now;
+      advisorRequest.processedAt = now;
+      await advisorRequest.save({ session });
+
+      // Prepare data for background notification and response
+      notificationData = {
+        groupId: group.groupId,
+        groupName: group.groupName,
+        teamLeaderId: group.leaderId,
+        professorId: advisorRequest.professorId,
+        requestId: advisorRequest.requestId,
+        reason: advisorRequest.reason,
+        status: advisorRequest.status
+      };
+
+      responsePayload = {
+        requestId: advisorRequest.requestId,
+        decision,
+        approvalStatus: advisorRequest.status,
+        assignedGroupId,
+        professorId: advisorRequest.professorId,
+        processedAt: now.toISOString(),
+      };
+    });
+
+    // 3. Audit Log (Non-fatal)
     try {
       await createAuditLog({
-        action: 'advisor_request_rejected',
+        action: decision === 'approve' ? 'advisor_request_approved' : 'advisor_request_rejected',
         actorId: req.user.userId,
-        targetId: group.groupId,
-        groupId: group.groupId,
+        targetId: responsePayload.requestId,
+        groupId: notificationData.groupId,
         payload: {
-          request_id: requestId,
-          professor_id: group.advisorRequest.professorId,
+          request_id: responsePayload.requestId,
+          decision,
+          reason: notificationData.reason,
         },
         ipAddress: req.ip,
-        userAgent: req.get('user-agent'),
+        userAgent: req.headers['user-agent'],
       });
     } catch (auditErr) {
       console.error('Audit log failed (non-fatal):', auditErr.message);
     }
 
+    // 4. Send Response Immediately
+    res.status(200).json(responsePayload);
+
+    // 5. Background Notification (Process 3.5) with Retry Logic (from feature/69)
     setImmediate(async () => {
       try {
-        const notificationResult = await retryNotificationWithBackoff(
-          () =>
-            dispatchRejectionNotification({
-              groupId: snapshot.groupId,
-              groupName: snapshot.groupName,
-              teamLeaderId: snapshot.teamLeaderId,
-              professorId: snapshot.professorId,
-              requestId: snapshot.requestId,
-              reason: snapshot.reason,
-            }),
+        await retryNotificationWithBackoff(
+          async () => {
+            if (decision === 'approve') {
+              return dispatchAdvisorStatusNotification({
+                groupId: notificationData.groupId,
+                groupName: notificationData.groupName,
+                professorId: notificationData.professorId,
+                status: 'assigned',
+                recipientId: notificationData.teamLeaderId,
+              });
+            } else {
+              return dispatchRejectionNotification({
+                groupId: notificationData.groupId,
+                groupName: notificationData.groupName,
+                teamLeaderId: notificationData.teamLeaderId,
+                professorId: notificationData.professorId,
+                requestId: notificationData.requestId,
+                reason: notificationData.reason,
+              });
+            }
+          },
           {
             maxAttempts: 3,
-            initialBackoffMs: 100,
+            initialBackoffMs: 200,
             identifier: requestId,
             identifierType: 'requestId',
           }
         );
-
-        if (notificationResult.success) {
-          try {
-            await markNotificationTriggered(requestId);
-          } catch (flagErr) {
-            console.warn(
-              `[AdvisorDecision] Failed to persist notificationTriggered for ${requestId}:`,
-              flagErr.message
-            );
-          }
-        }
       } catch (bgErr) {
-        console.error('[AdvisorDecision] Background rejection notification error:', bgErr.message);
+        console.error(`[AdvisorDecision] Background notification failed for ${requestId}:`, bgErr.message);
       }
     });
-  } catch (err) {
-    console.error('handleAdvisorDecision error:', err);
+
+  } catch (error) {
+    console.error('decideAdvisorRequest error:', error);
+    if (error.status && error.code) {
+      return res.status(error.status).json({
+        code: error.code,
+        message: error.message,
+      });
+    }
     return res.status(500).json({
-      code: 'INTERNAL_SERVER_ERROR',
-      message: 'Failed to process advisor decision',
+      code: 'INTERNAL_ERROR',
+      message: 'An unexpected error occurred while processing the decision',
     });
+  } finally {
+    session.endSession();
   }
 };
 
 module.exports = {
-  submitAdviseeRequest,
-  handleAdvisorDecision,
+  listProfessorPendingRequests,
+  decideAdvisorRequest,
 };
