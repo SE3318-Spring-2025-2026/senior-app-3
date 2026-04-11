@@ -6,6 +6,7 @@ const { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMembe
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
+const advisorRequestController = require('../controllers/advisorRequestController');
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
 router.post('/', authMiddleware, roleMiddleware(['student']), createGroup);
@@ -15,6 +16,9 @@ router.get('/pending-invitation', authMiddleware, getMyPendingInvitation);
 
 // GET /api/v1/groups — List all groups (coordinator only) for group management dashboard
 router.get('/', authMiddleware, roleMiddleware(['coordinator']), getAllGroups);
+
+// POST /api/v1/groups/:groupId/release-advisor — Team Leader releases assigned advisor (transactional)
+router.post('/:groupId/release-advisor', authMiddleware, advisorRequestController.releaseAdvisor);
 
 // GET /api/v1/groups/:groupId — Process 2.2: retrieve validated group record from D2
 router.get('/:groupId', authMiddleware, getGroup);

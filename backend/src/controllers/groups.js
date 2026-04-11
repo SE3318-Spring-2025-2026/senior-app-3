@@ -9,6 +9,7 @@ const { forwardToMemberRequestPipeline, forwardOverrideToReconciliation } = requ
 const { dispatchGroupCreationNotification } = require('../services/notificationService');
 const { INACTIVE_GROUP_STATUSES, VALID_STATUS_TRANSITIONS } = require('../utils/groupStatusEnum');
 const SyncErrorLog = require('../models/SyncErrorLog');
+const AdvisorRequest = require('../models/AdvisorRequest');
 
 const VALID_DECISIONS = new Set(['approved', 'rejected']);
 
@@ -362,6 +363,28 @@ const getGroup = async (req, res) => {
       });
     }
 
+    if (group.advisorId) {
+      const advisor = await User.findOne({ userId: group.advisorId });
+      if (advisor) {
+        group.advisorName = advisor.firstName && advisor.lastName 
+          ? `${advisor.firstName} ${advisor.lastName}` 
+          : (advisor.name || advisor.email);
+      }
+    }
+
+    // Fetch latest pending/approved/rejected advisor request for UI status
+    const latestRequest = await AdvisorRequest.findOne({ groupId })
+      .sort({ createdAt: -1 });
+    
+    if (latestRequest) {
+      group.advisorRequest = {
+        requestId: latestRequest.requestId,
+        status: latestRequest.status,
+        professorId: latestRequest.professorId,
+        createdAt: latestRequest.createdAt
+      };
+    }
+
     // Audit log (non-fatal)
     try {
       await createAuditLog({
@@ -404,6 +427,9 @@ const formatGroupResponse = (group) => ({
   githubRepoUrl: group.githubRepoUrl,
   jiraProjectKey: group.projectKey,
   jiraBoardUrl: group.jiraBoardUrl,
+  advisorName: group.advisorName || null,
+  advisorAssignedAt: group.advisorAssignedAt || null,
+  advisorRequest: group.advisorRequest || null,
   createdAt: group.createdAt,
   updatedAt: group.updatedAt,
 });
@@ -522,7 +548,16 @@ const coordinatorOverride = async (req, res) => {
       const oldStatus = group.status;
 
       // f21: Apply partial update to D2 group record
+      const prevAdvisorId = group.advisorId;
       Object.assign(group, updates);
+      if (updates.advisorId !== undefined) {
+        const nextAdvisorId = updates.advisorId;
+        if (nextAdvisorId && String(nextAdvisorId) !== String(prevAdvisorId)) {
+          group.advisorAssignedAt = timestamp;
+        } else if (!nextAdvisorId) {
+          group.advisorAssignedAt = null;
+        }
+      }
       await group.save();
 
       const override = await Override.create({
