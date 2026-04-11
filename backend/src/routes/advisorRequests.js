@@ -1,18 +1,18 @@
 const express = require('express');
 const router = express.Router();
-const advisorRequestController = require('../controllers/advisorRequestController');
-const { authMiddleware } = require('../middleware/auth');
+const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const { checkScheduleWindow } = require('../middleware/scheduleWindow');
+const { createAdvisorRequest } = require('../controllers/groups');
 
 /**
- * POST /api/v1/advisor-requests
- * Submit a new advisor request (Process 3.1)
+ * POST /api/v1/advisor-requests — Process 3.2 (Issue #61)
  */
 router.post(
   '/',
   authMiddleware,
+  roleMiddleware(['student']),
   checkScheduleWindow('advisor_association'),
-  advisorRequestController.createRequest
+  createAdvisorRequest
 );
 
 module.exports = router;

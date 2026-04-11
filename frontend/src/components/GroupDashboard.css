@@ -652,6 +652,18 @@
   margin-top: 32px;
 }
 
+.advisor-request-link {
+  display: inline-block;
+  margin-top: 10px;
+  color: #667eea;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.advisor-request-link:hover {
+  text-decoration: underline;
+}
+
 /* ─── Advisor Section ──────────────────────────── */
 .advisor-empty-state {
   text-align: center;
@@ -721,4 +733,4 @@
 .status-badge.none {
   background: #f1f5f9;
   color: #64748b;
-}
+}

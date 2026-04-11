@@ -5,6 +5,9 @@ import { getGroup } from '../api/groupService';
 import { getProfessors, submitAdvisorRequest, checkAdvisorWindow } from '../api/advisorService';
 import './AdviseeRequestForm.css';
 
+/**
+ * Team leader submits a request for a faculty advisor
+ */
 const AdviseeRequestForm = () => {
   const { group_id: groupId } = useParams();
   const navigate = useNavigate();
@@ -26,6 +29,7 @@ const AdviseeRequestForm = () => {
       setIsLoading(true);
       try {
         const group = await getGroup(groupId);
+        // Eğer giriş yapan kullanıcı grup lideri değilse, doğrudan dashboarda geri yolla
         if (group.leaderId !== user.userId) {
           navigate(`/groups/${groupId}`, { replace: true });
           return;
@@ -35,6 +39,7 @@ const AdviseeRequestForm = () => {
           getProfessors(),
           checkAdvisorWindow(),
         ]);
+        
         setProfessors(profList);
         setWindowInfo(winStatus);
 
@@ -62,9 +67,12 @@ const AdviseeRequestForm = () => {
     try {
       await submitAdvisorRequest(groupId, selectedProfessor, message);
       setSuccess(true);
+      
+      // Başarılı olursa 3 saniye sonra geri yönlendir
       setTimeout(() => {
         navigate(`/groups/${groupId}`);
       }, 3000);
+      
     } catch (err) {
       console.error('Submission failed:', err);
 

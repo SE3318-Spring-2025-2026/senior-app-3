@@ -84,6 +84,10 @@ function App() {
               element={<ProtectedRoute component={GroupCreationPage} requiredRoles={['student']} />}
             />
             <Route
+              path="/groups/:group_id/advisor-request"
+              element={<ProtectedRoute component={AdviseeRequestForm} requiredRoles={['student']} />}
+            />
+            <Route
               path="/groups/:group_id"
               element={<ProtectedRoute component={GroupDashboard} />}
             />
