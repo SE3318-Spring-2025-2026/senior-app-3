@@ -242,16 +242,18 @@ export const getPendingApprovals = async (groupId) => {
  */
 export const getGroupDashboardData = async (groupId) => {
   try {
-    const [groupData, approvalsData] = await Promise.all([
+    const [groupData, approvalsData, githubData, jiraData] = await Promise.all([
       getGroup(groupId),
       apiClient.get(`/groups/${groupId}/approvals`).then((r) => r.data).catch(() => ({ approvals: [] })),
+      getGitHubStatus(groupId).catch(() => ({ connected: false, repo_url: null, last_synced: null })),
+      getJiraStatus(groupId).catch(() => ({ connected: false, project_key: null, board_url: null })),
     ]);
 
     return {
       group: groupData,
       members: groupData.members || [],
-      github: { connected: false, repo_url: null, last_synced: null },
-      jira: { connected: false, project_key: null, board_url: null },
+      github: githubData,
+      jira: jiraData,
       approvals: approvalsData,
     };
   } catch (error) {

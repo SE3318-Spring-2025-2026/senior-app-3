@@ -41,6 +41,21 @@ const ScheduleWindow = require('../models/ScheduleWindow');
  * - Check NOW >= startsAt AND NOW <= endsAt
  * - If found: call next() (middleware passes)
  * - If not found: status depends on operationType (see handler)
+ * checkScheduleWindow(operationType)
+ *
+ * Returns Express middleware that enforces schedule boundaries for the given
+ * operation type ('group_creation' | 'member_addition' | 'advisor_association').
+ *
+ * If no active window covers the current timestamp:
+ *   - advisor_association → 422 { code: 'WINDOW_CLOSED', message: '...' } (aligns with advisee API)
+ *   - other operation types → 403 { code: 'OUTSIDE_SCHEDULE_WINDOW', reason: '...' }
+ *
+ * Applied to:
+ *   POST /groups                      → checkScheduleWindow('group_creation')
+ *   POST /groups/:groupId/members     → checkScheduleWindow('member_addition')
+ *   POST /advisor-requests            → checkScheduleWindow('advisor_association')
+ *
+ * The PATCH /groups/:groupId/override endpoint is explicitly exempt (not wrapped).
  */
 const checkScheduleWindow = (operationType) => async (req, res, next) => {
   try {
@@ -105,6 +120,12 @@ const checkScheduleWindow = (operationType) => async (req, res, next) => {
         });
       }
 
+      if (operationType === 'advisor_association') {
+        return res.status(422).json({
+          code: 'WINDOW_CLOSED',
+          message: 'The advisor association window is currently closed. Please check the coordinator schedule.',
+        });
+      }
       return res.status(403).json({
         code: 'OUTSIDE_SCHEDULE_WINDOW',
         reason: 'Operation not available outside the configured schedule window',

@@ -1,177 +1,189 @@
-import React, { useEffect, useState } from 'react';
-import { useNavigate, useParams, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
-import { createAdvisorRequest, getGroup, getScheduleWindow } from '../api/groupService';
+import { getGroup } from '../api/groupService';
+import { getProfessors, submitAdvisorRequest, checkAdvisorWindow } from '../api/advisorService';
 import './AdviseeRequestForm.css';
 
 /**
- * Team leader submits a request for a faculty advisor (Process 3.1 → 3.2).
+ * Team leader submits a request for a faculty advisor
  */
 const AdviseeRequestForm = () => {
   const { group_id: groupId } = useParams();
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
 
-  const [professorId, setProfessorId] = useState('');
+  const [professors, setProfessors] = useState([]);
+  const [selectedProfessor, setSelectedProfessor] = useState('');
   const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-  const [windowOpen, setWindowOpen] = useState(true);
-  const [groupMeta, setGroupMeta] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(false);
+  const [windowInfo, setWindowInfo] = useState({ open: null });
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!groupId || !user?.userId) {
-        setLoading(false);
-        return;
-      }
-      try {
-        const [g, sw] = await Promise.all([
-          getGroup(groupId),
-          getScheduleWindow('advisor_association'),
-        ]);
-        if (cancelled) return;
-        setGroupMeta(g);
-        setWindowOpen(sw?.open !== false);
-      } catch (e) {
-        if (!cancelled) setError(e.response?.data?.message || 'Could not load group.');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [groupId, user?.userId]);
+    if (!groupId || !user?.userId) return;
 
-  const isLeader = groupMeta?.leaderId === user?.userId;
-  const hasPendingRequest = groupMeta?.advisorRequest?.status === 'pending';
-  const canSubmit =
-    isLeader &&
-    user?.role === 'student' &&
-    groupMeta?.status === 'active' &&
-    !groupMeta?.advisorId &&
-    !hasPendingRequest;
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        const group = await getGroup(groupId);
+        // Eğer giriş yapan kullanıcı grup lideri değilse, doğrudan dashboarda geri yolla
+        if (group.leaderId !== user.userId) {
+          navigate(`/groups/${groupId}`, { replace: true });
+          return;
+        }
+
+        const [profList, winStatus] = await Promise.all([
+          getProfessors(),
+          checkAdvisorWindow(),
+        ]);
+        
+        setProfessors(profList);
+        setWindowInfo(winStatus);
+
+        if (!winStatus.open) {
+          setError('The advisor association window is currently closed.');
+        }
+      } catch (err) {
+        console.error('Failed to fetch data:', err);
+        setError('Failed to load required information. Please try again later.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [groupId, user?.userId, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
-    const pid = professorId.trim();
-    if (!pid) {
-      setError('Professor user ID is required.');
-      return;
-    }
-    setSubmitting(true);
+    if (!selectedProfessor) return;
+
+    setIsSubmitting(true);
+    setError(null);
+
     try {
-      await createAdvisorRequest({
-        groupId,
-        professorId: pid,
-        requesterId: user.userId,
-        message: message.trim() || undefined,
-      });
-      navigate(`/groups/${groupId}`);
+      await submitAdvisorRequest(groupId, selectedProfessor, message);
+      setSuccess(true);
+      
+      // Başarılı olursa 3 saniye sonra geri yönlendir
+      setTimeout(() => {
+        navigate(`/groups/${groupId}`);
+      }, 3000);
+      
     } catch (err) {
-      const data = err.response?.data;
-      if (data?.code === 'OUTSIDE_SCHEDULE_WINDOW') {
-        setError(data?.message || 'Advisor requests are not open in the current schedule window.');
+      console.error('Submission failed:', err);
+
+      const status = err.response?.status;
+      if (status === 403) {
+        setError('You must be the team leader to perform this action.');
+      } else if (status === 422) {
+        setError('The advisor request window is currently closed.');
+      } else if (status === 409) {
+        setError('Your group already has a pending request or an assigned advisor.');
       } else {
-        setError(data?.message || 'Could not submit advisor request.');
+        setError(err.response?.data?.message || 'Failed to submit the request.');
       }
     } finally {
-      setSubmitting(false);
+      setIsSubmitting(false);
     }
   };
 
-  if (!groupId) {
-    return <div className="page error">Invalid group</div>;
+  if (isLoading) {
+    return (
+      <div className="advisee-request-page">
+        <div className="form-container loading">
+          <div className="spinner"></div>
+          <p>Loading advisor association details...</p>
+        </div>
+      </div>
+    );
   }
 
-  if (loading) {
-    return <div className="advisee-request-page loading">Loading…</div>;
+  if (success) {
+    return (
+      <div className="advisee-request-page">
+        <div className="form-container success">
+          <div className="success-icon">✓</div>
+          <h2>Request Submitted!</h2>
+          <p>Your advisee request has been sent to the professor for review.</p>
+          <p className="redirect-hint">Redirecting you back to your dashboard...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="advisee-request-page">
-      <div className="advisee-request-header">
-        <h1>Request a faculty advisor</h1>
-        <p className="advisee-request-lead">
-          {groupMeta?.groupName ? (
-            <>
-              Group: <strong>{groupMeta.groupName}</strong>
-            </>
-          ) : (
-            <>Group ID: {groupId}</>
-          )}
-        </p>
-        <Link to={`/groups/${groupId}`} className="advisee-request-back">
-          ← Back to group dashboard
-        </Link>
+      <div className="form-container">
+        <header className="form-header">
+          <h1>Request Advisor</h1>
+          <p>Select a professor to request as an advisor for your group.</p>
+        </header>
+
+        {!windowInfo.open && windowInfo.open !== null && (
+          <div className="warning-banner">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+            </svg>
+            <span>The association window is closed. Submissions are temporarily disabled.</span>
+          </div>
+        )}
+
+        {error && <div className="error-banner">{error}</div>}
+
+        <form onSubmit={handleSubmit} className="advisor-form">
+          <div className="form-group">
+            <label htmlFor="professor">Select Professor</label>
+            <select
+              id="professor"
+              value={selectedProfessor}
+              onChange={(e) => setSelectedProfessor(e.target.value)}
+              required
+              disabled={!windowInfo.open || isSubmitting}
+            >
+              <option value="">-- Choose a Professor --</option>
+              {professors.map((p) => (
+                <option key={p.userId} value={p.userId}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="message">Message (Optional)</label>
+            <textarea
+              id="message"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Explain your project goals or why you'd like this professor to advise you..."
+              rows="4"
+              disabled={!windowInfo.open || isSubmitting}
+            ></textarea>
+          </div>
+
+          <div className="form-actions">
+            <button
+              type="button"
+              className="cancel-btn"
+              onClick={() => navigate(`/groups/${groupId}`)}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="submit-btn"
+              disabled={!windowInfo.open || !selectedProfessor || isSubmitting}
+            >
+              {isSubmitting ? 'Submitting...' : 'Submit Request'}
+            </button>
+          </div>
+        </form>
       </div>
-
-      {!windowOpen && (
-        <div className="advisee-request-banner warn">
-          The advisor association schedule is currently closed. You can still prepare the form, but submission
-          will be rejected until a coordinator opens the window.
-        </div>
-      )}
-
-      {!isLeader && (
-        <div className="advisee-request-banner warn">Only the team leader can submit an advisor request.</div>
-      )}
-
-      {groupMeta?.advisorId && (
-        <div className="advisee-request-banner info">This group already has an advisor assigned.</div>
-      )}
-
-      {hasPendingRequest && (
-        <div className="advisee-request-banner info">
-          This group already has a pending advisor request to{' '}
-          <strong>{groupMeta.advisorRequest.professorName || groupMeta.advisorRequest.professorId}</strong>.
-        </div>
-      )}
-
-      {groupMeta && groupMeta.status !== 'active' && (
-        <div className="advisee-request-banner warn">Advisor requests are only available for active groups.</div>
-      )}
-
-      {error && <div className="advisee-request-error">{error}</div>}
-
-      <form className="advisee-request-form" onSubmit={handleSubmit}>
-        <label className="advisee-request-label">
-          Professor user ID
-          <input
-            type="text"
-            name="professorId"
-            value={professorId}
-            onChange={(e) => setProfessorId(e.target.value)}
-            placeholder="e.g. usr_abc123"
-            autoComplete="off"
-            disabled={!canSubmit || submitting}
-          />
-        </label>
-        <p className="advisee-request-hint">
-          Enter the professor&apos;s account user ID (from your coordinator or the faculty member). This must match
-          an active professor account in the system.
-        </p>
-
-        <label className="advisee-request-label">
-          Message <span className="optional">(optional)</span>
-          <textarea
-            name="message"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            rows={4}
-            placeholder="Brief context for the professor…"
-            disabled={!canSubmit || submitting}
-          />
-        </label>
-
-        <button type="submit" className="advisee-request-submit" disabled={!canSubmit || submitting}>
-          {submitting ? 'Submitting…' : 'Submit request'}
-        </button>
-      </form>
     </div>
   );
 };
