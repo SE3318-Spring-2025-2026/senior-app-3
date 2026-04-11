@@ -2,11 +2,23 @@ const express = require('express');
 const router = express.Router();
 const { authMiddleware, roleMiddleware, flexibleSystemOrRoleAuth } = require('../middleware/auth');
 const { checkScheduleWindow } = require('../middleware/scheduleWindow');
-const { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride } = require('../controllers/groups');
+const {
+  forwardApprovalResults,
+  createGroup,
+  getGroup,
+  getAllGroups,
+  createMemberRequest,
+  decideMemberRequest,
+  coordinatorOverride,
+  createAdvisorRequest,
+  transferAdvisor,
+} = require('../controllers/groups');
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
+const { advisorApproveRequest, releaseAdvisorHandler, transferAdvisorHandler } = require('../controllers/advisorDecision');
 const { advisorSanitization } = require('../controllers/sanitizationController');
+const advisorRequestController = require('../controllers/advisorRequestController');
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
 router.post('/', authMiddleware, roleMiddleware(['student']), createGroup);
@@ -17,8 +29,20 @@ router.get('/pending-invitation', authMiddleware, getMyPendingInvitation);
 // GET /api/v1/groups — List all groups (coordinator only) for group management dashboard
 router.get('/', authMiddleware, roleMiddleware(['coordinator']), getAllGroups);
 
+// POST /api/v1/groups/:groupId/release-advisor — Team Leader releases assigned advisor (transactional)
+router.post('/:groupId/release-advisor', authMiddleware, advisorRequestController.releaseAdvisor);
+
 // GET /api/v1/groups/:groupId — Process 2.2: retrieve validated group record from D2
 router.get('/:groupId', authMiddleware, getGroup);
+
+// DELETE /api/v1/groups/:groupId/advisor — Process 3.5: release current advisor
+router.delete(
+  '/:groupId/advisor', 
+  authMiddleware, 
+  roleMiddleware(['student', 'coordinator', 'admin']),
+  checkScheduleWindow('advisor_association'),
+  advisorRequestController.releaseAdvisor
+);
 
 // POST /api/v1/groups/:groupId/members — Process 2.3: leader invites a student (f05, f19)
 router.post('/:groupId/members', authMiddleware, checkScheduleWindow('member_addition'), addMember);
@@ -50,6 +74,17 @@ router.post(
   forwardApprovalResults
 );
 
+// POST /api/v1/groups/:groupId/advisor-requests — Process 3.2: group leader requests advisor
+// Input: { professorId, message? }
+// Process: Validate group/professor, create advisor request record, dispatch notification (Process 3.3)
+router.post(
+  '/:groupId/advisor-requests',
+  authMiddleware,
+  roleMiddleware(['student']),
+  checkScheduleWindow('advisor_association'),
+  createAdvisorRequest
+);
+
 // POST /api/v1/groups/:groupId/github — Process 2.6: validate PAT + org, store config (f10-f12, f24)
 router.post('/:groupId/github', authMiddleware, configureGithub);
 
@@ -71,6 +106,17 @@ router.patch(
   coordinatorOverride
 );
 
+// POST /api/v1/groups/:groupId/advisor/transfer — Process 3.6: Coordinator transfers advisor to new professor
+// Request body: { newProfessorId: string, reason?: string }
+// Response: AdvisorAssignment schema with status: transferred
+router.post(
+  '/:groupId/advisor/transfer',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
+  checkScheduleWindow('advisor_association'),
+  transferAdvisor
+);
+
 // GET /api/v1/groups/:groupId/status — Issue #52: Retrieve current group status
 router.get(
   '/:groupId/status',
@@ -87,109 +133,39 @@ router.patch(
   transitionStatus
 );
 
+// PATCH /api/v1/advisor-requests/:requestId — Process 3.4+3.5: Professor approves/rejects advisee request
+// Request body: { decision: "approve"|"reject", reason?: string }
+// Response: AdvisorAssignment schema with status, updatedAt
+router.patch(
+  '/advisor-requests/:requestId',
+  authMiddleware,
+  roleMiddleware(['professor', 'admin']),
+  checkScheduleWindow('advisor_association'),
+  advisorApproveRequest
+);
+
 /**
  * ========================================
  * POST /api/v1/groups/advisor-sanitization
  * Issue #67: Disband Unassigned Groups After Advisor Association Deadline
  * ========================================
- * 
- * Process 3.7 of Level 2.3 (Advisor Association) Flow
- * 
- * PURPOSE:
+ * * Process 3.7 of Level 2.3 (Advisor Association) Flow
+ * * PURPOSE:
  * ────────
  * After the coordinator-defined advisor association deadline passes,
  * automatically disband all groups that failed to secure an advisor.
  * Clears their advisor-related fields and notifies group members.
- * 
- * REQUEST:
- * ────────
- * METHOD:  POST
- * BODY:    { groupIds?: string[] }  // Optional: specific groups to disband
- * 
- * RESPONSE (200 OK):
- * ──────────────────
- * {
- *   "disbandedGroups": ["grp_123", "grp_456"],
- *   "checkedAt": "2026-04-11T15:30:00Z",
- *   "message": "Sanitization complete: 2 group(s) disbanded, 0 failed",
- *   "details": {
- *     "total_checked": 5,
- *     "successfully_disbanded": 2,
- *     "failed": 0,
- *     "errors": []
- *   }
- * }
- * 
- * MIDDLEWARE STACK (EXECUTION ORDER):
+ * * MIDDLEWARE STACK (EXECUTION ORDER):
  * ───────────────────────────────────
  * 1. flexibleSystemOrRoleAuth — M2M first (X-Service-Auth), else coordinator/admin JWT
  * 2. advisorSanitization — Main controller logic
- * 
- * AUTHORIZATION:
+ * * AUTHORIZATION:
  * ──────────────
  * Allowed callers:
  * ✅ Coordinator user (JWT + role:coordinator)
  * ✅ Admin user (JWT + role:admin)
  * ✅ System service account (X-Service-Auth header with SYSTEM_SERVICE_TOKEN)
  * ✅ Cron job / Scheduler (if configured with service token)
- * 
- * Denied:
- * ❌ Unauthenticated requests (401)
- * ❌ Invalid JWT token (401)
- * ❌ User with other role (403)
- * ❌ Invalid service token (403)
- * 
- * ISSUE #67 FIXES APPLIED IN THIS ENDPOINT:
- * ────────────────────────────────────────
- * Fix #1: SECURITY - Deadline fetched from ScheduleWindow DB (not request body)
- *         Prevents coordinator from manipulating deadline to trigger early
- * 
- * Fix #2: PERFORMANCE - Response returns immediately (200 OK)
- *         Notifications dispatched asynchronously in background
- *         Prevents event loop blocking and response timeouts
- * 
- * Fix #3: DATABASE - Uses bulkWrite() for single DB round-trip
- *         Changes status from 'inactive' to 'disbanded' (spec compliant)
- *         Eliminates N+1 database write pattern
- * 
- * Fix #4: AUTHORIZATION - flexibleSystemOrRoleAuth (service token without JWT, or coordinator/admin JWT)
- *         Enables schedulers/cron jobs to trigger sanitization
- * 
- * Fix #5: INPUT VALIDATION - Validates groupIds parameter
- *         Must be array of non-empty strings, max 500 items
- * 
- * ERROR RESPONSES:
- * ────────────────
- * 400 Bad Request - Invalid input (malformed groupIds)
- * 401 Unauthorized - No/invalid authentication credentials
- * 403 Forbidden - User lacks authorization (not coordinator/admin/system)
- * 409 Conflict - Deadline not reached yet
- * 500 Internal Server Error - Unexpected server error
- * 
- * PERFORMANCE CHARACTERISTICS:
- * ────────────────────────────
- * Response Time:
- * - Small run (< 10 groups): ~50-100ms (quick database operations)
- * - Medium run (10-50 groups): ~100-200ms (database efficiency from bulkWrite)
- * - Large run (100+ groups): ~200-500ms (disk I/O) + background notifications
- * 
- * Background Tasks (non-blocking):
- * - Notification dispatch: 1-5 seconds per batch (runs in background)
- * - Error logging: ~100ms per failed group
- * 
- * EXAMPLE CURL COMMANDS:
- * ──────────────────────
- * // User-based authorization (coordinator with JWT)
- * curl -X POST http://localhost:5000/api/v1/groups/advisor-sanitization \
- *   -H "Authorization: Bearer $JWT_TOKEN" \
- *   -H "Content-Type: application/json" \
- *   -d '{"groupIds": ["grp_001", "grp_002"]}'
- * 
- * // System-based authorization (scheduled job with service token)
- * curl -X POST http://localhost:5000/api/v1/groups/advisor-sanitization \
- *   -H "X-Service-Auth: $SYSTEM_SERVICE_TOKEN" \
- *   -H "Content-Type: application/json" \
- *   -d '{}'
  */
 // Issue #67: Service token (X-Service-Auth) does not require Bearer JWT
 router.post('/advisor-sanitization', flexibleSystemOrRoleAuth, advisorSanitization);
