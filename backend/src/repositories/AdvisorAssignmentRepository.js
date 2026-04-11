@@ -190,7 +190,8 @@ async function transferAdvisor(groupId, newProfessorId) {
 
 /**
  * Disband group and clear advisor (Write Operation f13: 3.7 → D2)
- * Sets status to 'disbanded' and clears advisorId.
+ * Sets advisorStatus to 'disbanded' and primary group status to 'archived' for post-deadline cleanup.
+ * Clears advisorId.
  * Called by sanitization process 3.7 for groups without assigned advisor.
  *
  * @param {string} groupId - Group identifier

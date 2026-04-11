@@ -84,9 +84,14 @@ module.exports = {
     await coll.createIndex({ advisorStatus: 1 });
     console.log('[MIGRATION] Ensured index: groups.advisorStatus');
 
-    // Index on advisorRequestId for fast request lookups
-    await coll.createIndex({ 'advisorRequest.requestId': 1 });
-    console.log('[MIGRATION] Ensured index: groups.advisorRequest.requestId');
+    // Sparse unique index on embedded requestId (matches Group.js model)
+    await coll.createIndex(
+      { 'advisorRequest.requestId': 1 },
+      { unique: true, sparse: true }
+    );
+    console.log(
+      '[MIGRATION] Ensured sparse unique index: groups.advisorRequest.requestId'
+    );
 
     // Compound index for filtering groups by advisor and status
     await coll.createIndex({ advisorId: 1, advisorStatus: 1 });
