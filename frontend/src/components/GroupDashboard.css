@@ -649,3 +649,15 @@
   margin-bottom: 16px;
   margin-top: 32px;
 }
+
+.advisor-request-link {
+  display: inline-block;
+  margin-top: 10px;
+  color: #667eea;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.advisor-request-link:hover {
+  text-decoration: underline;
+}

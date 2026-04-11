@@ -4,6 +4,7 @@ const GroupMembership = require('../models/GroupMembership');
 const MemberInvitation = require('../models/MemberInvitation');
 const Override = require('../models/Override');
 const User = require('../models/User');
+const AdvisorRequest = require('../models/AdvisorRequest');
 const { createAuditLog } = require('../services/auditService');
 const { forwardToMemberRequestPipeline, forwardOverrideToReconciliation } = require('../services/groupService');
 const { dispatchGroupCreationNotification } = require('../services/notificationService');
@@ -349,6 +350,12 @@ const createGroup = async (req, res) => {
  * Returns: group_id, group_name, leader, advisor, status, members,
  *          github_org, jira_project
  */
+const displayNameFromUser = (user) => {
+  if (!user) return null;
+  if (user.email) return user.email.split('@')[0];
+  return user.userId;
+};
+
 const getGroup = async (req, res) => {
   try {
     const { groupId } = req.params;
@@ -360,6 +367,36 @@ const getGroup = async (req, res) => {
         code: 'GROUP_NOT_FOUND',
         message: `No group found with id "${groupId}".`,
       });
+    }
+
+    const [advisorUser, latestAdvisorRequest] = await Promise.all([
+      group.advisorId
+        ? User.findOne({ userId: group.advisorId }).lean().select('userId email')
+        : Promise.resolve(null),
+      AdvisorRequest.findOne({ groupId: group.groupId }).sort({ createdAt: -1 }).lean(),
+    ]);
+
+    const advisorName = group.advisorId ? displayNameFromUser(advisorUser) : null;
+
+    let advisorRequest = null;
+    if (latestAdvisorRequest) {
+      const professorUser = await User.findOne({ userId: latestAdvisorRequest.professorId })
+        .lean()
+        .select('userId email');
+      advisorRequest = {
+        requestId: latestAdvisorRequest.requestId,
+        professorId: latestAdvisorRequest.professorId,
+        professorName: displayNameFromUser(professorUser),
+        status: latestAdvisorRequest.status,
+        message: latestAdvisorRequest.message,
+        notificationTriggered: latestAdvisorRequest.notificationTriggered,
+        createdAt: latestAdvisorRequest.createdAt
+          ? new Date(latestAdvisorRequest.createdAt).toISOString()
+          : null,
+      };
+      if (latestAdvisorRequest.decidedAt) {
+        advisorRequest.decidedAt = new Date(latestAdvisorRequest.decidedAt).toISOString();
+      }
     }
 
     // Audit log (non-fatal)
@@ -375,7 +412,12 @@ const getGroup = async (req, res) => {
       console.error('Audit log failed (non-fatal):', auditError.message);
     }
 
-    return res.status(200).json(formatGroupResponse(group));
+    return res.status(200).json(
+      formatGroupResponse(group, {
+        advisorName,
+        advisorRequest,
+      })
+    );
   } catch (error) {
     console.error('getGroup error:', error);
     return res.status(500).json({
@@ -387,12 +429,15 @@ const getGroup = async (req, res) => {
 
 /**
  * Formats a Group document into the API response shape.
+ * @param {object} extras - Optional advisor enrichment from getGroup (advisorName, advisorRequest)
  */
-const formatGroupResponse = (group) => ({
+const formatGroupResponse = (group, extras = {}) => ({
   groupId: group.groupId,
   groupName: group.groupName,
   leaderId: group.leaderId,
   advisorId: group.advisorId,
+  advisorName: extras.advisorName ?? null,
+  advisorRequest: extras.advisorRequest ?? null,
   status: group.status,
   members: group.members.map((m) => ({
     userId: m.userId,
@@ -1029,10 +1074,9 @@ const getAllGroups = async (req, res) => {
 };
 
 /**
- * Helper: Validate advisor request input and permissions
- * Returns: { isValid: boolean, error: { status, code, message } | null, data: { group, professor } | null }
- */
-/**
+ * Validate advisor request input and permissions before advisorAssignmentService.
+ * Returns: { isValid, error?, data?: { group, professor } }
+ *
  * Issue #61 Fix #2 & #6: Validate Advisor Request Input
  * 
  * Purpose: Early validation before calling advisorAssignmentService
@@ -1050,7 +1094,7 @@ const getAllGroups = async (req, res) => {
  * 6. Professor: role === 'professor' (400 if not)
  * 7. Professor: accountStatus === 'active' (409 if inactive)
  * 8. Group: no existing advisor (409 if has advisor)
- * 9. Group: no duplicate request (409 if duplicate)
+ * (Duplicate pending requests are enforced in advisorAssignmentService + DB index, not via group.advisorRequest.)
  * 
  * Performance Notes:
  * - Promise.all([findGroup, findProfessor]) runs queries concurrently
@@ -1151,18 +1195,9 @@ const validateAdvisorRequest = async (groupId, professorId, requesterId, authUse
     };
   }
 
-  // Check no duplicate request
-  if (group.advisorRequest?.professorId === professorId.trim()) {
-    return {
-      isValid: false,
-      error: { status: 409, code: 'DUPLICATE_REQUEST', message: 'A request to this professor already exists for this group' },
-    };
-  }
-
   return { isValid: true, error: null, data: { group, professor } };
 };
 
-/**
 /**
  * Issue #61 Resolution: POST /advisor-requests Handler
  * 
@@ -1192,7 +1227,7 @@ const validateAdvisorRequest = async (groupId, professorId, requesterId, authUse
  *   requesterId: string,                // From request
  *   status: 'pending',                  // Always pending on creation
  *   message: string,                    // Optional message from team leader
- *   notificationTriggered: boolean,     // Issue #61: true if notification sent
+ *   notificationTriggered: boolean,     // false at 201 (notification dispatched in background)
  *   createdAt: ISO8601 timestamp        // When request was created
  * }
  * 
@@ -1208,7 +1243,7 @@ const validateAdvisorRequest = async (groupId, professorId, requesterId, authUse
  * ✅ Group existence validated before persistence
  * ✅ Professor existence validated before persistence
  * ✅ Unique partial index prevents duplicate pending requests
- * ✅ notificationTriggered flag returned in response
+ * ✅ notificationTriggered false at 201; AdvisorRequest.notificationTriggered updated by background dispatch
  * ✅ Retry logic: 3 attempts with [100ms, 200ms, 400ms] backoff
  * ✅ Error logging with requestId to audit trail
  * ✅ Partial failure: notification error doesn't block 201

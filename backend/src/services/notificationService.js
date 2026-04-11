@@ -110,7 +110,7 @@ const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipie
  * - 3.2 calls adviseeNotificationService.sendAdviseeRequestNotification()
  * - 3.3 calls this dispatchAdviseeRequestNotification()
  * - This function posts to external service
- * - 3.2 returns notificationTriggered flag based on result
+ * - D2 notificationTriggered is updated by adviseeNotificationService after dispatch (not in 201)
  *
  * @param {object} payload - Notification payload
  * @returns {object} { notification_id, recipientCount }

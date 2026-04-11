@@ -10,13 +10,15 @@ const ScheduleWindow = require('../models/ScheduleWindow');
  * - Solution: Dynamic message mapping based on operationType parameter
  * 
  * Purpose:
- * Enforce time-based access control for operations. Coordinator defines schedule windows;
- * system blocks out-of-window requests with 422 Unprocessable Entity.
+ * Enforce time-based access control. Out-of-window responses:
+ * - group_creation / member_addition: 403 + { code, reason } (legacy, tests/clients)
+ * - advisor_association (Issue #70): 422 + { code, message }
  * 
  * Applied To:
  * - POST /groups → checkScheduleWindow('group_creation')
  * - POST /groups/:groupId/members → checkScheduleWindow('member_addition')
- * - POST /advisor-requests → checkScheduleWindow('advisor_association') [Issue #61]\n * - PATCH /advisor-requests/{requestId} → checkScheduleWindow('advisor_association')
+ * - POST /advisor-requests → checkScheduleWindow('advisor_association') [Issue #61]
+ * - PATCH /advisor-requests/{requestId} → checkScheduleWindow('advisor_association')
  * - DELETE /groups/:groupId/advisor → checkScheduleWindow('advisor_association')
  * - POST /groups/:groupId/advisor/transfer → checkScheduleWindow('advisor_association')
  * 
@@ -38,7 +40,7 @@ const ScheduleWindow = require('../models/ScheduleWindow');
  * - Check isActive === true
  * - Check NOW >= startsAt AND NOW <= endsAt
  * - If found: call next() (middleware passes)
- * - If not found: return 422 with dynamic error message
+ * - If not found: status depends on operationType (see handler)
  */
 const checkScheduleWindow = (operationType) => async (req, res, next) => {
   try {
@@ -48,7 +50,7 @@ const checkScheduleWindow = (operationType) => async (req, res, next) => {
       isActive: true,
       startsAt: { $lte: now },
       endsAt: { $gte: now },
-    });
+    }).lean();
 
     if (!activeWindow) {
       /**
@@ -76,11 +78,8 @@ const checkScheduleWindow = (operationType) => async (req, res, next) => {
          * Message: "Group creation schedule is closed"
          */
         group_creation: 'Group creation schedule is closed',
-        
-        /**\n         * member_addition: Shown when POST /groups/:groupId/members outside window
-         * Coordinator Action: Disables during off-window times
-         * Effect: Team leaders cannot invite new members
-         * Message: "Member addition schedule is closed"
+        /**
+         * member_addition: Shown when POST /groups/:groupId/members outside window
          */
         member_addition: 'Member addition schedule is closed',
         
@@ -99,9 +98,16 @@ const checkScheduleWindow = (operationType) => async (req, res, next) => {
       };
       const message = messageMap[operationType] || 'Operation is not available at this time';
 
-      return res.status(422).json({
+      if (operationType === 'advisor_association') {
+        return res.status(422).json({
+          code: 'OUTSIDE_SCHEDULE_WINDOW',
+          message,
+        });
+      }
+
+      return res.status(403).json({
         code: 'OUTSIDE_SCHEDULE_WINDOW',
-        message,
+        reason: 'Operation not available outside the configured schedule window',
       });
     }
 

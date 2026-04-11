@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import useGroupStore from '../store/groupStore';
 import useAuthStore from '../store/authStore';
 import GitHubStatusCard from './GitHubStatusCard';
@@ -231,6 +231,42 @@ const GroupDashboard = () => {
                     {pendingApprovalsCount} student{pendingApprovalsCount !== 1 ? 's' : ''}{' '}
                     {pendingApprovalsCount !== 1 ? 'have' : 'has'} not yet responded.
                   </p>
+                )}
+              </div>
+            </div>
+
+            {/* Faculty advisor — enriched from GET /groups/:groupId */}
+            <div className="status-card">
+              <div className="card-header">
+                <h3 className="card-title">Faculty advisor</h3>
+              </div>
+              <div className="card-content">
+                {groupData.advisorId ? (
+                  <div className="info-row">
+                    <span className="info-label">Assigned:</span>
+                    <span className="info-value">
+                      {groupData.advisorName || groupData.advisorId}
+                    </span>
+                  </div>
+                ) : groupData.advisorRequest?.status === 'pending' ? (
+                  <p className="card-hint">
+                    Request pending for{' '}
+                    <strong>
+                      {groupData.advisorRequest.professorName || groupData.advisorRequest.professorId}
+                    </strong>
+                    {groupData.advisorRequest.notificationTriggered === false && (
+                      <span> (notification delivery pending or failed — refresh later)</span>
+                    )}
+                  </p>
+                ) : (
+                  <>
+                    <p className="card-hint">No advisor assigned yet.</p>
+                    {isLeader && groupData.status === 'active' && (
+                      <Link className="advisor-request-link" to={`/groups/${groupId}/advisor-request`}>
+                        Request an advisor
+                      </Link>
+                    )}
+                  </>
                 )}
               </div>
             </div>
