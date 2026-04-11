@@ -1,4 +1,6 @@
+const mongoose = require('mongoose');
 const Group = require('../models/Group');
+const AdvisorAssignment = require('../models/AdvisorAssignment');
 const ApprovalQueue = require('../models/ApprovalQueue');
 const GroupMembership = require('../models/GroupMembership');
 const MemberInvitation = require('../models/MemberInvitation');
@@ -10,7 +12,6 @@ const { forwardToMemberRequestPipeline, forwardOverrideToReconciliation } = requ
 const { dispatchGroupCreationNotification, dispatchAdvisorRequestNotification } = require('../services/notificationService');
 const { INACTIVE_GROUP_STATUSES, VALID_STATUS_TRANSITIONS } = require('../utils/groupStatusEnum');
 const SyncErrorLog = require('../models/SyncErrorLog');
-const AdvisorRequest = require('../models/AdvisorRequest');
 
 const VALID_DECISIONS = new Set(['approved', 'rejected']);
 
@@ -1107,6 +1108,139 @@ const getAllGroups = async (req, res) => {
 };
 
 /**
+ * POST /groups/:groupId/advisor/transfer
+ *
+ * Process 3.6 — Coordinator Transfer: reassign a group to a new advisor.
+ * Role guard: coordinator only.
+ * Schedule guard is applied at route level via advisor_association window.
+ */
+const transferAdvisor = async (req, res) => {
+  const session = await mongoose.startSession();
+  try {
+    const { groupId } = req.params;
+    const { newProfessorId, reason } = req.body;
+
+    if (!newProfessorId || typeof newProfessorId !== 'string' || !newProfessorId.trim()) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'newProfessorId is required.',
+      });
+    }
+
+    const normalizedProfessorId = newProfessorId.trim();
+    const normalizedReason = typeof reason === 'string' ? reason.trim() : '';
+
+    const group = await Group.findOne({ groupId });
+    if (!group) {
+      return res.status(404).json({
+        code: 'GROUP_NOT_FOUND',
+        message: 'Group not found',
+      });
+    }
+
+    const targetProfessor = await User.findOne({ userId: normalizedProfessorId });
+    if (!targetProfessor) {
+      return res.status(404).json({
+        code: 'PROFESSOR_NOT_FOUND',
+        message: 'Target professor not found',
+      });
+    }
+
+    if (targetProfessor.role !== 'professor') {
+      return res.status(400).json({
+        code: 'INVALID_PROFESSOR_ROLE',
+        message: 'newProfessorId must belong to a professor account.',
+      });
+    }
+
+    if (targetProfessor.accountStatus !== 'active') {
+      return res.status(400).json({
+        code: 'PROFESSOR_INACTIVE',
+        message: 'Target professor account must be active.',
+      });
+    }
+
+    const conflictingAssignment = await Group.findOne({
+      groupId: { $ne: groupId },
+      advisorId: targetProfessor.userId,
+      status: { $nin: ['inactive', 'archived'] },
+    });
+    if (conflictingAssignment) {
+      return res.status(409).json({
+        code: 'ADVISOR_CONFLICT',
+        message: 'Target professor already has a conflicting assignment',
+        conflictingGroupId: conflictingAssignment.groupId,
+      });
+    }
+
+    let updatedGroup;
+    await session.withTransaction(async () => {
+      const now = new Date();
+      const groupToUpdate = await Group.findOne({ groupId }).session(session);
+      if (!groupToUpdate) {
+        throw new Error('Group not found during transfer transaction');
+      }
+
+      const previousAdvisorId = groupToUpdate.advisorId;
+
+      groupToUpdate.advisorId = targetProfessor.userId;
+      groupToUpdate.advisorStatus = 'transferred';
+      groupToUpdate.advisorUpdatedAt = now;
+      await groupToUpdate.save({ session });
+
+      await AdvisorAssignment.create(
+        [
+          {
+            groupId: groupToUpdate.groupId,
+            groupRef: groupToUpdate._id,
+            advisorId: targetProfessor.userId,
+            previousAdvisorId: previousAdvisorId,
+            status: 'transferred',
+            releasedBy: req.user.userId,
+            releaseReason: normalizedReason,
+          },
+        ],
+        { session }
+      );
+
+      await createAuditLog(
+        {
+          action: 'advisor_transferred',
+          actorId: req.user.userId,
+          targetId: groupToUpdate.groupId,
+          groupId: groupToUpdate.groupId,
+          payload: {
+            new_professor_id: targetProfessor.userId,
+            previous_advisor_id: previousAdvisorId,
+            reason: normalizedReason,
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        },
+        session
+      );
+
+      updatedGroup = groupToUpdate;
+    });
+
+    return res.status(200).json({
+      groupId: updatedGroup.groupId,
+      professorId: targetProfessor.userId,
+      status: 'transferred',
+      updatedAt: updatedGroup.updatedAt,
+    });
+  } catch (error) {
+    console.error('transferAdvisor error:', error);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: 'An unexpected error occurred',
+    });
+  } finally {
+    session.endSession();
+  }
+};
+
+/**
  * Validate advisor request input and permissions before advisorAssignmentService.
  * Returns: { isValid, error?, data?: { group, professor } }
  *
@@ -1466,4 +1600,4 @@ const createAdvisorRequest = async (req, res) => {
   }
 };
 
-module.exports = { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride, createAdvisorRequest };
+module.exports = { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride, transferAdvisor, createAdvisorRequest };

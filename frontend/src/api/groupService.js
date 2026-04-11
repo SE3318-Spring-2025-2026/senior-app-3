@@ -287,6 +287,20 @@ export const coordinatorOverride = async (groupId, payload) => {
 };
 
 /**
+ * Coordinator transfer: reassign group advisor to another professor
+ * @param {string} groupId
+ * @param {{newProfessorId: string, reason?: string}} payload
+ * @returns {Promise<{groupId: string, professorId: string, status: string, updatedAt: string}>}
+ */
+export const transferAdvisor = async (groupId, { newProfessorId, reason }) => {
+  const response = await apiClient.post(`/groups/${groupId}/advisor/transfer`, {
+    newProfessorId,
+    reason: reason || undefined,
+  });
+  return response.data;
+};
+
+/**
  * Get group status
  * @param {string} groupId - The group ID
  * @returns {Promise<{groupId, status, lastTransitionAt, lastTransitionBy}>}

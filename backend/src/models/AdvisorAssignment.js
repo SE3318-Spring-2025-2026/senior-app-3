@@ -62,6 +62,11 @@ const advisorAssignmentSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    // Allows storing additional flexible data for future operations (from feature/66)
+    metadata: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
   },
   { timestamps: true }
 );

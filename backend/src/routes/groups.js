@@ -2,7 +2,17 @@ const express = require('express');
 const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const { checkScheduleWindow } = require('../middleware/scheduleWindow');
-const { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride, createAdvisorRequest } = require('../controllers/groups');
+const {
+  forwardApprovalResults,
+  createGroup,
+  getGroup,
+  getAllGroups,
+  createMemberRequest,
+  decideMemberRequest,
+  coordinatorOverride,
+  createAdvisorRequest,
+  transferAdvisor,
+} = require('../controllers/groups');
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
@@ -95,6 +105,17 @@ router.patch(
   coordinatorOverride
 );
 
+// POST /api/v1/groups/:groupId/advisor/transfer — Process 3.6: Coordinator transfers advisor to new professor
+// Request body: { newProfessorId: string, reason?: string }
+// Response: AdvisorAssignment schema with status: transferred
+router.post(
+  '/:groupId/advisor/transfer',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
+  checkScheduleWindow('advisor_association'),
+  transferAdvisor
+);
+
 // GET /api/v1/groups/:groupId/status — Issue #52: Retrieve current group status
 router.get(
   '/:groupId/status',
@@ -120,17 +141,6 @@ router.patch(
   roleMiddleware(['professor', 'admin']),
   checkScheduleWindow('advisor_association'),
   advisorApproveRequest
-);
-
-// POST /api/v1/groups/:groupId/advisor/transfer — Process 3.6→3.5: Coordinator transfers advisor to new professor
-// Request body: { newProfessorId: string, reason?: string }
-// Response: AdvisorAssignment schema with status: transferred
-router.post(
-  '/:groupId/advisor/transfer',
-  authMiddleware,
-  roleMiddleware(['coordinator', 'admin']),
-  checkScheduleWindow('advisor_association'),
-  transferAdvisorHandler
 );
 
 module.exports = router;
