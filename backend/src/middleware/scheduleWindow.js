@@ -4,7 +4,7 @@ const ScheduleWindow = require('../models/ScheduleWindow');
  * checkScheduleWindow(operationType)
  *
  * Returns Express middleware that enforces schedule boundaries for the given
- * operation type ('group_creation' | 'member_addition').
+ * operation type ('group_creation' | 'member_addition' | 'advisor_association').
  *
  * If no active window covers the current timestamp, responds with:
  *   403 { code: 'OUTSIDE_SCHEDULE_WINDOW', reason: '...' }
@@ -12,6 +12,7 @@ const ScheduleWindow = require('../models/ScheduleWindow');
  * Applied to:
  *   POST /groups                      → checkScheduleWindow('group_creation')
  *   POST /groups/:groupId/members     → checkScheduleWindow('member_addition')
+ *   POST /groups/advisor-requests     → checkScheduleWindow('advisor_association')
  *
  * The PATCH /groups/:groupId/override endpoint is explicitly exempt (not wrapped).
  */

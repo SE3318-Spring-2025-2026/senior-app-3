@@ -20,7 +20,6 @@ const advisorRequestSchema = new mongoose.Schema(
     requestId: {
       type: String,
       default: () => `adv_req_${uuidv4().split('-')[0]}`,
-      unique: true,
       required: true,
     },
     professorId: {
@@ -84,7 +83,7 @@ const groupSchema = new mongoose.Schema(
     },
     advisorStatus: {
       type: String,
-      enum: ['pending', 'assigned', 'released', 'transferred'],
+      enum: [null, 'pending', 'assigned', 'released', 'transferred'],
       default: null,
     },
     advisorUpdatedAt: {
@@ -175,7 +174,7 @@ groupSchema.index({ leaderId: 1 });
 groupSchema.index({ status: 1 });
 groupSchema.index({ advisorId: 1 });
 groupSchema.index({ advisorStatus: 1 });
-groupSchema.index({ 'advisorRequest.requestId': 1 });
+groupSchema.index({ 'advisorRequest.requestId': 1 }, { unique: true, sparse: true });
 groupSchema.index({ 'advisorRequest.professorId': 1 });
 groupSchema.index({ 'advisorRequest.status': 1 });
 groupSchema.index({ status: 1, advisorId: 1 });

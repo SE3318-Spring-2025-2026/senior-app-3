@@ -1,11 +1,38 @@
 const express = require('express');
 const router = express.Router();
-const { authMiddleware, roleMiddleware } = require('../middleware/auth');
+const { authMiddleware, roleMiddleware, serviceOrBearerAuth } = require('../middleware/auth');
 const { checkScheduleWindow } = require('../middleware/scheduleWindow');
 const { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride } = require('../controllers/groups');
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
+const { advisorSanitization } = require('../controllers/sanitizationController');
+const { submitAdviseeRequest, handleAdvisorDecision } = require('../controllers/advisorRequests');
+
+// POST /api/v1/groups/advisor-sanitization — Process 3.7 (cron may use X-Service-Auth)
+router.post(
+  '/advisor-sanitization',
+  serviceOrBearerAuth,
+  roleMiddleware(['coordinator', 'admin']),
+  advisorSanitization
+);
+
+// POST /api/v1/groups/advisor-requests — Process 3.1–3.3: leader submits advisee request
+router.post(
+  '/advisor-requests',
+  authMiddleware,
+  roleMiddleware(['student']),
+  checkScheduleWindow('advisor_association'),
+  submitAdviseeRequest
+);
+
+// PATCH /api/v1/groups/advisor-requests/:requestId — Process 3.4: professor decision
+router.patch(
+  '/advisor-requests/:requestId',
+  authMiddleware,
+  roleMiddleware(['professor', 'admin']),
+  handleAdvisorDecision
+);
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
 router.post('/', authMiddleware, roleMiddleware(['student']), createGroup);

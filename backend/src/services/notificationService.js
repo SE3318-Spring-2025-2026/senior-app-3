@@ -54,13 +54,13 @@ const dispatchInvitationNotification = async ({ groupId, groupName, inviteeId, i
  * @param {string} payload.groupId
  * @param {string} payload.groupName
  * @param {string} payload.studentId   - student who made the decision
- * @param {string} payload.decision    - 'accepted' | 'rejected'
+ * @param {string} payload.decision    - 'accepted' | 'rejected' (sent as membership_decision in JSON body)
  * @param {Date}   payload.decidedAt
  * @returns {object} { notification_id }
  */
 const dispatchMembershipDecisionNotification = async ({ groupId, groupName, studentId, decision, decidedAt }) => {
   // FIX #5 CHANGE: Standardized payload contract with snake_case only
-  // recipient at root; all notification data in payload object
+  // recipient at root; membership_decision + decided_at in payload object
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
     {
@@ -69,7 +69,7 @@ const dispatchMembershipDecisionNotification = async ({ groupId, groupName, stud
       payload: {
         group_id: groupId,
         group_name: groupName,
-        decision,
+        membership_decision: decision,
         decided_at: decidedAt,
       },
     },
@@ -223,7 +223,7 @@ const dispatchDisbandNotification = async ({ groupId, groupName, recipients, rea
  * @param {string} payload.teamLeaderId - Team Leader to notify (recipient)
  * @param {string} payload.professorId - Professor who rejected
  * @param {string} payload.requestId - Request ID for reference
- * @param {string} payload.reason - Optional rejection reason
+ * @param {string} payload.reason - Maps to payload.rejection_reason (snake_case) in the notification API body
  * @returns {object} { notification_id }
  */
 const dispatchRejectionNotification = async ({
@@ -234,9 +234,7 @@ const dispatchRejectionNotification = async ({
   requestId,
   reason,
 }) => {
-  // FIX #1 IMPLEMENTATION: Send rejection notice with standardized snake_case contract
-  // recipient at root level; all notification data in payload object
-  // rejection_reason can be null (professor chose not to provide reason)
+  // Outbound JSON payload uses group_id, request_id, professor_id, rejection_reason (snake_case only)
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
     {

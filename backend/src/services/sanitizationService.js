@@ -1,6 +1,6 @@
 const Group = require('../models/Group');
 const ScheduleWindow = require('../models/ScheduleWindow');
-const { createAuditLog } = require('../utils/auditLogger');
+const { createAuditLog } = require('./auditService');
 const SyncErrorLog = require('../models/SyncErrorLog');
 
 /**

@@ -46,7 +46,7 @@ const dispatchDisbandNotificationsInBackground = async (disbandedGroupsData) => 
   // FIX #4: Create promise array for parallel execution
   const notificationPromises = disbandedGroupsData.map((data) =>
     limit(async () => {
-      const { groupId, groupName, members } = data;
+      const { groupId, groupName, members, advisorRequestRequestId } = data;
       const recipients = members
         .filter((m) => m.status === 'accepted')
         .map((m) => m.userId);
@@ -80,15 +80,15 @@ const dispatchDisbandNotificationsInBackground = async (disbandedGroupsData) => 
         // PROBLEM: Cannot audit "was notification actually sent?" from database queries later
         // SOLUTION: Non-blocking separate update operation persists flag to MongoDB
         //           Even if flag update fails, notification was already attempted (best-effort)
-        if (notificationResult.success) {
+        if (notificationResult.success && advisorRequestRequestId) {
           try {
             // Call repository method to update advisorRequest.notificationTriggered = true
             // This is a separate, non-blocking operation (doesn't block response)
-            await markNotificationTriggered(groupId);
+            await markNotificationTriggered(advisorRequestRequestId);
           } catch (flagUpdateErr) {
             // Log flag update failures but don't propagate (notification already sent)
             console.warn(
-              `[Sanitization] Failed to persist notificationTriggered flag for group ${groupId}:`,
+              `[Sanitization] Failed to persist notificationTriggered for request ${advisorRequestRequestId} (group ${groupId}):`,
               flagUpdateErr.message
             );
           }
@@ -233,13 +233,14 @@ const advisorSanitization = async (req, res) => {
         for (const groupId of disbandResult.disbanded_ids) {
           try {
             const group = await Group.findOne({ groupId }).select(
-              'groupId groupName members'
+              'groupId groupName members advisorRequest.requestId'
             );
             if (group) {
               disbandedGroupsForNotification.push({
                 groupId: group.groupId,
                 groupName: group.groupName,
                 members: group.members,
+                advisorRequestRequestId: group.advisorRequest?.requestId || null,
               });
             }
           } catch (fetchErr) {
