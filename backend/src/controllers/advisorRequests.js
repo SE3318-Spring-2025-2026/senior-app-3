@@ -12,6 +12,16 @@ const {
 } = require('../services/notificationService');
 
 /**
+ * Helper to create standardized HTTP errors
+ */
+const createHttpError = (status, code, message, extra = {}) => {
+  const error = new Error(message);
+  error.status = status;
+  error.code = code;
+  return Object.assign(error, extra);
+};
+
+/**
  * GET /api/v1/advisor-requests/pending
  * 
  * List all pending advisor requests for the authenticated professor.
@@ -124,13 +134,21 @@ const decideAdvisorRequest = async (req, res) => {
     const { decision, reason } = req.body;
     const actorId = req.user.userId;
 
+    // Validation
+    if (!decision || !['approve', 'reject'].includes(decision)) {
+      return res.status(400).json({
+        code: 'INVALID_DECISION',
+        message: 'decision must be "approve" or "reject"',
+      });
+    }
+
     const advisorRequest = await AdvisorRequest.findOne({ requestId });
     if (!advisorRequest) {
       return res.status(404).json({ code: 'REQUEST_NOT_FOUND', message: 'Advisor request not found' });
     }
 
     // RBAC: Only the targeted professor can decide
-    if (advisorRequest.professorId !== actorId) {
+    if (advisorRequest.professorId !== actorId && req.user.role !== 'admin') {
       return res.status(403).json({ code: 'FORBIDDEN', message: 'Only the assigned professor can decide on this request' });
     }
 
@@ -141,7 +159,8 @@ const decideAdvisorRequest = async (req, res) => {
 
     const isApprove = decision === 'approve';
     advisorRequest.status = isApprove ? 'approved' : 'rejected';
-    advisorRequest.reason = reason || null;
+    advisorRequest.reason = typeof reason === 'string' ? reason.trim().slice(0, 1000) : '';
+    advisorRequest.decidedAt = new Date();
     await advisorRequest.save();
 
     const group = await Group.findOne({ groupId: advisorRequest.groupId });
@@ -150,6 +169,8 @@ const decideAdvisorRequest = async (req, res) => {
         group.advisorStatus = 'assigned';
         group.professorId = actorId;
         group.advisorId = actorId;
+        group.advisorUpdatedAt = new Date();
+        group.advisorAssignedAt = new Date();
       } else {
         group.advisorStatus = 'pending'; 
         group.professorId = null;
@@ -169,15 +190,25 @@ const decideAdvisorRequest = async (req, res) => {
       actorId,
       groupId: advisorRequest.groupId,
       targetId: requestId,
-      payload: !isApprove ? { reason } : null
+      payload: !isApprove ? { reason: advisorRequest.reason } : null
     });
 
     res.status(200).json({ 
       message: `Advisor request ${decision}d`,
-      assignedGroupId: isApprove ? advisorRequest.groupId : null
+      assignedGroupId: isApprove ? advisorRequest.groupId : null,
+      requestId,
+      decision,
+      approvalStatus: advisorRequest.status,
+      processorId: actorId
     });
   } catch (error) {
     console.error('Error deciding advisor request:', error);
+    if (error.status && error.code) {
+      return res.status(error.status).json({
+        code: error.code,
+        message: error.message,
+      });
+    }
     res.status(500).json({ code: 'INTERNAL_SERVER_ERROR', message: error.message });
   }
 };
@@ -307,7 +338,7 @@ const advisorSanitization = async (req, res) => {
       await dispatchGroupDisbandNotification({ groupId: group.groupId, reason: 'No advisor assigned before deadline' });
 
       await createAuditLog({
-        action: 'group_disbanded',
+        action: AUDIT_ACTIONS.GROUP_DISBANDED,
         actorId,
         groupId: group.groupId,
         payload: { reason: 'sanitization' }

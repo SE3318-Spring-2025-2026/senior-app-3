@@ -1,42 +1,21 @@
 /**
- * Issue #61 Resolution: Advisor Assignment Service
- * 
- * This file addresses CRITICAL PR Review Issue #1: Missing Service File
- * Original Problem: Application crash on startup due to missing advisorAssignmentService
- * 
- * Purpose: Implements Process 3.2 (Request Validation & D2 Persistence)
- * Workflow: 3.1 → 3.2 → 3.3 → D2 (f02 → f03 → f04)
- * 
- * Process 3.2 Responsibilities:
- * 1. Validate group exists in D2 (CRITICAL for referential integrity)
- * 2. Validate professor exists in D1 (CRITICAL for D1 linking)
- * 3. Check for existing advisor or pending request (CRITICAL for duplicates)
- * 4. Write advisory request to D2 collection (flow f03)
- * 5. Orchestrate notification dispatch to Process 3.3 (flow f04)
- * 6. Return flat response immediately; notificationTriggered false at 201 (notify is background)
- * 
- * Key PR Review Fixes Implemented:
- * - Fix #1: Service file was missing, now implemented ✅
- * - Fix #2: Non-parallel queries optimized to Promise.all() ✅
- * - Fix #5: Race condition protection via unique partial index ✅
- * - Fix #6: .lean() optimization on read-only queries ✅
- * - Fix #8: Proper error object structure with .status property ✅
- * 
- * DFD Integration:
- * - Flow f02: 3.1 → 3.2 (team leader request forwarded)
- * - Flow f03: 3.2 → D2 (advisory request written)
- * - Flow f04: 3.2 → 3.3 (forward to notification process)
- * - Flow f05: 3.3 → Notification Service (handled in adviseeNotificationService)
+ * AdvisorAssignmentService
+ *
+ * Business logic layer for advisor assignment operations.
+ * Orchestrates write operations from processes 3.2, 3.3, 3.5, 3.6, and 3.7.
+ * Implements transaction-safe operations, conflict detection, and performance optimizations.
+ * * Issue #61 & #68 Consolidation
  */
 
 const Group = require('../models/Group');
 const User = require('../models/User');
 const AdvisorRequest = require('../models/AdvisorRequest');
+// Repository patterns from feature/68 are preserved for complex mutations
+const AdvisorAssignmentRepository = require('../repositories/AdvisorAssignmentRepository');
 const { sendAdviseeRequestNotification } = require('./adviseeNotificationService');
 
 /**
- * Issue #61 Fix #1: Custom error class for advisor assignment operations
- * Used in Process 3.0-3.7 advisor association workflow
+ * Custom error class for standardized advisor assignment exceptions
  */
 class AdvisorAssignmentError extends Error {
   constructor(message, status = 500) {
@@ -47,21 +26,8 @@ class AdvisorAssignmentError extends Error {
 }
 
 /**
- * Issue #61 Fix #2 & #6: Validate Group and Professor Entities
- * 
- * PR Review Issue #2: Non-Parallel Entity Checks
- * - Original: Sequential queries (Group first, then User)
- * - Fixed: Use Promise.all() for concurrent database queries
- * - Improves latency: ~50-100ms savings for parallel I/O
- * 
- * PR Review Issue #8: Missing .lean() on read-only queries
- * - Optimized with .lean() to avoid creating Mongoose Document instances
- * - Reduces memory overhead for validation checks
- * 
- * Process 3.2 validation step:
- * - Validates group exists in D2
- * - Validates professor exists in D1
- * - Prevents orphaned requests with invalid references
+ * SHARED VALIDATION: Parallel entity validation (Fix #2 & #6)
+ * Optimized with .lean() to reduce memory overhead.
  */
 const validateGroupAndProfessor = async (groupId, professorId) => {
   const [group, professor] = await Promise.all([
@@ -81,57 +47,20 @@ const validateGroupAndProfessor = async (groupId, professorId) => {
 };
 
 /**
- * Issue #61 Fix #1: Core Advisor Assignment Service
- * 
- * This was the missing advisorAssignmentService that caused application crash.
- * Implements core business logic for Process 3.2: Request Validation & D2 Persistence
- * 
- * Complete Workflow:
- * 1. Validate group exists in D2 (Issue #61 Fix #2, #6, #8)
- * 2. Validate professor exists in D1 (parallel query)
- * 3. Check for duplicate request or existing advisor (Issue #61 Fix #5 - unique index)
- * 4. Write advisor request to D2 (flow f03: 3.2 → D2)
- * 5. Dispatch notification to professor (flow f04: 3.2 → 3.3, then f05: 3.3 → Notification Service)
- * 6. Return response with notificationTriggered: false; Process 3.3 runs in background
- * 
- * References:
- * - OpenAPI: POST /advisor-requests (3.1 Submit Advisee Request)
- * - DFD Flows: f02 (3.1 → 3.2), f03 (3.2 → D2), f04 (3.2 → 3.3), f05 (3.3 → Notification Service)
+ * ADVISOR REQUEST CREATION - Process 3.2 (f03: 3.2 → D2)
  */
-const validateAndCreateAdvisorRequest = async (requestData) => {
+async function validateAndCreateAdvisorRequest(requestData) {
   const { groupId, professorId, requesterId, message } = requestData;
 
-  // Issue #61 Fix #2: Parallel entity validation
+  // Parallel validation check
   const { group } = await validateGroupAndProfessor(groupId, professorId);
 
-  /**
-   * Issue #61 Fix #5: Duplicate Check with Unique Partial Index
-   * 
-   * PR Review Issue #5: Broken Duplicate Check & Race Condition Risk
-   * - Original: Ineffective check via group.advisorRequest?.professorId
-   * - Fixed: Database-level unique partial index catches duplicates atomically
-   * 
-   * AdvisorRequest schema has:
-   * { groupId: 1, status: 1 } UNIQUE with partialFilterExpression: { status: 'pending' }
-   * 
-   * Effect: Only ONE pending request per group allowed
-   * - Race condition safe: Database enforces uniqueness
-   * - E11000 error caught and converted to 409 Conflict
-   * 
-   * Scenario: Concurrent identical requests
-   * - Thread A and B both call this function
-   * - Thread A writes first, Thread B gets E11000 error
-   * - Thread B returns 409 Conflict reliably
-   * 
-   * Scenario: Group already has assigned advisor
-   * - group.advisorId already set (non-null)
-   * - Returns 409 "Group already has an advisor"
-   */
+  // Conflict Detection: Check if group has advisor or active request
   if (group.advisorId) {
     throw new AdvisorAssignmentError('Group already has an assigned advisor', 409);
   }
 
-  // Check for pending request (will be caught by unique index, but fail fast here)
+  // Fast-fail check for pending requests (Database index also enforces this)
   const existingPendingRequest = await AdvisorRequest.findOne({
     groupId,
     status: 'pending',
@@ -141,7 +70,7 @@ const validateAndCreateAdvisorRequest = async (requestData) => {
     throw new AdvisorAssignmentError('Group already has a pending advisor request', 409);
   }
 
-  // Create advisor request record (flow f03: 3.2 → D2)
+  // Create advisor request record (flow f03)
   const requestId = `ADVREQ_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
   let advisorRequest;
 
@@ -157,48 +86,209 @@ const validateAndCreateAdvisorRequest = async (requestData) => {
 
     await advisorRequest.save();
   } catch (error) {
-    // Issue #61 Fix #5: Catch E11000 duplicate key error from unique index
+    // Catch E11000 duplicate key error from unique partial index (Fix #5)
     if (error.code === 11000) {
-      throw new AdvisorAssignmentError('Group already has a pending advisor request', 409);
+      throw new AdvisorAssignmentError('Group already has a pending advisor request (Race condition prevented)', 409);
     }
     throw error;
   }
 
   /**
-   * Process 3.3: fire-and-forget — 201 returns immediately; adviseeNotificationService updates D2 when dispatch completes.
+   * Process 3.3: Fire-and-forget notification (Fix #3)
+   * 201 returns immediately; notification service updates D2 in background.
    */
   sendAdviseeRequestNotification(
-    {
-      requestId,
-      groupId,
-      professorId,
-      requesterId,
-      message: message || '',
-    },
+    { requestId, groupId, professorId, requesterId, message: message || '' },
     requesterId
   ).catch((error) => {
     console.error('Notification dispatch failed in background', error);
   });
 
-  /**
-   * Issue #61 Fix #3: Response Schema Mismatch Fix
-   *
-   * notificationTriggered: false at response time (dispatch not awaited).
-   */
   return {
+    success: true,
     requestId: advisorRequest.requestId,
     groupId: advisorRequest.groupId,
     professorId: advisorRequest.professorId,
-    requesterId: advisorRequest.requesterId,
     status: advisorRequest.status,
-    message: advisorRequest.message,
-    notificationTriggered: true,
-    createdAt: advisorRequest.createdAt,
+    notificationTriggered: false // Will be updated by background task
   };
-};
+}
+
+/**
+ * ADVISOR ASSIGNMENT - Process 3.5 (f08: 3.5 → D2 — assign path)
+ */
+async function approveAndAssignAdvisor(groupId, requestId, options = {}) {
+  const { professorId } = options;
+
+  const { group } = await validateGroupAndProfessor(groupId, professorId);
+
+  if (!group.advisorRequest?.requestId || group.advisorRequest.requestId !== requestId) {
+    throw new AdvisorAssignmentError('No matching advisor request found for this group', 404);
+  }
+
+  if (group.advisorRequest.status !== 'pending') {
+    throw new AdvisorAssignmentError(`Advisor request has already been processed: ${group.advisorRequest.status}`, 409);
+  }
+
+  // Assign advisor via repository to handle transaction-safe logic
+  const updatedGroup = await AdvisorAssignmentRepository.assignAdvisor(
+    groupId,
+    professorId,
+    { requestId }
+  );
+
+  return {
+    success: true,
+    group: updatedGroup,
+    assignment: {
+      groupId: updatedGroup.groupId,
+      advisorId: updatedGroup.advisorId,
+      advisorStatus: updatedGroup.advisorStatus,
+      assignedAt: updatedGroup.advisorUpdatedAt,
+    },
+  };
+}
+
+/**
+ * ADVISOR RELEASE - Process 3.5 (f08: 3.5 → D2 — release path)
+ */
+async function releaseAdvisor(groupId, options = {}) {
+  const { reason } = options;
+
+  const group = await Group.findOne({ groupId }).lean();
+  if (!group) throw new AdvisorAssignmentError(`Group ${groupId} not found`, 404);
+
+  if (!group.advisorId || group.advisorStatus !== 'assigned') {
+    throw new AdvisorAssignmentError('Group does not have an assigned advisor', 409);
+  }
+
+  const updatedGroup = await AdvisorAssignmentRepository.releaseAdvisor(groupId);
+
+  return {
+    success: true,
+    group: updatedGroup,
+    release: {
+      groupId: updatedGroup.groupId,
+      advisorStatus: updatedGroup.advisorStatus,
+      releasedAt: updatedGroup.advisorUpdatedAt,
+      reason,
+    },
+  };
+}
+
+/**
+ * ADVISOR TRANSFER - Process 3.5 (f08: 3.5 → D2 — transfer path)
+ */
+async function transferAdvisor(groupId, newProfessorId, options = {}) {
+  const { reason } = options;
+
+  const { group } = await validateGroupAndProfessor(groupId, newProfessorId);
+
+  if (!group.advisorId || group.advisorStatus !== 'assigned') {
+    throw new AdvisorAssignmentError('Group does not have an assigned advisor to transfer', 409);
+  }
+
+  // Conflict check for the new professor
+  const conflict = await Group.findOne({
+    advisorId: newProfessorId,
+    advisorStatus: 'assigned',
+    groupId: { $ne: groupId },
+  }).lean();
+
+  if (conflict) {
+    throw new AdvisorAssignmentError(`Target professor ${newProfessorId} already assigned to group ${conflict.groupId}`, 409);
+  }
+
+  const updatedGroup = await AdvisorAssignmentRepository.transferAdvisor(groupId, newProfessorId);
+
+  return {
+    success: true,
+    group: updatedGroup,
+    transfer: {
+      groupId: updatedGroup.groupId,
+      previousAdvisorId: group.advisorId,
+      newAdvisorId: updatedGroup.advisorId,
+      advisorStatus: updatedGroup.advisorStatus,
+      transferredAt: updatedGroup.advisorUpdatedAt,
+      reason,
+    },
+  };
+}
+
+/**
+ * GROUP DISBAND - Process 3.7 (f13: 3.7 → D2)
+ */
+async function disbandUnassignedGroups(groupIds = null) {
+  let targetGroups;
+
+  if (groupIds && groupIds.length > 0) {
+    targetGroups = await Group.find({
+      groupId: { $in: groupIds },
+      $or: [
+        { advisorId: null },
+        { advisorStatus: { $in: [null, 'pending', 'released'] } },
+      ],
+    }).lean();
+  } else {
+    targetGroups = await AdvisorAssignmentRepository.getGroupsWithoutAdvisor();
+  }
+
+  const disbandedGroups = [];
+
+  for (const group of targetGroups) {
+    try {
+      const updatedGroup = await AdvisorAssignmentRepository.disbandGroup(group.groupId);
+      disbandedGroups.push({
+        groupId: updatedGroup.groupId,
+        groupName: updatedGroup.groupName,
+        status: updatedGroup.status,
+        disbandedAt: updatedGroup.advisorUpdatedAt,
+      });
+    } catch (err) {
+      console.error(`Failed to disband group ${group.groupId}:`, err.message);
+    }
+  }
+
+  return {
+    success: true,
+    disbandedGroups,
+    disbandedCount: disbandedGroups.length,
+    checkedAt: new Date(),
+  };
+}
+
+/**
+ * NOTIFICATION INTEGRATION - Mark triggered after Process 3.3 succeeds
+ */
+async function markAdvisorNotificationTriggered(groupId) {
+  return AdvisorAssignmentRepository.markNotificationTriggered(groupId);
+}
+
+/**
+ * QUERY OPERATIONS
+ */
+async function getAdvisorAssignmentStatus(groupId) {
+  return AdvisorAssignmentRepository.getAdvisorAssignment(groupId);
+}
+
+async function getAdvisorAssignments(professorId) {
+  return AdvisorAssignmentRepository.getGroupsByAdvisor(professorId);
+}
+
+async function getAdvisorRequestDetails(groupId) {
+  return AdvisorAssignmentRepository.getAdvisorRequest(groupId);
+}
 
 module.exports = {
   validateAndCreateAdvisorRequest,
+  approveAndAssignAdvisor,
+  releaseAdvisor,
+  transferAdvisor,
+  disbandUnassignedGroups,
+  markAdvisorNotificationTriggered,
+  getAdvisorAssignmentStatus,
+  getAdvisorAssignments,
+  getAdvisorRequestDetails,
   validateGroupAndProfessor,
-  AdvisorAssignmentError,
+  AdvisorAssignmentError
 };

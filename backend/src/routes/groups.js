@@ -12,10 +12,12 @@ const {
   decideMemberRequest,
   coordinatorOverride,
 } = require('../controllers/groups');
-const { releaseAdvisor, transferAdvisor, advisorSanitization } = require('../controllers/advisorAssociation');
+const { releaseAdvisor, transferAdvisor } = require('../controllers/advisorAssociation');
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
+const { decideAdvisorRequest } = require('../controllers/advisorDecision');
+const { advisorSanitization } = require('../controllers/sanitizationController');
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
 router.post('/', authMiddleware, roleMiddleware(['student']), createGroup);
@@ -32,23 +34,6 @@ router.post(
   authMiddleware,
   roleMiddleware(['coordinator', 'system']),
   advisorSanitization
-);
-
-// DELETE /api/v1/groups/:groupId/advisor — Issue #75 release advisor
-router.delete(
-  '/:groupId/advisor',
-  authMiddleware,
-  checkAdvisorOperationWindow(OPERATION_TYPES.ADVISOR_RELEASE),
-  releaseAdvisor
-);
-
-// POST /api/v1/groups/:groupId/advisor/transfer — Issue #75 transfer advisor (coordinator)
-router.post(
-  '/:groupId/advisor/transfer',
-  authMiddleware,
-  roleMiddleware(['coordinator']),
-  checkAdvisorOperationWindow(OPERATION_TYPES.ADVISOR_TRANSFER),
-  transferAdvisor
 );
 
 // GET /api/v1/groups/:groupId — Process 2.2: retrieve validated group record from D2
@@ -119,6 +104,32 @@ router.patch(
   authMiddleware,
   roleMiddleware(['coordinator', 'committee_member', 'professor', 'admin']),
   transitionStatus
+);
+
+// DELETE /api/v1/groups/:groupId/advisor — Issue #75 release advisor
+router.delete(
+  '/:groupId/advisor',
+  authMiddleware,
+  checkAdvisorOperationWindow(OPERATION_TYPES.ADVISOR_RELEASE),
+  releaseAdvisor
+);
+
+// POST /api/v1/groups/:groupId/advisor/transfer — Issue #75 transfer advisor (coordinator)
+router.post(
+  '/:groupId/advisor/transfer',
+  authMiddleware,
+  roleMiddleware(['coordinator']),
+  checkAdvisorOperationWindow(OPERATION_TYPES.ADVISOR_TRANSFER),
+  transferAdvisor
+);
+
+// PATCH /api/v1/advisor-requests/:requestId — Process 3.4+3.5: Professor approves/rejects request
+router.patch(
+  '/advisor-requests/:requestId',
+  authMiddleware,
+  roleMiddleware(['professor', 'admin']),
+  checkScheduleWindow(OPERATION_TYPES.ADVISOR_ASSOCIATION),
+  decideAdvisorRequest
 );
 
 module.exports = router;

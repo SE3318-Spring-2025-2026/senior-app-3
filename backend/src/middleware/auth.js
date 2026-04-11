@@ -239,6 +239,24 @@ const errorHandler = (err, req, res, next) => {
   next(err);
 };
 
+/**
+ * Cron / internal jobs: authenticate with `X-Service-Auth` when SERVICE_AUTH_TOKEN (or legacy aliases) matches.
+ * Otherwise fall through to JWT Bearer auth. Used for advisor sanitization and similar system triggers.
+ */
+const serviceOrBearerAuth = (req, res, next) => {
+  const expected =
+    process.env.SERVICE_AUTH_TOKEN ||
+    process.env.X_SERVICE_AUTH_SECRET ||
+    process.env.INTERNAL_API_KEY;
+  const headerVal = req.headers['x-service-auth'];
+  if (expected && typeof headerVal === 'string' && headerVal === expected) {
+    req.user = { userId: 'internal_service', role: 'coordinator' };
+    req.authViaServiceToken = true;
+    return next();
+  }
+  return authMiddleware(req, res, next);
+};
+
 module.exports = {
   authMiddleware,
   roleMiddleware,
@@ -246,4 +264,5 @@ module.exports = {
   systemTokenMiddleware,
   flexibleSystemOrRoleAuth,
   errorHandler,
+  serviceOrBearerAuth,
 };

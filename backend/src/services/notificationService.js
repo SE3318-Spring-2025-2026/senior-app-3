@@ -5,13 +5,29 @@ const NOTIFICATION_SERVICE_URL =
   process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:4000';
 
 /**
+ * FIX #5: STANDARDIZED NOTIFICATION PAYLOAD CONTRACTS
+ * All notification dispatchers now follow consistent contract:
+ * - type: notification type identifier
+ * - recipient/recipients: at root level
+ * - payload: object with snake_case fields only
+ */
+
+/**
  * Dispatch a GROUP_INVITATION notification to a student.
  * Called by Process 2.3 (DFD flow f06: 2.3 → Notification Service).
  */
 const dispatchInvitationNotification = async ({ groupId, groupName, inviteeId, invitedBy }) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-    { type: 'approval_request', groupId, groupName, inviteeId, invitedBy },
+    {
+      type: 'approval_request',
+      recipient: inviteeId,
+      payload: {
+        group_id: groupId,
+        group_name: groupName,
+        invited_by: invitedBy,
+      },
+    },
     { timeout: 5000 }
   );
   return response.data;
@@ -24,7 +40,16 @@ const dispatchInvitationNotification = async ({ groupId, groupName, inviteeId, i
 const dispatchMembershipDecisionNotification = async ({ groupId, groupName, studentId, decision, decidedAt }) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-    { type: 'membership_decision', groupId, groupName, studentId, decision, decidedAt },
+    {
+      type: 'membership_decision',
+      recipient: studentId,
+      payload: {
+        group_id: groupId,
+        group_name: groupName,
+        membership_decision: decision,
+        decided_at: decidedAt,
+      },
+    },
     { timeout: 5000 }
   );
   return response.data;
@@ -37,7 +62,14 @@ const dispatchMembershipDecisionNotification = async ({ groupId, groupName, stud
 const dispatchGroupCreationNotification = async ({ groupId, groupName, leaderId }) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-    { type: 'general', groupId, groupName, leaderId },
+    {
+      type: 'group_created',
+      recipient: leaderId,
+      payload: {
+        group_id: groupId,
+        group_name: groupName,
+      },
+    },
     { timeout: 5000 }
   );
   return response.data;
@@ -55,9 +87,10 @@ const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipie
       recipients,
       payload: {
         group_id: groupId,
+        group_name: groupName,
+        invited_by: invitedBy,
         message: `You have been invited to join the group "${groupName}"`,
       },
-      invitedBy,
     },
     { timeout: 5000 }
   );
@@ -65,73 +98,161 @@ const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipie
 };
 
 /**
- * Dispatch an ADVISOR_REQUEST notification to a professor.
- *
- * @param {object} payload
- * @param {string} payload.groupId
- * @param {string} payload.professorId
- * @returns {object} { notification_id }
+ * Dispatch an ADVISEE_REQUEST notification to a professor.
+ * Called by Process 3.2 (Team Leader submits advisor request).
  */
-const dispatchAdvisorRequestNotification = async ({ groupId, professorId }) => {
+const dispatchAdvisorRequestNotification = async ({
+  groupId,
+  groupName,
+  professorId,
+  requesterId,
+  message,
+}) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-    { type: NOTIFICATION_TYPES.ADVISOR_REQUEST, groupId, professorId },
+    {
+      type: 'advisee_request',
+      recipient: professorId,
+      payload: {
+        group_id: groupId,
+        group_name: groupName,
+        requester_id: requesterId,
+        message: message || `Your group "${groupName}" is requesting advisor assignment`,
+      },
+    },
     { timeout: 5000 }
   );
   return response.data;
 };
 
 /**
- * Dispatch an ADVISOR_DECISION notification to a group.
- *
- * @param {object} payload
- * @param {string} payload.groupId
- * @param {string} payload.professorId
- * @param {string} payload.decision    - 'approve' | 'reject'
- * @returns {object} { notification_id }
+ * Dispatch a REJECTION_NOTICE notification to the Team Leader.
+ * Called by Process 3.4 when professor rejects advisor request.
  */
-const dispatchAdvisorDecisionNotification = async ({ groupId, professorId, decision }) => {
+const dispatchRejectionNotification = async ({
+  groupId,
+  groupName,
+  teamLeaderId,
+  professorId,
+  requestId,
+  reason,
+}) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-    { type: NOTIFICATION_TYPES.ADVISOR_DECISION, groupId, professorId, decision },
+    {
+      type: 'rejection_notice',
+      recipient: teamLeaderId,
+      payload: {
+        group_id: groupId,
+        group_name: groupName,
+        request_id: requestId,
+        professor_id: professorId,
+        rejection_reason: reason || null,
+        message: reason
+          ? `Your advisor request has been rejected. Reason: ${reason}`
+          : 'Your advisor request has been rejected.',
+      },
+    },
     { timeout: 5000 }
   );
   return response.data;
 };
 
 /**
- * Dispatch an ADVISOR_TRANSFER notification to old and new professors.
- *
- * @param {object} payload
- * @param {string} payload.groupId
- * @param {string} payload.oldProfessorId
- * @param {string} payload.newProfessorId
- * @returns {object} { notification_id }
+ * Dispatch an ADVISOR_STATUS_CHANGE notification to team leader or professor.
+ * Called by Process 3.5 (Advisor Decision notification).
  */
-const dispatchAdvisorTransferNotification = async ({ groupId, oldProfessorId, newProfessorId }) => {
+const dispatchAdvisorStatusNotification = async ({
+  groupId,
+  groupName,
+  professorId,
+  professorName,
+  status,
+  recipientId,
+  message,
+}) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-    { type: NOTIFICATION_TYPES.ADVISOR_TRANSFER, groupId, oldProfessorId, newProfessorId },
+    {
+      type: 'advisor_status_change',
+      recipient: recipientId,
+      payload: {
+        group_id: groupId,
+        group_name: groupName,
+        professor_id: professorId,
+        professor_name: professorName,
+        status,
+        message: message || null,
+      },
+    },
     { timeout: 5000 }
   );
   return response.data;
 };
 
 /**
- * Dispatch a GROUP_DISBANDED notification to all group members.
- *
- * @param {object} payload
- * @param {string} payload.groupId
- * @param {string} [payload.reason]
- * @returns {object} { notification_id }
+ * Dispatch a GROUP_DISBAND notification to group members.
+ * Called by Process 3.7 (Advisor Sanitization).
  */
-const dispatchGroupDisbandNotification = async ({ groupId, reason }) => {
+const dispatchDisbandNotification = async ({ groupId, groupName, recipients, reason }) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-    { type: NOTIFICATION_TYPES.GROUP_DISBANDED, groupId, reason },
+    {
+      type: 'group_disband',
+      recipients,
+      payload: {
+        group_id: groupId,
+        group_name: groupName,
+        reason,
+        message: `Your group "${groupName}" has been disbanded due to: ${reason}`,
+      },
+    },
     { timeout: 5000 }
   );
   return response.data;
+};
+
+/**
+ * Issue #62 Fix #3 (CRITICAL): Transient Error Detection
+ * Determines if an error is transient (safe to retry) or permanent.
+ */
+const isTransientError = (error) => {
+  if (!error.response) return true;
+  const status = error.response.status;
+  if (status >= 400 && status < 500) return false;
+  return true;
+};
+
+/**
+ * Dispatch an ADVISEE_REQUEST notification with smart retry logic.
+ * Called by Process 3.2 with automatic retry on transient failures.
+ */
+const dispatchAdvisorRequestWithRetry = async ({ groupId, requesterId, message }) => {
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const response = await axios.post(
+        `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+        {
+          type: 'advisee_request',
+          payload: {
+            group_id: groupId,
+            requester_id: requesterId,
+            message: message || null,
+          },
+        },
+        { timeout: 5000 }
+      );
+      return { ok: true, notificationId: response.data.notification_id || response.data.id, attempts: attempt };
+    } catch (err) {
+      lastError = err.message;
+      if (!isTransientError(err)) {
+        return { ok: false, attempts: attempt, lastError: `Permanent error: ${lastError}` };
+      }
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+    }
+  }
+  return { ok: false, attempts: 3, lastError: `All retries failed: ${lastError}` };
 };
 
 module.exports = {
@@ -140,7 +261,9 @@ module.exports = {
   dispatchGroupCreationNotification,
   dispatchBatchInvitationNotification,
   dispatchAdvisorRequestNotification,
-  dispatchAdvisorDecisionNotification,
-  dispatchAdvisorTransferNotification,
-  dispatchGroupDisbandNotification,
+  dispatchRejectionNotification,
+  dispatchAdvisorStatusNotification,
+  dispatchDisbandNotification,
+  dispatchAdvisorRequestWithRetry,
+  isTransientError,
 };
