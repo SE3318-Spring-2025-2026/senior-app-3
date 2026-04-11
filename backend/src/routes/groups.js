@@ -10,11 +10,14 @@ const {
   createMemberRequest,
   decideMemberRequest,
   coordinatorOverride,
+  createAdvisorRequest,
   transferAdvisor,
 } = require('../controllers/groups');
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
+const { advisorApproveRequest, releaseAdvisorHandler, transferAdvisorHandler } = require('../controllers/advisorDecision');
+const advisorRequestController = require('../controllers/advisorRequestController');
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
 router.post('/', authMiddleware, roleMiddleware(['student']), createGroup);
@@ -25,8 +28,20 @@ router.get('/pending-invitation', authMiddleware, getMyPendingInvitation);
 // GET /api/v1/groups — List all groups (coordinator only) for group management dashboard
 router.get('/', authMiddleware, roleMiddleware(['coordinator']), getAllGroups);
 
+// POST /api/v1/groups/:groupId/release-advisor — Team Leader releases assigned advisor (transactional)
+router.post('/:groupId/release-advisor', authMiddleware, advisorRequestController.releaseAdvisor);
+
 // GET /api/v1/groups/:groupId — Process 2.2: retrieve validated group record from D2
 router.get('/:groupId', authMiddleware, getGroup);
+
+// DELETE /api/v1/groups/:groupId/advisor — Process 3.5: release current advisor
+router.delete(
+  '/:groupId/advisor', 
+  authMiddleware, 
+  roleMiddleware(['student', 'coordinator', 'admin']),
+  checkScheduleWindow('advisor_association'),
+  advisorRequestController.releaseAdvisor
+);
 
 // POST /api/v1/groups/:groupId/members — Process 2.3: leader invites a student (f05, f19)
 router.post('/:groupId/members', authMiddleware, checkScheduleWindow('member_addition'), addMember);
@@ -58,6 +73,17 @@ router.post(
   forwardApprovalResults
 );
 
+// POST /api/v1/groups/:groupId/advisor-requests — Process 3.2: group leader requests advisor
+// Input: { professorId, message? }
+// Process: Validate group/professor, create advisor request record, dispatch notification (Process 3.3)
+router.post(
+  '/:groupId/advisor-requests',
+  authMiddleware,
+  roleMiddleware(['student']),
+  checkScheduleWindow('advisor_association'),
+  createAdvisorRequest
+);
+
 // POST /api/v1/groups/:groupId/github — Process 2.6: validate PAT + org, store config (f10-f12, f24)
 router.post('/:groupId/github', authMiddleware, configureGithub);
 
@@ -79,15 +105,14 @@ router.patch(
   coordinatorOverride
 );
 
-// POST /api/v1/groups/:groupId/advisor/transfer — Process 3.6: coordinator transfer advisor
+// POST /api/v1/groups/:groupId/advisor/transfer — Process 3.6: Coordinator transfers advisor to new professor
+// Request body: { newProfessorId: string, reason?: string }
+// Response: AdvisorAssignment schema with status: transferred
 router.post(
   '/:groupId/advisor/transfer',
   authMiddleware,
-  roleMiddleware(['coordinator']),
-  checkScheduleWindow('advisor_association', {
-    statusCode: 422,
-    message: 'Advisor association schedule is closed',
-  }),
+  roleMiddleware(['coordinator', 'admin']),
+  checkScheduleWindow('advisor_association'),
   transferAdvisor
 );
 
@@ -105,6 +130,17 @@ router.patch(
   authMiddleware,
   roleMiddleware(['coordinator', 'committee_member', 'professor', 'admin']),
   transitionStatus
+);
+
+// PATCH /api/v1/advisor-requests/:requestId — Process 3.4+3.5: Professor approves/rejects advisee request
+// Request body: { decision: "approve"|"reject", reason?: string }
+// Response: AdvisorAssignment schema with status, updatedAt
+router.patch(
+  '/advisor-requests/:requestId',
+  authMiddleware,
+  roleMiddleware(['professor', 'admin']),
+  checkScheduleWindow('advisor_association'),
+  advisorApproveRequest
 );
 
 module.exports = router;
