@@ -51,6 +51,7 @@ router.post(
 
 // POST /api/v1/advisor-requests — Process 3.2: Request Validation & D2 Persistence (Issue #61)
 // Team leader submits advisor request; system validates and persists to D2
+// Route must be defined at ROOT level (/advisor-requests), not nested under /:groupId
 router.post(
   '/advisor-requests',
   authMiddleware,
