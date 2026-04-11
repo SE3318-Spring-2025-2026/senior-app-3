@@ -26,7 +26,7 @@ const DeliverableSubmissionForm = ({
   const [loadingSubmit, setLoadingSubmit] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
-  const [existingSubmission, setExistingSubmission] = useState(null);
+  const [submittedDeliverables, setSubmittedDeliverables] = useState({});
 
   const isGroupMember = useMemo(() => {
     if (!members || !Array.isArray(members)) return false;
@@ -51,9 +51,15 @@ const DeliverableSubmissionForm = ({
       try {
         const data = await getGroupDeliverables(groupId);
         const deliverables = data.deliverables || data.items || data.data || [];
-        setExistingSubmission(Array.isArray(deliverables) ? deliverables[0] ?? null : deliverables);
+        const byType = {};
+        if (Array.isArray(deliverables)) {
+          deliverables.forEach((d) => {
+            byType[d.type] = d;
+          });
+        }
+        setSubmittedDeliverables(byType);
       } catch {
-        setExistingSubmission(null);
+        setSubmittedDeliverables({});
       } finally {
         setLoadingWindow(false);
       }
@@ -110,17 +116,22 @@ const DeliverableSubmissionForm = ({
         formData.append('file', file);
       }
       const result = await submitDeliverable(groupId, formData);
-      setExistingSubmission(result);
+      setSubmittedDeliverables((prev) => ({
+        ...prev,
+        [result.type]: result,
+      }));
       setSuccessMsg('Deliverable submitted successfully.');
       resetForm();
       if (onSuccess) onSuccess();
     } catch (error) {
+      const status = error.response?.status;
       const code = error.response?.data?.code;
-      if (code === 'FORBIDDEN') {
-        setErrorMsg('You do not have permission to submit this deliverable.');
-      } else if (code === 'SCHEDULE_CLOSED') {
-        setErrorMsg('The deliverable submission window is closed.');
-      } else if (code === 'INVALID_DELIVERABLE') {
+
+      if (status === 403) {
+        setErrorMsg('Only the team leader can submit deliverables.');
+      } else if (status === 422) {
+        setErrorMsg('The submission schedule window is closed.');
+      } else if (status === 400 || code === 'INVALID_DELIVERABLE') {
         setErrorMsg(error.response?.data?.message || 'Invalid deliverable submission.');
       } else {
         setErrorMsg(error.response?.data?.message || 'Could not submit your deliverable.');
@@ -130,44 +141,47 @@ const DeliverableSubmissionForm = ({
     }
   };
 
-  const renderExistingSubmission = () => {
-    if (!existingSubmission) return null;
+  const renderExistingSubmissions = () => {
+    const submitted = Object.entries(submittedDeliverables);
+    if (submitted.length === 0) return null;
 
     return (
-      <div className="deliverable-card">
-        <div className="deliverable-card-header">
-          <h3>Latest Deliverable Submission</h3>
-          {existingSubmission.type && (
-            <span className="status-badge connected">{existingSubmission.type.replace(/_/g, ' ')}</span>
-          )}
-        </div>
-        <div className="deliverable-card-content">
-          <div className="info-row">
-            <span className="info-label">Deliverable ID</span>
-            <span className="info-value">{existingSubmission.deliverableId || existingSubmission.id || 'N/A'}</span>
+      <div className="deliverable-submissions-container">
+        {submitted.map(([typeKey, data]) => (
+          <div key={typeKey} className="deliverable-card">
+            <div className="deliverable-card-header">
+              <h3>{typeKey.replace(/_/g, ' ')} Deliverable</h3>
+              <span className="status-badge connected">Submitted</span>
+            </div>
+            <div className="deliverable-card-content">
+              <div className="info-row">
+                <span className="info-label">Deliverable ID</span>
+                <span className="info-value">{data.deliverableId || data.id || 'N/A'}</span>
+              </div>
+              <div className="info-row">
+                <span className="info-label">Submitted At</span>
+                <span className="info-value">
+                  {data.submittedAt
+                    ? new Date(data.submittedAt).toLocaleString()
+                    : 'N/A'}
+                </span>
+              </div>
+              <div className="info-row">
+                <span className="info-label">Storage Reference</span>
+                <span className="info-value">{data.storageRef || data.url || 'N/A'}</span>
+              </div>
+            </div>
+            {isLeader && windowOpen && (
+              <button
+                type="button"
+                className="add-member-btn"
+                onClick={() => setSelectedType(typeKey)}
+              >
+                Re-submit as {typeKey.replace(/_/g, ' ')}
+              </button>
+            )}
           </div>
-          <div className="info-row">
-            <span className="info-label">Submitted At</span>
-            <span className="info-value">
-              {existingSubmission.submittedAt
-                ? new Date(existingSubmission.submittedAt).toLocaleString()
-                : 'N/A'}
-            </span>
-          </div>
-          <div className="info-row">
-            <span className="info-label">Storage Reference</span>
-            <span className="info-value">{existingSubmission.storageRef || existingSubmission.url || 'N/A'}</span>
-          </div>
-        </div>
-        {isLeader && windowOpen && (
-          <button
-            type="button"
-            className="add-member-btn"
-            onClick={resetForm}
-          >
-            Re-submit Deliverable
-          </button>
-        )}
+        ))}
       </div>
     );
   };
@@ -194,7 +208,7 @@ const DeliverableSubmissionForm = ({
 
       {isPublished && !loadingWindow && (
         <>
-          {renderExistingSubmission()}
+          {renderExistingSubmissions()}
 
           {!isGroupMember && (
             <div className="deliverable-locked-card">
@@ -205,86 +219,91 @@ const DeliverableSubmissionForm = ({
           )}
 
           {isLeader && (
-            <form className="deliverable-form" onSubmit={handleSubmit}>
-              <div className="deliverable-form-row">
-                <label htmlFor="deliverable-type">Deliverable Type</label>
-                <select
-                  id="deliverable-type"
-                  className="deliverable-select"
-                  value={selectedType}
-                  onChange={(e) => setSelectedType(e.target.value)}
-                  disabled={!windowOpen || loadingSubmit}
-                >
-                  {DELIVERABLE_TYPES.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="deliverable-form-row deliverable-mode-toggle">
-                <button
-                  type="button"
-                  className={`toggle-button${storageMode === 'file' ? ' active' : ''}`}
-                  onClick={() => setStorageMode('file')}
-                  disabled={loadingSubmit}
-                >
-                  Upload File
-                </button>
-                <button
-                  type="button"
-                  className={`toggle-button${storageMode === 'link' ? ' active' : ''}`}
-                  onClick={() => setStorageMode('link')}
-                  disabled={loadingSubmit}
-                >
-                  Submit Link
-                </button>
-              </div>
-
-              {storageMode === 'file' ? (
-                <div className="deliverable-form-row">
-                  <label htmlFor="deliverable-file">File</label>
-                  <input
-                    id="deliverable-file"
-                    type="file"
-                    accept=".md"
-                    onChange={(e) => setFile(e.target.files?.[0] || null)}
-                    disabled={!windowOpen || loadingSubmit}
-                  />
-                </div>
-              ) : (
-                <div className="deliverable-form-row">
-                  <label htmlFor="deliverable-link">Submission URL</label>
-                  <input
-                    id="deliverable-link"
-                    type="url"
-                    className="add-member-input"
-                    placeholder="https://example.com/your-deliverable"
-                    value={link}
-                    onChange={(e) => setLink(e.target.value)}
-                    disabled={!windowOpen || loadingSubmit}
-                  />
+            <>
+              {!windowOpen && (
+                <div className="deliverable-closed-banner">
+                  <strong>Submission window closed:</strong> The deliverable submission period is currently unavailable.
+                  {windowInfo?.endsAt && ` Next window: ${new Date(windowInfo.endsAt).toLocaleString()}`}
                 </div>
               )}
+              <form className="deliverable-form" onSubmit={handleSubmit}>
+                <div className="deliverable-form-row">
+                  <label htmlFor="deliverable-type">Deliverable Type</label>
+                  <select
+                    id="deliverable-type"
+                    className="deliverable-select"
+                    value={selectedType}
+                    onChange={(e) => setSelectedType(e.target.value)}
+                    disabled={!windowOpen || loadingSubmit}
+                  >
+                    {DELIVERABLE_TYPES.map((option) => {
+                      const isSubmitted = submittedDeliverables[option.value];
+                      return (
+                        <option key={option.value} value={option.value}>
+                          {option.label}{isSubmitted ? ' (Re-submit)' : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
 
-              {windowOpen ? (
+                <div className="deliverable-form-row deliverable-mode-toggle">
+                  <button
+                    type="button"
+                    className={`toggle-button${storageMode === 'file' ? ' active' : ''}`}
+                    onClick={() => setStorageMode('file')}
+                    disabled={loadingSubmit}
+                  >
+                    Upload File
+                  </button>
+                  <button
+                    type="button"
+                    className={`toggle-button${storageMode === 'link' ? ' active' : ''}`}
+                    onClick={() => setStorageMode('link')}
+                    disabled={loadingSubmit}
+                  >
+                    Submit Link
+                  </button>
+                </div>
+
+                {storageMode === 'file' ? (
+                  <div className="deliverable-form-row">
+                    <label htmlFor="deliverable-file">File (PDF, Word, Markdown, ZIP)</label>
+                    <input
+                      id="deliverable-file"
+                      type="file"
+                      accept=".pdf,.docx,.md,.zip"
+                      onChange={(e) => setFile(e.target.files?.[0] || null)}
+                      disabled={!windowOpen || loadingSubmit}
+                    />
+                  </div>
+                ) : (
+                  <div className="deliverable-form-row">
+                    <label htmlFor="deliverable-link">Submission URL</label>
+                    <input
+                      id="deliverable-link"
+                      type="url"
+                      className="add-member-input"
+                      placeholder="https://example.com/your-deliverable"
+                      value={link}
+                      onChange={(e) => setLink(e.target.value)}
+                      disabled={!windowOpen || loadingSubmit}
+                    />
+                  </div>
+                )}
+
                 <button
                   type="submit"
                   className="add-member-btn"
-                  disabled={loadingSubmit}
+                  disabled={!windowOpen || loadingSubmit}
                 >
                   {loadingSubmit ? 'Submitting…' : 'Submit Deliverable'}
                 </button>
-              ) : (
-                <div className="deliverable-status-message deliverable-closed">
-                  Deliverable submission is closed{windowInfo?.endsAt ? ` until ${new Date(windowInfo.endsAt).toLocaleString()}` : ''}.
-                </div>
-              )}
 
-              {errorMsg && <p className="add-member-error">{errorMsg}</p>}
-              {successMsg && <p className="add-member-success">{successMsg}</p>}
-            </form>
+                {errorMsg && <p className="add-member-error">{errorMsg}</p>}
+                {successMsg && <p className="add-member-success">{successMsg}</p>}
+              </form>
+            </>
           )}
         </>
       )}

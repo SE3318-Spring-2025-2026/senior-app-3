@@ -9,7 +9,7 @@ import apiClient from './apiClient';
 export const submitDeliverable = async (groupId, formData) => {
   const response = await apiClient.post(`/groups/${groupId}/deliverables`, formData, {
     headers: {
-      'Content-Type': 'multipart/form-data',
+      'Content-Type': undefined,
     },
   });
   return response.data;

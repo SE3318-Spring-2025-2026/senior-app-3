@@ -754,6 +754,24 @@
   border-color: #fecaca;
 }
 
+.deliverable-closed-banner {
+  background: #fef5f5;
+  border: 1px solid #fca5a5;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  color: #b91c1c;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.deliverable-submissions-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
 @media (max-width: 640px) {
   .deliverable-mode-toggle {
     flex-direction: column;
