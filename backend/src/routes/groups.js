@@ -2,11 +2,11 @@ const express = require('express');
 const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const { checkScheduleWindow, checkAdvisorAssociationSchedule } = require('../middleware/scheduleWindow');
-const { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride, createAdvisorRequest } = require('../controllers/groups');
+const { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride } = require('../controllers/groups');
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
-const { advisorApproveRequest, releaseAdvisorHandler, transferAdvisorHandler } = require('../controllers/advisorDecision');
+const { releaseAdvisorHandler, transferAdvisorHandler } = require('../controllers/advisorDecision');
 const { advisorSanitization } = require('../controllers/sanitizationController');
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
@@ -90,49 +90,8 @@ router.patch(
 
 // ============================================================================
 // ADVISOR ASSOCIATION WORKFLOW (Process 3.0 — Level 2.3)
+// POST/PATCH /advisor-requests — mounted at /api/v1/advisor-requests (see advisorRequests.js)
 // ============================================================================
-
-// POST /api/v1/advisor-requests — Process 3.1 + 3.2: Submit & validate advisee request
-// Schedule: Subject to advisor_association window enforcement (422 if outside)
-router.post(
-  '/advisor-requests',
-  authMiddleware,
-  roleMiddleware(['student']),
-  checkAdvisorAssociationSchedule(),
-  createAdvisorRequest
-);
-
-// PATCH /api/v1/advisor-requests/:requestId — Process 3.4: Advisor approve/reject decision
-// Schedule: Subject to advisor_association window enforcement (422 if outside)
-/**
- * =====================================================================
- * FIX #3a: REMOVE 'ADMIN' FROM PROFESSOR-ONLY ROUTE (ISSUE #70 - HIGH)
- * =====================================================================
- * PROBLEM: roleMiddleware(['professor', 'admin']) violates DFD access control
- * constraints. Process 3.4 (Advisor approval decision) is explicitly defined
- * in the DFD as a PROFESSOR-ONLY operation. Professors are domain experts
- * responsible for evaluating advisor-team fit; system administrators have no
- * domain expertise in these decisions.
- * 
- * WHAT CHANGED: Removed 'admin' from the roleMiddleware array
- * OLD: roleMiddleware(['professor', 'admin'])
- * NEW: roleMiddleware(['professor'])
- * 
- * WHY: Enforces principle of least privilege and maintains DFD separation
- * of concerns. 'admin' role should only be used for system-level operations
- * (user management, audit logs, etc.), not domain-specific approvals.
- * 
- * IMPACT: Admin users can no longer approve advisor assignments. Professors
- * must approve via their domain role. This is correct behavior per DFD.
- * =====================================================================
- */
-router.patch(
-  '/advisor-requests/:requestId',
-  authMiddleware,
-  roleMiddleware(['professor']),
-  checkAdvisorAssociationSchedule(),
-  advisorApproveRequest
-);
 
 // DELETE /api/v1/groups/:groupId/advisor — Process 3.5: Release current advisor
 // Schedule: Subject to advisor_association window enforcement (422 if outside)
