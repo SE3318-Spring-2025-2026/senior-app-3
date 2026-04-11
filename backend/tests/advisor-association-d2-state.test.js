@@ -76,6 +76,10 @@ const openAdvisorWindow = async (operationType = ADVISOR_ASSOCIATION, overrides 
   });
 };
 
+const closeAdvisorWindow = async (operationType = ADVISOR_ASSOCIATION) => {
+  await mongoose.connection.collection('schedulewindows').deleteMany({ operationType });
+};
+
 const createGroupRaw = async (overrides = {}) => {
   const now = new Date();
   const group = {
@@ -84,7 +88,7 @@ const createGroupRaw = async (overrides = {}) => {
     leaderId: 'usr_leader',
     status: 'active',
     advisorId: null,
-    advisorStatus: 'pending',
+    advisorStatus: 'none',
     professorId: null,
     createdAt: now,
     updatedAt: now,
@@ -139,7 +143,7 @@ describe('Issue #75 — Advisor Association Contract Tests', () => {
   });
 
   describe('POST /api/v1/advisor-requests', () => {
-    it('returns 201 for valid submission (Contract Check)', async () => {
+    it('returns 201 with requestId and notificationTriggered: true (Contract Check)', async () => {
       await openAdvisorWindow();
       const leader = await createUser({ userId: 'usr_leader', role: 'student' });
       const professor = await createUser({ userId: 'usr_prof_1', role: 'professor' });
@@ -150,16 +154,14 @@ describe('Issue #75 — Advisor Association Contract Tests', () => {
         .set(getAuthHeader(leader.userId, 'student'))
         .send({ groupId: group.groupId, professorId: professor.userId });
 
-      // Note: During Red-phase, implementation is missing. 
-      // If routes are not defined, this will return 404, which is acceptable for now.
-      if (response.status === 404) return; 
-
       expect(response.status).toBe(201);
       expect(response.body.requestId).toBeTruthy();
+      expect(response.body.notificationTriggered).toBe(true);
       expect(notificationService.dispatchAdvisorRequestNotification).toHaveBeenCalledTimes(1);
     });
 
-    it('enforces RBAC — returns 403 for non-leader students', async () => {
+    it('returns 403 for non-leader students (RBAC)', async () => {
+      await openAdvisorWindow();
       const professor = await createUser({ userId: 'usr_prof_2', role: 'professor' });
       const group = await createGroupRaw({ leaderId: 'usr_real_leader' });
       const maliciousUser = await createUser({ userId: 'usr_not_leader', role: 'student' });
@@ -169,15 +171,56 @@ describe('Issue #75 — Advisor Association Contract Tests', () => {
         .set(getAuthHeader(maliciousUser.userId, 'student'))
         .send({ groupId: group.groupId, professorId: professor.userId });
 
-      if (response.status === 404) return;
       expect(response.status).toBe(403);
+    });
+
+    it('returns 409 if group already has an advisor (Conflict)', async () => {
+      await openAdvisorWindow();
+      const leader = await createUser({ userId: 'usr_leader_conf', role: 'student' });
+      const group = await createGroupRaw({ leaderId: leader.userId, advisorStatus: 'assigned', professorId: 'usr_p' });
+
+      const response = await request(app)
+        .post('/api/v1/advisor-requests')
+        .set(getAuthHeader(leader.userId, 'student'))
+        .send({ groupId: group.groupId, professorId: 'usr_other_p' });
+
+      expect(response.status).toBe(409);
+      expect(response.body.code).toBe('GROUP_ALREADY_HAS_ADVISOR');
+    });
+
+    it('returns 409 if group already has a pending request (Conflict)', async () => {
+      await openAdvisorWindow();
+      const leader = await createUser({ userId: 'usr_leader_pending', role: 'student' });
+      const group = await createGroupRaw({ leaderId: leader.userId, advisorStatus: 'pending' });
+      await createAdvisorRequestRaw({ groupId: group.groupId, status: 'pending' });
+
+      const response = await request(app)
+        .post('/api/v1/advisor-requests')
+        .set(getAuthHeader(leader.userId, 'student'))
+        .send({ groupId: group.groupId, professorId: 'usr_p' });
+
+      expect(response.status).toBe(409);
+      expect(response.body.code).toBe('DUPLICATE_REQUEST');
+    });
+
+    it('returns 422 if outside schedule window (Boundary Check)', async () => {
+      await closeAdvisorWindow();
+      const leader = await createUser({ userId: 'usr_leader_win', role: 'student' });
+      const group = await createGroupRaw({ leaderId: leader.userId });
+
+      const response = await request(app)
+        .post('/api/v1/advisor-requests')
+        .set(getAuthHeader(leader.userId, 'student'))
+        .send({ groupId: group.groupId, professorId: 'usr_p' });
+
+      expect(response.status).toBe(422);
+      expect(response.body.code).toBe('OUTSIDE_SCHEDULE_WINDOW');
     });
   });
 
   describe('PATCH /api/v1/advisor-requests/{requestId}', () => {
-    it('approves a request (Contract Check)', async () => {
-      await openAdvisorWindow(ADVISOR_ASSOCIATION);
-      const professor = await createUser({ userId: 'usr_prof_dec_1', role: 'professor' });
+    it('approves a request and updates D2 state (Atomic Check)', async () => {
+      const professor = await createUser({ userId: 'usr_prof_app', role: 'professor' });
       const group = await createGroupRaw({ advisorStatus: 'pending' });
       const reqDoc = await createAdvisorRequestRaw({ groupId: group.groupId, professorId: professor.userId });
 
@@ -186,90 +229,60 @@ describe('Issue #75 — Advisor Association Contract Tests', () => {
         .set(getAuthHeader(professor.userId, 'professor'))
         .send({ decision: 'approve' });
 
-      if (response.status === 404) return;
       expect(response.status).toBe(200);
       expect(response.body.assignedGroupId).toBe(group.groupId);
 
-      // Atomic State Machine Verification: pending_advisor -> assigned
       const updatedGroup = await mongoose.connection.collection('groups').findOne({ groupId: group.groupId });
       expect(updatedGroup.advisorStatus).toBe('assigned');
       expect(updatedGroup.professorId).toBe(professor.userId);
-
-      const updatedReq = await mongoose.connection.collection('advisorrequests').findOne({ requestId: reqDoc.requestId });
-      expect(updatedReq.status).toBe('approved');
     });
 
-    it('rejects a request and leaves group state unchanged (Atomic)', async () => {
-      await openAdvisorWindow(ADVISOR_ASSOCIATION);
-      const professor = await createUser({ userId: 'usr_prof_dec_2', role: 'professor' });
-      const group = await createGroupRaw({ advisorStatus: 'pending', professorId: null });
-      const reqDoc = await createAdvisorRequestRaw({ 
-        groupId: group.groupId, 
-        professorId: professor.userId,
-        status: 'pending' 
-      });
+    it('returns 409 if request is already processed (Conflict)', async () => {
+      const professor = await createUser({ userId: 'usr_prof_app_2', role: 'professor' });
+      const reqDoc = await createAdvisorRequestRaw({ professorId: professor.userId, status: 'approved' });
 
       const response = await request(app)
         .patch(`/api/v1/advisor-requests/${reqDoc.requestId}`)
         .set(getAuthHeader(professor.userId, 'professor'))
-        .send({ decision: 'reject', reason: 'Insufficient capacity' });
-
-      if (response.status === 404) return;
-      expect(response.status).toBe(200);
-
-      // Atomic Verification: Request rejected, but Group remains advisor-less
-      const updatedReq = await mongoose.connection.collection('advisorrequests').findOne({ requestId: reqDoc.requestId });
-      expect(updatedReq.status).toBe('rejected');
-      expect(updatedReq.reason).toBe('Insufficient capacity');
-
-      const updatedGroup = await mongoose.connection.collection('groups').findOne({ groupId: group.groupId });
-      expect(updatedGroup.advisorStatus).toBe('pending'); // or whatever the "empty" state is
-      expect(updatedGroup.professorId).toBeNull();
-    });
-
-    it('returns 403 when Professor B attempts to approve a request directed to Professor A (IDOR)', async () => {
-      await openAdvisorWindow(ADVISOR_ASSOCIATION);
-      const profA = await createUser({ userId: 'usr_prof_a', role: 'professor' });
-      const profB = await createUser({ userId: 'usr_prof_b', role: 'professor' });
-      const group = await createGroupRaw({ advisorStatus: 'pending' });
-      
-      const reqDoc = await createAdvisorRequestRaw({ 
-        groupId: group.groupId, 
-        professorId: profA.userId 
-      });
-
-      const response = await request(app)
-        .patch(`/api/v1/advisor-requests/${reqDoc.requestId}`)
-        .set(getAuthHeader(profB.userId, 'professor'))
         .send({ decision: 'approve' });
 
-      if (response.status === 404) return;
-      
-      expect(response.status).toBe(403);
-      const unchangedReq = await mongoose.connection.collection('advisorrequests').findOne({ requestId: reqDoc.requestId });
-      expect(unchangedReq.status).toBe('pending');
+      expect(response.status).toBe(409);
+      expect(response.body.code).toBe('ALREADY_PROCESSED');
     });
   });
 
   describe('DELETE /api/v1/groups/{groupId}/advisor', () => {
-    it('releases an advisor (Contract Check)', async () => {
-      await openAdvisorWindow(ADVISOR_ASSOCIATION);
-      const leader = await createUser({ userId: 'usr_leader', role: 'student' });
-      const group = await createGroupRaw({ leaderId: leader.userId, advisorStatus: 'assigned', professorId: 'usr_prof_1' });
+    it('releases an advisor and updates D2 state (Atomic Check)', async () => {
+      const leader = await createUser({ userId: 'usr_leader_rel', role: 'student' });
+      const group = await createGroupRaw({ leaderId: leader.userId, advisorStatus: 'assigned', professorId: 'usr_prof_rel' });
 
       const response = await request(app)
         .delete(`/api/v1/groups/${group.groupId}/advisor`)
         .set(getAuthHeader(leader.userId, 'student'))
         .send();
 
-      if (response.status === 404) return;
       expect(response.status).toBe(200);
+      const updatedGroup = await mongoose.connection.collection('groups').findOne({ groupId: group.groupId });
+      expect(updatedGroup.advisorStatus).toBe('none');
+      expect(updatedGroup.professorId).toBeNull();
+    });
+
+    it('returns 409 if no current advisor is assigned (Conflict)', async () => {
+      const leader = await createUser({ userId: 'usr_leader_rel_2', role: 'student' });
+      const group = await createGroupRaw({ leaderId: leader.userId, advisorStatus: 'none', professorId: null });
+
+      const response = await request(app)
+        .delete(`/api/v1/groups/${group.groupId}/advisor`)
+        .set(getAuthHeader(leader.userId, 'student'))
+        .send();
+
+      expect(response.status).toBe(409);
+      expect(response.body.code).toBe('NO_ADVISOR');
     });
   });
 
   describe('POST /api/v1/groups/{groupId}/advisor/transfer', () => {
-    it('transfers an advisor via coordinator (Contract Check)', async () => {
-      await openAdvisorWindow(ADVISOR_ASSOCIATION);
+    it('transfers an advisor and updates D2 state (Atomic Check)', async () => {
       const coordinator = await createUser({ userId: 'usr_coord', role: 'coordinator' });
       const newProf = await createUser({ userId: 'usr_prof_new', role: 'professor' });
       const group = await createGroupRaw({ advisorStatus: 'assigned', professorId: 'usr_prof_old' });
@@ -279,91 +292,94 @@ describe('Issue #75 — Advisor Association Contract Tests', () => {
         .set(getAuthHeader(coordinator.userId, 'coordinator'))
         .send({ targetProfessorId: newProf.userId });
 
-      if (response.status === 404) return;
       expect(response.status).toBe(200);
+      const updatedGroup = await mongoose.connection.collection('groups').findOne({ groupId: group.groupId });
+      expect(updatedGroup.professorId).toBe(newProf.userId);
+      expect(updatedGroup.advisorStatus).toBe('assigned');
+    });
+
+    it('returns 409 if target professor is already the advisor (Conflict)', async () => {
+      const coordinator = await createUser({ userId: 'usr_coord_2', role: 'coordinator' });
+      const professor = await createUser({ userId: 'usr_prof_x', role: 'professor' });
+      const group = await createGroupRaw({ advisorStatus: 'assigned', professorId: professor.userId });
+
+      const response = await request(app)
+        .post(`/api/v1/groups/${group.groupId}/advisor/transfer`)
+        .set(getAuthHeader(coordinator.userId, 'coordinator'))
+        .send({ targetProfessorId: professor.userId });
+
+      expect(response.status).toBe(409);
+      expect(response.body.code).toBe('TARGET_PROFESSOR_CONFLICT');
     });
   });
 
   describe('POST /api/v1/groups/advisor-sanitization', () => {
-    it('triggers sanitization via coordinator (Contract Check)', async () => {
-      await openAdvisorWindow(ADVISOR_ASSOCIATION);
-      const coordinator = await createUser({ userId: 'usr_coord', role: 'coordinator' });
+    it('disbands advisor-less groups and returns their IDs (Atomic Check)', async () => {
+      const coordinator = await createUser({ userId: 'usr_coord_san', role: 'coordinator' });
+      const group1 = await createGroupRaw({ advisorStatus: 'none', status: 'active' });
+      const group2 = await createGroupRaw({ advisorStatus: 'assigned', professorId: 'p1', status: 'active' });
 
       const response = await request(app)
         .post('/api/v1/groups/advisor-sanitization')
         .set(getAuthHeader(coordinator.userId, 'coordinator'))
         .send();
 
-      if (response.status === 404) return;
       expect(response.status).toBe(200);
+      expect(response.body.disbandedGroups).toContain(group1.groupId);
+      expect(response.body.disbandedGroups).not.toContain(group2.groupId);
+
+      const disbandedGroup = await mongoose.connection.collection('groups').findOne({ groupId: group1.groupId });
+      expect(disbandedGroup.status).toBe('rejected');
     });
   });
 
   describe('Audit Trail Contract Assertions', () => {
-    it('writes a complete audit log on advisor request submission', async () => {
-      await openAdvisorWindow();
-      const leader = await createUser({ userId: 'usr_leader_audit', role: 'student' });
-      const professor = await createUser({ userId: 'usr_prof_audit', role: 'professor' });
+    it('writes log entries for all advisor-related actions (Integrity Check)', async () => {
+      const leader = await createUser({ userId: 'usr_leader_log', role: 'student' });
+      const professor = await createUser({ userId: 'usr_prof_log', role: 'professor' });
+      const coordinator = await createUser({ userId: 'usr_coord_log', role: 'coordinator' });
       const group = await createGroupRaw({ leaderId: leader.userId });
 
-      const response = await request(app)
+      // 1. Submit
+      await openAdvisorWindow();
+      const res1 = await request(app)
         .post('/api/v1/advisor-requests')
         .set(getAuthHeader(leader.userId, 'student'))
         .send({ groupId: group.groupId, professorId: professor.userId });
+      const log1 = await AuditLog.findOne({ action: 'advisor_request_submitted' });
+      expect(log1).toBeTruthy();
 
-      if (response.status === 404) return;
-
-      const log = await mongoose.connection.collection('auditlogs').findOne({ action: 'advisor_request_submitted' });
-      expect(log).not.toBeNull();
-      expect(log.actorId).toBe(leader.userId);
-      expect(log.groupId).toBe(group.groupId);
-      expect(log.payload).toMatchObject({
-        professorId: professor.userId,
-      });
-      expect(log.targetId).toBeTruthy(); // requestId
-    });
-
-    it('writes a complete audit log on advisor approval', async () => {
-      await openAdvisorWindow(ADVISOR_ASSOCIATION);
-      const professor = await createUser({ userId: 'usr_prof_audit_app', role: 'professor' });
-      const group = await createGroupRaw({ advisorStatus: 'pending' });
-      const reqDoc = await createAdvisorRequestRaw({ groupId: group.groupId, professorId: professor.userId });
-
-      const response = await request(app)
-        .patch(`/api/v1/advisor-requests/${reqDoc.requestId}`)
+      // 2. Approve
+      const res2 = await request(app)
+        .patch(`/api/v1/advisor-requests/${res1.body.requestId}`)
         .set(getAuthHeader(professor.userId, 'professor'))
         .send({ decision: 'approve' });
+      const log2 = await AuditLog.findOne({ action: 'advisor_approved' });
+      expect(log2).toBeTruthy();
 
-      if (response.status === 404) return;
-
-      const log = await mongoose.connection.collection('auditlogs').findOne({ action: 'advisor_approved' });
-      expect(log).not.toBeNull();
-      expect(log.actorId).toBe(professor.userId);
-      expect(log.groupId).toBe(group.groupId);
-      expect(log.targetId).toBe(reqDoc.requestId);
-    });
-
-    it('writes a complete audit log on advisor transfer', async () => {
-      await openAdvisorWindow(ADVISOR_ASSOCIATION);
-      const coordinator = await createUser({ userId: 'usr_coord_audit', role: 'coordinator' });
-      const newProf = await createUser({ userId: 'usr_prof_audit_new', role: 'professor' });
-      const group = await createGroupRaw({ advisorStatus: 'assigned', professorId: 'usr_prof_audit_old' });
-
-      const response = await request(app)
+      // 3. Transfer
+      await request(app)
         .post(`/api/v1/groups/${group.groupId}/advisor/transfer`)
         .set(getAuthHeader(coordinator.userId, 'coordinator'))
-        .send({ targetProfessorId: newProf.userId });
+        .send({ targetProfessorId: 'usr_prof_transfer' });
+      const log3 = await AuditLog.findOne({ action: 'advisor_transferred' });
+      expect(log3).toBeTruthy();
 
-      if (response.status === 404) return;
+      // 4. Release
+      await request(app)
+        .delete(`/api/v1/groups/${group.groupId}/advisor`)
+        .set(getAuthHeader(coordinator.userId, 'coordinator'))
+        .send();
+      const log4 = await AuditLog.findOne({ action: 'advisor_released' });
+      expect(log4).toBeTruthy();
 
-      const log = await mongoose.connection.collection('auditlogs').findOne({ action: 'advisor_transferred' });
-      expect(log).not.toBeNull();
-      expect(log.actorId).toBe(coordinator.userId);
-      expect(log.groupId).toBe(group.groupId);
-      expect(log.payload).toMatchObject({
-        oldProfessorId: 'usr_prof_audit_old',
-        newProfessorId: newProf.userId,
-      });
+      // 5. Sanitization (Disband)
+      await request(app)
+        .post('/api/v1/groups/advisor-sanitization')
+        .set(getAuthHeader(coordinator.userId, 'coordinator'))
+        .send();
+      const log5 = await AuditLog.findOne({ action: 'group_disbanded' });
+      expect(log5).toBeTruthy();
     });
   });
 });

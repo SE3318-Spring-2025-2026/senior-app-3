@@ -458,9 +458,14 @@ const formatGroupResponse = (group, extras = {}) => ({
   groupName: group.groupName,
   leaderId: group.leaderId,
   advisorId: group.advisorId,
+<<<<<<< HEAD
   advisorStatus: group.advisorStatus || null,
   advisorName: extras.advisorName ?? null,
   advisorRequest: extras.advisorRequest ?? null,
+=======
+  professorId: group.professorId,
+  advisorStatus: group.advisorStatus,
+>>>>>>> 3d77c42 (feat: complete advisor association logic and robust contract tests for PR #143)
   status: group.status,
   members: group.members.map((m) => ({
     userId: m.userId,

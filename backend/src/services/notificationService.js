@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { NOTIFICATION_TYPES } = require('../utils/operationTypes');
 
 const NOTIFICATION_SERVICE_URL =
   process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:4000';
@@ -74,7 +75,7 @@ const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipie
 const dispatchAdvisorRequestNotification = async ({ groupId, professorId }) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-    { type: 'advisor_request', groupId, professorId },
+    { type: NOTIFICATION_TYPES.ADVISOR_REQUEST, groupId, professorId },
     { timeout: 5000 }
   );
   return response.data;
@@ -92,7 +93,7 @@ const dispatchAdvisorRequestNotification = async ({ groupId, professorId }) => {
 const dispatchAdvisorDecisionNotification = async ({ groupId, professorId, decision }) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-    { type: 'advisor_decision', groupId, professorId, decision },
+    { type: NOTIFICATION_TYPES.ADVISOR_DECISION, groupId, professorId, decision },
     { timeout: 5000 }
   );
   return response.data;
@@ -110,7 +111,7 @@ const dispatchAdvisorDecisionNotification = async ({ groupId, professorId, decis
 const dispatchAdvisorTransferNotification = async ({ groupId, oldProfessorId, newProfessorId }) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-    { type: 'advisor_transfer', groupId, oldProfessorId, newProfessorId },
+    { type: NOTIFICATION_TYPES.ADVISOR_TRANSFER, groupId, oldProfessorId, newProfessorId },
     { timeout: 5000 }
   );
   return response.data;
@@ -127,7 +128,7 @@ const dispatchAdvisorTransferNotification = async ({ groupId, oldProfessorId, ne
 const dispatchGroupDisbandNotification = async ({ groupId, reason }) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-    { type: 'group_disbanded', groupId, reason },
+    { type: NOTIFICATION_TYPES.GROUP_DISBANDED, groupId, reason },
     { timeout: 5000 }
   );
   return response.data;
