@@ -13,6 +13,9 @@ const SyncErrorLog = require('../models/SyncErrorLog');
 /**
  * Helper to validate advisor request and prepare decision handling.
  * Extracted to reduce cognitive complexity.
+ * 
+ * Issue #64 Fix #1: CRITICAL - Query professor BEFORE evaluating account status
+ * to prevent ReferenceError on undefined variable.
  */
 const validateAdvisorDecisionInputs = async (requestId, professorId, decision) => {
   // Find group containing this advisor request
@@ -50,9 +53,17 @@ const validateAdvisorDecisionInputs = async (requestId, professorId, decision) =
     };
   }
 
-  // Validate professor exists and is active
-  // eslint-disable-next-line no-unsafe-optional-chaining
-  if (!professor || professor?.accountStatus !== 'active') {
+  // Issue #64 Fix #1 CRITICAL: Query professor from database BEFORE evaluating account status
+  // PROBLEM: Previous code evaluated 'professor' without defining it, causing ReferenceError
+  // SOLUTION: Fetch professor document from User collection using userId parameter
+  // This ensures we have the actual professor object with all properties (accountStatus, role, etc.)
+  // before attempting to validate them in the conditional check
+  const professor = await User.findOne({ userId: professorId });
+  
+  // Validation: Check if professor exists AND has active account status
+  // If either condition fails (professor null OR accountStatus !== 'active'), reject the request
+  // This prevents inactive professors from receiving advisor assignments
+  if (!professor || professor.accountStatus !== 'active') {
     return {
       group: null,
       error: { status: 409, code: 'PROFESSOR_ACCOUNT_INACTIVE', message: 'Professor account is not active' },
@@ -229,9 +240,12 @@ const advisorApproveRequest = async (req, res) => {
  * DELETE /api/v1/groups/:groupId/advisor
  *
  * Release an assigned advisor from a group.
- * Only Team Leader (group leader) or the assigned Advisor can release.
+ * Only Team Leader (group leader) or Coordinator can release (per Issue #59 acceptance criteria).
  * Clears advisorId and sets advisorStatus to released.
  * Updates Group record in D2 (Process 3.5).
+ * 
+ * Issue #64 Fix #3: CRITICAL - Updated authorization to only allow Team Leader or Coordinator
+ * (previously incorrectly allowed the current Advisor).
  *
  * @param {string} req.params.groupId - Group ID
  * @param {string} req.body.reason - optional reason for release
@@ -252,12 +266,25 @@ const releaseAdvisorHandler = async (req, res) => {
       });
     }
 
-    // Authorization: only group leader or current advisor can release
-    if (group.leaderId !== releasedBy && group.advisorId !== releasedBy) {
-      return res.status(403).json({
-        code: 'UNAUTHORIZED_RELEASE',
-        message: 'Only the group leader or current advisor can release the advisor',
-      });
+    // Issue #64 Fix #3 HIGH: Authorization - only group leader or coordinator can release
+    // PROBLEM: Previous code allowed "group leader or current advisor" to release
+    //          Issue #59 acceptance criteria specifies: "Team Leader or Coordinator can release"
+    //          Current advisor should NOT have power to unilaterally release themselves
+    // SOLUTION: Check if requester is group leader; if not, verify they are a coordinator
+    // Coordinators have system-wide permissions to manage advisor assignments
+    if (group.leaderId !== releasedBy) {
+      // Not the group leader - check if user is a coordinator
+      const user = await User.findOne({ userId: releasedBy });
+      if (user?.role === 'coordinator') {
+        // Coordinator can release any group's advisor - allow this action
+        // Coordinators have system-wide advisory management privileges
+      } else {
+        // Not the leader and not a coordinator - reject the release request
+        return res.status(403).json({
+          code: 'UNAUTHORIZED_RELEASE',
+          message: 'Only the group leader or coordinator can release the advisor',
+        });
+      }
     }
 
     // Process 3.5: Release advisor

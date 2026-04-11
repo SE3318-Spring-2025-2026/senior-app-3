@@ -22,6 +22,9 @@ class AdvisorServiceError extends Error {
  * Updates D2 (Group model) with advisorId and advisorStatus: assigned.
  * Creates AdvisorAssignment record for historical tracking.
  * Called by Process 3.5 after approval signal from Process 3.4.
+ * 
+ * Issue #64 Fix #2: CRITICAL - Uses Mongoose transaction to ensure Group and 
+ * AdvisorAssignment are both created/updated atomically, preventing orphaned states.
  *
  * @param {string} groupId - Target group ID
  * @param {string} requestId - Advisor request ID to approve
@@ -31,58 +34,89 @@ class AdvisorServiceError extends Error {
  * @returns {object} { groupId, professorId, status, updatedAt }
  */
 const approveAdvisorRequest = async (groupId, requestId, professorId, approverId, options = {}) => {
+  // Issue #64 Fix #2 CRITICAL: Implement Mongoose transaction for data consistency
+  // PROBLEM: Previous implementation executed Group.save() and AdvisorAssignment.create() sequentially
+  //          If Group saves successfully but AdvisorAssignment.create() fails (network error, 
+  //          validation error, timeout), the database is left in an ORPHANED/INCONSISTENT state:
+  //          - Group record has advisorId set (group thinks it has advisor)
+  //          - But no corresponding AdvisorAssignment record exists (assignment tracking lost)
+  //          This violates data integrity and breaks audit trail
+  //
+  // SOLUTION: Wrap both operations in a Mongoose session transaction
+  // - All queries and writes use the same session
+  // - If any operation fails, ALL changes are rolled back atomically
+  // - If all succeed, changes are committed atomically (all-or-nothing guarantee)
+  // This is ACID compliance at the document level using MongoDB transactions
+  
+  const session = await Group.startSession();
+  session.startTransaction();
+  
   try {
-    // Fetch group and validate advisor request exists
-    const group = await Group.findOne({ groupId });
+    // Fetch group within transaction session (ensures read consistency within transaction context)
+    const group = await Group.findOne({ groupId }).session(session);
     if (!group) {
+      // If group not found, abort transaction to release locks/resources immediately
+      await session.abortTransaction();
       throw new AdvisorServiceError(404, 'GROUP_NOT_FOUND', 'Group not found');
     }
 
     if (!group.advisorRequest) {
+      await session.abortTransaction();
       throw new AdvisorServiceError(404, 'NO_ADVISOR_REQUEST', 'No advisor request found for this group');
     }
 
     if (group.advisorRequest.requestId !== requestId) {
+      await session.abortTransaction();
       throw new AdvisorServiceError(404, 'REQUEST_ID_MISMATCH', 'Request ID does not match group advisory request');
     }
 
     if (group.advisorRequest.status !== 'pending') {
+      await session.abortTransaction();
       throw new AdvisorServiceError(409, 'REQUEST_ALREADY_PROCESSED', `Request has already been ${group.advisorRequest.status}`);
     }
 
     // Validate professor matches
     if (group.advisorRequest.professorId !== professorId) {
+      await session.abortTransaction();
       throw new AdvisorServiceError(403, 'PROFESSOR_MISMATCH', 'Professor ID does not match the request');
     }
 
-    // Check professor exists and is active
-    const professor = await User.findOne({ userId: professorId });
-    // eslint-disable-next-line no-unsafe-optional-chaining
+    // Check professor exists and is active (also within transaction for consistency)
+    const professor = await User.findOne({ userId: professorId }).session(session);
     if (!professor || professor?.role !== 'professor' || professor?.accountStatus !== 'active') {
+      await session.abortTransaction();
       throw new AdvisorServiceError(409, 'PROFESSOR_INVALID', 'Professor is not active or does not exist');
     }
 
-    // Update group with assigned advisor
+    // Update group with assigned advisor (within transaction session)
     const now = new Date();
     group.advisorId = professorId;
     group.advisorStatus = 'assigned';
     group.advisorUpdatedAt = now;
     group.advisorRequest.status = 'approved';
     group.advisorRequest.approvedAt = now;
-    await group.save();
+    // Pass session to save operation so it's part of the transaction
+    await group.save({ session });
 
-    // Create AdvisorAssignment record for tracking
-    const assignment = await AdvisorAssignment.create({
-      assignmentId: `asn_${uuidv4().split('-')[0]}`,
-      groupId,
-      professorId,
-      status: 'assigned',
-      updatedAt: now,
-      updatedBy: approverId,
-      reason: 'Advisor approved the assignment request',
-    });
+    // Issue #64 Fix #2: Create AdvisorAssignment WITHIN same transaction (critical for atomicity)
+    // If this create() fails, the entire transaction rolls back and group.save() is undone
+    // This maintains the invariant: every Group with advisorId has a corresponding AdvisorAssignment
+    const assignment = await AdvisorAssignment.create(
+      [
+        {
+          assignmentId: `asn_${uuidv4().split('-')[0]}`,
+          groupId,
+          professorId,
+          status: 'assigned',
+          updatedAt: now,
+          updatedBy: approverId,
+          reason: 'Advisor approved the assignment request',
+        },
+      ],
+      { session }  // Pass session so create is part of the transaction
+    );
 
-    // Create audit log
+    // Create audit log (non-transactional, best-effort)
     try {
       await createAuditLog({
         action: 'status_transition',
@@ -93,7 +127,7 @@ const approveAdvisorRequest = async (groupId, requestId, professorId, approverId
           new_status: 'assigned',
           reason: 'Advisor approved request and was assigned to group',
           requestId,
-          assignmentId: assignment.assignmentId,
+          assignmentId: assignment[0].assignmentId,
         },
         ipAddress: options.ipAddress,
         userAgent: options.userAgent,
@@ -102,6 +136,10 @@ const approveAdvisorRequest = async (groupId, requestId, professorId, approverId
       console.error('Audit log failed (non-fatal):', auditErr.message);
     }
 
+    // Issue #64 Fix #2: Commit transaction (persist all changes atomically)
+    // This confirms all operations succeeded and changes should be written to disk
+    await session.commitTransaction();
+
     return {
       groupId,
       professorId,
@@ -109,11 +147,19 @@ const approveAdvisorRequest = async (groupId, requestId, professorId, approverId
       updatedAt: now.toISOString(),
     };
   } catch (error) {
+    // Issue #64 Fix #2: Rollback on any error (undo all transactional changes)
+    // This ensures no partial/orphaned state if any operation in the transaction fails
+    await session.abortTransaction();
+    
     if (error instanceof AdvisorServiceError) {
       throw error;
     }
     console.error('advisorService.approveAdvisorRequest error:', error);
     throw new AdvisorServiceError(500, 'SERVER_ERROR', 'An error occurred while approving the advisor request');
+  } finally {
+    // Issue #64 Fix #2: Always end the session (releases locks, cleans up resources)
+    // This ensures MongoDB/Mongoose doesn't hold locks even if transaction committed/aborted
+    session.endSession();
   }
 };
 
@@ -122,6 +168,8 @@ const approveAdvisorRequest = async (groupId, requestId, professorId, approverId
  * Clears advisorId and sets advisorStatus: released.
  * Creates AdvisorAssignment record with released status.
  * Called by Process 3.5 after release signal (DELETE /groups/:groupId/advisor).
+ * 
+ * Issue #64 Fix #2: Uses Mongoose transaction to ensure data integrity.
  *
  * @param {string} groupId - Target group ID
  * @param {string} releasedBy - User ID initiating release
@@ -130,38 +178,53 @@ const approveAdvisorRequest = async (groupId, requestId, professorId, approverId
  * @returns {object} { groupId, professorId, status, updatedAt }
  */
 const releaseAdvisor = async (groupId, releasedBy, reason = null, options = {}) => {
+  // Issue #64 Fix #2: Implement transaction for release operation (same rationale as approve)
+  // Both Group.save() (clear advisorId) and AdvisorAssignment.create() (track release) must succeed together
+  
+  const session = await Group.startSession();
+  session.startTransaction();
+  
   try {
-    // Fetch group
-    const group = await Group.findOne({ groupId });
+    // Fetch group within transaction
+    const group = await Group.findOne({ groupId }).session(session);
     if (!group) {
+      await session.abortTransaction();
       throw new AdvisorServiceError(404, 'GROUP_NOT_FOUND', 'Group not found');
     }
 
+    // Validation: Only release if group currently HAS an assigned advisor
     if (!group.advisorId) {
+      await session.abortTransaction();
       throw new AdvisorServiceError(409, 'NO_ADVISOR_ASSIGNED', 'Group does not have an assigned advisor');
     }
 
     const previousAdvisorId = group.advisorId;
     const now = new Date();
 
-    // Update group to release advisor
+    // Update group to release advisor (set advisorId to null and status to released)
     group.advisorId = null;
     group.advisorStatus = 'released';
     group.advisorUpdatedAt = now;
-    await group.save();
+    await group.save({ session });
 
-    // Create AdvisorAssignment record for tracking
-    const assignment = await AdvisorAssignment.create({
-      assignmentId: `asn_${uuidv4().split('-')[0]}`,
-      groupId,
-      professorId: previousAdvisorId,
-      status: 'released',
-      updatedAt: now,
-      updatedBy: releasedBy,
-      reason: reason || 'Advisor released from group',
-    });
+    // Issue #64 Fix #2: Create AdvisorAssignment record WITHIN transaction
+    // Records the release action for audit trail and historical tracking
+    const assignment = await AdvisorAssignment.create(
+      [
+        {
+          assignmentId: `asn_${uuidv4().split('-')[0]}`,
+          groupId,
+          professorId: previousAdvisorId,
+          status: 'released',
+          updatedAt: now,
+          updatedBy: releasedBy,
+          reason: reason || 'Advisor released from group',
+        },
+      ],
+      { session }
+    );
 
-    // Create audit log
+    // Create audit log for operational visibility
     try {
       await createAuditLog({
         action: 'status_transition',
@@ -172,7 +235,7 @@ const releaseAdvisor = async (groupId, releasedBy, reason = null, options = {}) 
           new_status: 'released',
           reason: reason || 'Advisor released',
           previousAdvisorId,
-          assignmentId: assignment.assignmentId,
+          assignmentId: assignment[0].assignmentId,
         },
         ipAddress: options.ipAddress,
         userAgent: options.userAgent,
@@ -181,6 +244,9 @@ const releaseAdvisor = async (groupId, releasedBy, reason = null, options = {}) 
       console.error('Audit log failed (non-fatal):', auditErr.message);
     }
 
+    // Commit transaction (persist all changes atomically)
+    await session.commitTransaction();
+
     return {
       groupId,
       professorId: null,
@@ -188,11 +254,16 @@ const releaseAdvisor = async (groupId, releasedBy, reason = null, options = {}) 
       updatedAt: now.toISOString(),
     };
   } catch (error) {
+    // Rollback on any error
+    await session.abortTransaction();
+    
     if (error instanceof AdvisorServiceError) {
       throw error;
     }
     console.error('advisorService.releaseAdvisor error:', error);
     throw new AdvisorServiceError(500, 'SERVER_ERROR', 'An error occurred while releasing the advisor');
+  } finally {
+    session.endSession();
   }
 };
 
@@ -201,6 +272,9 @@ const releaseAdvisor = async (groupId, releasedBy, reason = null, options = {}) 
  * Updates advisorId with new professor and sets advisorStatus: transferred.
  * Creates AdvisorAssignment record with transferred status.
  * Called by Process 3.5 after transfer signal from Process 3.6 (coordinator).
+ * 
+ * Issue #64 Fix #4: MEDIUM - Validates that group currently has an assigned advisor
+ * before allowing transfer (cannot transfer if no advisor exists).
  *
  * @param {string} groupId - Target group ID
  * @param {string} newProfessorId - New professor to assign
@@ -215,6 +289,21 @@ const transferAdvisor = async (groupId, newProfessorId, transferredBy, reason = 
     const group = await Group.findOne({ groupId });
     if (!group) {
       throw new AdvisorServiceError(404, 'GROUP_NOT_FOUND', 'Group not found');
+    }
+
+    // Issue #64 Fix #4 MEDIUM: Guard clause - cannot transfer if no advisor currently assigned
+    // PROBLEM: Previous code allowed transferring a group that has NO assigned advisor
+    //          This violates business rule: "transfer" implies reassigning from one advisor to another
+    //          You cannot "transfer" something that doesn't exist
+    // SOLUTION: Check group.advisorId exists before proceeding with transfer logic
+    // If group has no current advisor, reject immediately with clear error message
+    // This guides the user to use the advisee request flow instead (normal approval flow)
+    if (!group.advisorId) {
+      throw new AdvisorServiceError(
+        409,
+        'NO_ADVISOR_TO_TRANSFER',
+        'Cannot transfer: group does not have an assigned advisor. Use advisee request flow instead.'
+      );
     }
 
     const previousAdvisorId = group.advisorId;

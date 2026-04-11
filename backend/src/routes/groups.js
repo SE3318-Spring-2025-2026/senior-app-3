@@ -98,12 +98,14 @@ router.patch(
   advisorApproveRequest
 );
 
-// DELETE /api/v1/groups/:groupId/advisor — Process 3.5 Release Path: Team Leader or Advisor releases assignment
+// DELETE /api/v1/groups/:groupId/advisor — Process 3.5 Release Path: Team Leader or Coordinator releases assignment
+// Issue #64 Fix #3: Added roleMiddleware to enforce Team Leader or Coordinator authorization only
 // Request body: { reason?: string }
 // Response: AdvisorAssignment schema with status: released, professorId: null
 router.delete(
   '/:groupId/advisor',
   authMiddleware,
+  roleMiddleware(['student', 'coordinator']),
   checkScheduleWindow('advisor_association'),
   releaseAdvisorHandler
 );
