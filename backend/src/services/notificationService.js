@@ -202,11 +202,55 @@ const dispatchAdviseeRequestNotification = async (payload) => {
   return response.data;
 };
 
+/**
+ * Dispatch an ADVISOR_STATUS_CHANGE notification to team leader or professor.
+ * Called by Process 3.5 (DFD flow: 3.5 → Notification Service).
+ * Notifies stakeholder when advisor request is approved, released, or transferred.
+ *
+ * @param {object} payload
+ * @param {string} payload.groupId         - group ID
+ * @param {string} payload.groupName       - group name
+ * @param {string} payload.professorId     - advisor professor ID
+ * @param {string} payload.professorName   - advisor professor name
+ * @param {string} payload.status          - 'assigned' | 'released' | 'transferred'
+ * @param {string} payload.recipientId     - user to notify (team leader or old advisor)
+ * @param {string} [payload.message]       - custom message (optional)
+ * @returns {object} { notification_id }
+ */
+const dispatchAdvisorStatusNotification = async ({
+  groupId,
+  groupName,
+  professorId,
+  professorName,
+  status,
+  recipientId,
+  message,
+}) => {
+  const response = await axios.post(
+    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+    {
+      type: 'advisor_status_change',
+      recipient: recipientId,
+      payload: {
+        groupId,
+        groupName,
+        professorId,
+        professorName,
+        status,
+        message: message || null,
+      },
+    },
+    { timeout: 5000 }
+  );
+  return response.data;
+};
+
 module.exports = {
   dispatchInvitationNotification,
   dispatchMembershipDecisionNotification,
   dispatchGroupCreationNotification,
   dispatchBatchInvitationNotification,
+  dispatchAdvisorStatusNotification,  // From feature/64
   dispatchAdviseeRequestNotification, // From main
   dispatchAdvisorRequestWithRetry,    // From feature/62
   isTransientError,                   // From feature/62

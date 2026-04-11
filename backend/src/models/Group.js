@@ -74,6 +74,15 @@ const groupSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    advisorStatus: {
+      type: String,
+      enum: ['assigned', 'released', 'transferred'],
+      default: null,
+    },
+    advisorUpdatedAt: {
+      type: Date,
+      default: null,
+    },
     /** Set when advisorId is assigned/changed; cleared when advisor is removed */
     advisorAssignedAt: {
       type: Date,
@@ -164,6 +173,8 @@ groupSchema.index({ status: 1 });
 groupSchema.index({ 'advisorRequest.requestId': 1 });
 groupSchema.index({ 'advisorRequest.professorId': 1 });
 groupSchema.index({ 'advisorRequest.status': 1 });
+groupSchema.index({ advisorId: 1 });
+groupSchema.index({ advisorStatus: 1 });
 
 const Group = mongoose.model('Group', groupSchema);
 
