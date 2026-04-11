@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import useGroupStore from '../store/groupStore';
 import useAuthStore from '../store/authStore';
 import GitHubStatusCard from './GitHubStatusCard';
@@ -9,6 +9,7 @@ import JiraSetupForm from './JiraSetupForm';
 import GroupMemberList from './GroupMemberList';
 import AddMemberForm from './AddMemberForm';
 import { submitMembershipDecision, getMyPendingInvitation } from '../api/groupService';
+import { releaseAdvisor } from '../api/advisorService';
 import './GroupDashboard.css';
 
 /**
@@ -24,6 +25,12 @@ const GroupDashboard = () => {
   const [invitationInfo, setInvitationInfo] = useState(null);
   const [decisionLoading, setDecisionLoading] = useState(false);
   const [decisionMsg, setDecisionMsg] = useState('');
+  
+  // Release Advisor Modal & State
+  const [releaseModalOpen, setReleaseModalOpen] = useState(false);
+  const [releaseReason, setReleaseReason] = useState('');
+  const [releaseLoading, setReleaseLoading] = useState(false);
+  const [releaseError, setReleaseError] = useState('');
 
   // Group store state
   const {
@@ -67,7 +74,7 @@ const GroupDashboard = () => {
       if (inv && inv.group_id === groupId) {
         setInvitationInfo(inv);
       }
-    }).catch(() => {});
+    }).catch(() => { });
   }, [groupId, user]);
 
   const handleDecision = async (decision) => {
@@ -82,6 +89,34 @@ const GroupDashboard = () => {
       setDecisionMsg(err.response?.data?.message || 'Could not process your decision.');
     } finally {
       setDecisionLoading(false);
+    }
+  };
+
+  // Modern handleReleaseAdvisor (using the Modal state)
+  const handleReleaseAdvisor = async () => {
+    if (!groupData?.advisorId) return;
+    
+    setReleaseLoading(true);
+    setReleaseError('');
+    try {
+      // apiClient.delete -> { professorId, reason } in data
+      await releaseAdvisor(groupId, groupData.advisorId, releaseReason);
+      setReleaseModalOpen(false);
+      setReleaseReason('');
+      await fetchGroupDashboard(groupId);
+    } catch (err) {
+      const status = err.response?.status;
+      if (status === 403) {
+        setReleaseError('You are not authorized to release this advisor.');
+      } else if (status === 409) {
+        setReleaseError('Your group does not currently have an assigned advisor.');
+      } else if (status === 422) {
+        setReleaseError('The advisor association schedule is currently closed.');
+      } else {
+        setReleaseError(err.response?.data?.message || 'Failed to release advisor. Please check the schedule window.');
+      }
+    } finally {
+      setReleaseLoading(false);
     }
   };
 
@@ -131,8 +166,8 @@ const GroupDashboard = () => {
           )}
         </div>
         <div className="dashboard-actions">
-          <button 
-            className="refresh-button" 
+          <button
+            className="refresh-button"
             onClick={handleRefresh}
             disabled={manualRefresh || isLoading}
             title="Refresh dashboard data"
@@ -208,6 +243,64 @@ const GroupDashboard = () => {
               <JiraStatusCard data={jira} isLoading={isLoading} />
             </div>
 
+            {/* Advisor Status Card */}
+            <div className="status-card">
+              <div className="card-header">
+                <h3 className="card-title">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 8a3 3 0 100-6 3 3 0 000 6zm2 1H6a4 4 0 00-4 4v1h12v-1a4 4 0 00-4-4z" />
+                  </svg>
+                  Advisor
+                </h3>
+                {groupData?.advisorId ? (
+                  <span className="status-badge active">Assigned</span>
+                ) : groupData?.advisorRequest?.status === 'pending' ? (
+                  <span className="status-badge pending">Request Pending</span>
+                ) : (
+                  <span className="status-badge none">Not Assigned</span>
+                )}
+              </div>
+              <div className="card-content">
+                {groupData?.advisorId ? (
+                  <div className="info-row assigned-advisor-row">
+                    <div className="advisor-info">
+                      <span className="info-label">Assigned Advisor:</span>
+                      <span className="info-value">Dr. {groupData.advisorName || 'Advisor'}</span>
+                    </div>
+                    {isLeader && (
+                      <button 
+                        className="release-advisor-btn-outline"
+                        onClick={() => setReleaseModalOpen(true)}
+                        title="Release advisor from this group"
+                      >
+                        Release
+                      </button>
+                    )}
+                  </div>
+                ) : groupData?.advisorRequest?.status === 'pending' ? (
+                  <div className="advisor-empty-state">
+                    <p>You have a pending request sent to a professor.</p>
+                    <div className="info-row">
+                      <span className="info-label">Status:</span>
+                      <span className="info-value">Awaiting Response</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="advisor-empty-state">
+                    <p>No advisor assigned to this group yet.</p>
+                    {isLeader && (
+                      <button 
+                        className="request-advisor-btn"
+                        onClick={() => navigate(`/groups/${groupId}/advisor-request`)}
+                      >
+                        Request Advisor
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Pending Approvals Card */}
             <div className="status-card">
               <div className="card-header">
@@ -231,6 +324,42 @@ const GroupDashboard = () => {
                     {pendingApprovalsCount} student{pendingApprovalsCount !== 1 ? 's' : ''}{' '}
                     {pendingApprovalsCount !== 1 ? 'have' : 'has'} not yet responded.
                   </p>
+                )}
+              </div>
+            </div>
+
+            {/* Faculty advisor — enriched from GET /groups/:groupId */}
+            <div className="status-card">
+              <div className="card-header">
+                <h3 className="card-title">Faculty advisor</h3>
+              </div>
+              <div className="card-content">
+                {groupData.advisorId ? (
+                  <div className="info-row">
+                    <span className="info-label">Assigned:</span>
+                    <span className="info-value">
+                      {groupData.advisorName || groupData.advisorId}
+                    </span>
+                  </div>
+                ) : groupData.advisorRequest?.status === 'pending' ? (
+                  <p className="card-hint">
+                    Request pending for{' '}
+                    <strong>
+                      {groupData.advisorRequest.professorName || groupData.advisorRequest.professorId}
+                    </strong>
+                    {groupData.advisorRequest.notificationTriggered === false && (
+                      <span> (notification delivery pending or failed — refresh later)</span>
+                    )}
+                  </p>
+                ) : (
+                  <>
+                    <p className="card-hint">No advisor assigned yet.</p>
+                    {isLeader && groupData.status === 'active' && (
+                      <Link className="advisor-request-link" to={`/groups/${groupId}/advisor-request`}>
+                        Request an advisor
+                      </Link>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -283,6 +412,50 @@ const GroupDashboard = () => {
             {groupData?.createdAt ? new Date(groupData.createdAt).toLocaleDateString() : 'N/A'}
             &nbsp;·&nbsp; Status: {groupData?.status || 'Unknown'}
           </div>
+
+          {/* Release Advisor Confirmation Modal */}
+          {releaseModalOpen && (
+            <div className="modal-overlay">
+              <div className="modal-content release-modal">
+                <h2>Release Advisor</h2>
+                <p>Are you sure you want to release <strong>Dr. {groupData.advisorName}</strong> from this group?</p>
+                <p className="modal-warning">This action will clear the current assignment and allow you to request a new advisor.</p>
+                
+                <div className="form-group">
+                  <label htmlFor="releaseReason">Reason for Release (optional):</label>
+                  <textarea
+                    id="releaseReason"
+                    value={releaseReason}
+                    onChange={(e) => setReleaseReason(e.target.value)}
+                    placeholder="Provide a reason for releasing the advisor..."
+                    rows="3"
+                  />
+                </div>
+
+                {releaseError && <div className="modal-error">{releaseError}</div>}
+
+                <div className="modal-actions">
+                  <button 
+                    className="cancel-btn" 
+                    onClick={() => {
+                      setReleaseModalOpen(false);
+                      setReleaseError('');
+                    }}
+                    disabled={releaseLoading}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    className="confirm-release-btn" 
+                    onClick={handleReleaseAdvisor}
+                    disabled={releaseLoading}
+                  >
+                    {releaseLoading ? 'Releasing...' : 'Confirm Release'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

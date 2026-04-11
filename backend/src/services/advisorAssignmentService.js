@@ -2,141 +2,140 @@
  * AdvisorAssignmentService
  *
  * Business logic layer for advisor assignment operations.
- * Orchestrates write operations from processes 3.2, 3.5, 3.6, and 3.7.
- * Implements transaction-safe operations, conflict detection, and data integrity checks.
- *
- * Issue #68 - D2 Advisor Assignment Schema & Write Operations
+ * Orchestrates write operations from processes 3.2, 3.3, 3.5, 3.6, and 3.7.
+ * Implements transaction-safe operations, conflict detection, and performance optimizations.
+ * * Issue #61 & #68 Consolidation
  */
 
-const AdvisorAssignmentRepository = require('../repositories/AdvisorAssignmentRepository');
 const Group = require('../models/Group');
 const User = require('../models/User');
+const AdvisorRequest = require('../models/AdvisorRequest');
+// Repository patterns from feature/68 are preserved for complex mutations
+const AdvisorAssignmentRepository = require('../repositories/AdvisorAssignmentRepository');
+const { sendAdviseeRequestNotification } = require('./adviseeNotificationService');
+
+/**
+ * Custom error class for standardized advisor assignment exceptions
+ */
+class AdvisorAssignmentError extends Error {
+  constructor(message, status = 500) {
+    super(message);
+    this.name = 'AdvisorAssignmentError';
+    this.status = status;
+  }
+}
+
+/**
+ * SHARED VALIDATION: Parallel entity validation (Fix #2 & #6)
+ * Optimized with .lean() to reduce memory overhead.
+ */
+const validateGroupAndProfessor = async (groupId, professorId) => {
+  const [group, professor] = await Promise.all([
+    Group.findOne({ groupId }).lean(),
+    User.findOne({ userId: professorId }).lean(),
+  ]);
+
+  if (!group) {
+    throw new AdvisorAssignmentError(`Group ${groupId} not found in D2`, 404);
+  }
+
+  if (!professor) {
+    throw new AdvisorAssignmentError(`Professor ${professorId} not found in D1`, 404);
+  }
+
+  return { group, professor };
+};
 
 /**
  * ADVISOR REQUEST CREATION - Process 3.2 (f03: 3.2 → D2)
  */
-
-/**
- * Validate and create advisor request after process 3.2 validation.
- *
- * Validation checks:
- * 1. Group exists in D2
- * 2. Professor exists in User accounts
- * 3. Group doesn't have existing advisor or pending request (409 Conflict)
- *
- * @param {object} requestData - {
- *   groupId: string,
- *   professorId: string,
- *   requesterId: string,
- *   message?: string
- * }
- * @returns {Promise<object>} { success: true, group, requestId }
- * @throws {Error} with status code for validation failures
- */
 async function validateAndCreateAdvisorRequest(requestData) {
   const { groupId, professorId, requesterId, message } = requestData;
 
-  // 1. Verify group exists
-  const group = await Group.findOne({ groupId });
-  if (!group) {
-    const err = new Error(`Group ${groupId} not found`);
-    err.statusCode = 404;
-    throw err;
+  // Parallel validation check
+  const { group } = await validateGroupAndProfessor(groupId, professorId);
+
+  // Conflict Detection: Check if group has advisor or active request
+  if (group.advisorId) {
+    throw new AdvisorAssignmentError('Group already has an assigned advisor', 409);
   }
 
-  // 2. Verify professor exists
-  const professor = await User.findOne({ userId: professorId });
-  if (!professor) {
-    const err = new Error(`Professor ${professorId} not found`);
-    err.statusCode = 404;
-    throw err;
-  }
-
-  // 3. Check for existing advisor or pending request conflict
-  const hasConflict = await AdvisorAssignmentRepository.hasAdvisorConflict(groupId);
-  if (hasConflict) {
-    const err = new Error(
-      'Group already has an assigned advisor or a pending advisor request'
-    );
-    err.statusCode = 409;
-    throw err;
-  }
-
-  // 4. Create advisor request
-  const updatedGroup = await AdvisorAssignmentRepository.createAdvisorRequest(
+  // Fast-fail check for pending requests (Database index also enforces this)
+  const existingPendingRequest = await AdvisorRequest.findOne({
     groupId,
-    {
+    status: 'pending',
+  }).lean();
+
+  if (existingPendingRequest) {
+    throw new AdvisorAssignmentError('Group already has a pending advisor request', 409);
+  }
+
+  // Create advisor request record (flow f03)
+  const requestId = `ADVREQ_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+  let advisorRequest;
+
+  try {
+    advisorRequest = new AdvisorRequest({
+      requestId,
+      groupId,
       professorId,
       requesterId,
-      message,
-      notificationTriggered: false, // Will be set to true after notification dispatch
+      message: message || '',
+      status: 'pending',
+    });
+
+    await advisorRequest.save();
+  } catch (error) {
+    // Catch E11000 duplicate key error from unique partial index (Fix #5)
+    if (error.code === 11000) {
+      throw new AdvisorAssignmentError('Group already has a pending advisor request (Race condition prevented)', 409);
     }
-  );
+    throw error;
+  }
+
+  /**
+   * Process 3.3: Fire-and-forget notification (Fix #3)
+   * 201 returns immediately; notification service updates D2 in background.
+   */
+  sendAdviseeRequestNotification(
+    { requestId, groupId, professorId, requesterId, message: message || '' },
+    requesterId
+  ).catch((error) => {
+    console.error('Notification dispatch failed in background', error);
+  });
 
   return {
     success: true,
-    group: updatedGroup,
-    requestId: updatedGroup.advisorRequest.requestId,
+    requestId: advisorRequest.requestId,
+    groupId: advisorRequest.groupId,
+    professorId: advisorRequest.professorId,
+    status: advisorRequest.status,
+    notificationTriggered: false // Will be updated by background task
   };
 }
 
 /**
  * ADVISOR ASSIGNMENT - Process 3.5 (f08: 3.5 → D2 — assign path)
  */
-
-/**
- * Approve advisor request and assign advisor to group.
- * Called after process 3.4 (advisor decision) approves the request.
- *
- * @param {string} groupId - Group identifier
- * @param {string} requestId - Advisor request identifier
- * @param {object} options - { professorId }
- * @returns {Promise<object>} { success: true, group, assignment }
- * @throws {Error} with status code for validation failures
- */
 async function approveAndAssignAdvisor(groupId, requestId, options = {}) {
   const { professorId } = options;
 
-  // Verify group exists and has pending request
-  const group = await Group.findOne({ groupId });
-  if (!group) {
-    const err = new Error(`Group ${groupId} not found`);
-    err.statusCode = 404;
-    throw err;
-  }
+  const { group } = await validateGroupAndProfessor(groupId, professorId);
 
   if (!group.advisorRequest?.requestId || group.advisorRequest.requestId !== requestId) {
-    const err = new Error('No matching advisor request found for this group');
-    err.statusCode = 404;
-    throw err;
+    throw new AdvisorAssignmentError('No matching advisor request found for this group', 404);
   }
 
   if (group.advisorRequest.status !== 'pending') {
-    const err = new Error(
-      `Advisor request has already been processed: ${group.advisorRequest.status}`
-    );
-    err.statusCode = 409;
-    throw err;
+    throw new AdvisorAssignmentError(`Advisor request has already been processed: ${group.advisorRequest.status}`, 409);
   }
 
-  // Verify professor exists
-  const professor = await User.findOne({ userId: professorId });
-  if (!professor) {
-    const err = new Error(`Professor ${professorId} not found`);
-    err.statusCode = 404;
-    throw err;
-  }
-
-  // Assign advisor and clear request
+  // Assign advisor via repository to handle transaction-safe logic
   const updatedGroup = await AdvisorAssignmentRepository.assignAdvisor(
     groupId,
     professorId,
     { requestId }
   );
-
-  // Update request status to approved
-  updatedGroup.advisorRequest.status = 'approved';
-  await updatedGroup.save();
 
   return {
     success: true,
@@ -153,34 +152,16 @@ async function approveAndAssignAdvisor(groupId, requestId, options = {}) {
 /**
  * ADVISOR RELEASE - Process 3.5 (f08: 3.5 → D2 — release path)
  */
-
-/**
- * Release advisor from group.
- * Allows Team Leader or Coordinator to remove advisor and make new request.
- *
- * @param {string} groupId - Group identifier
- * @param {object} options - { requesterId, reason? }
- * @returns {Promise<object>} { success: true, group }
- * @throws {Error} with status code for validation failures
- */
 async function releaseAdvisor(groupId, options = {}) {
   const { reason } = options;
 
-  // Verify group exists and has assigned advisor
-  const group = await Group.findOne({ groupId });
-  if (!group) {
-    const err = new Error(`Group ${groupId} not found`);
-    err.statusCode = 404;
-    throw err;
-  }
+  const group = await Group.findOne({ groupId }).lean();
+  if (!group) throw new AdvisorAssignmentError(`Group ${groupId} not found`, 404);
 
   if (!group.advisorId || group.advisorStatus !== 'assigned') {
-    const err = new Error('Group does not have an assigned advisor');
-    err.statusCode = 409;
-    throw err;
+    throw new AdvisorAssignmentError('Group does not have an assigned advisor', 409);
   }
 
-  // Release advisor
   const updatedGroup = await AdvisorAssignmentRepository.releaseAdvisor(groupId);
 
   return {
@@ -188,7 +169,6 @@ async function releaseAdvisor(groupId, options = {}) {
     group: updatedGroup,
     release: {
       groupId: updatedGroup.groupId,
-      advisorId: null,
       advisorStatus: updatedGroup.advisorStatus,
       releasedAt: updatedGroup.advisorUpdatedAt,
       reason,
@@ -199,62 +179,27 @@ async function releaseAdvisor(groupId, options = {}) {
 /**
  * ADVISOR TRANSFER - Process 3.5 (f08: 3.5 → D2 — transfer path)
  */
-
-/**
- * Transfer advisor to new professor.
- * Called by process 3.5 after coordinator (3.6) requests transfer.
- *
- * @param {string} groupId - Group identifier
- * @param {string} newProfessorId - New professor to assign
- * @param {object} options - { coordinatorId?, reason? }
- * @returns {Promise<object>} { success: true, group, transfer }
- * @throws {Error} with status code for validation failures
- */
 async function transferAdvisor(groupId, newProfessorId, options = {}) {
   const { reason } = options;
 
-  // Verify group exists and has assigned advisor
-  const group = await Group.findOne({ groupId });
-  if (!group) {
-    const err = new Error(`Group ${groupId} not found`);
-    err.statusCode = 404;
-    throw err;
-  }
+  const { group } = await validateGroupAndProfessor(groupId, newProfessorId);
 
   if (!group.advisorId || group.advisorStatus !== 'assigned') {
-    const err = new Error('Group does not have an assigned advisor to transfer');
-    err.statusCode = 409;
-    throw err;
+    throw new AdvisorAssignmentError('Group does not have an assigned advisor to transfer', 409);
   }
 
-  // Verify new professor exists
-  const newProfessor = await User.findOne({ userId: newProfessorId });
-  if (!newProfessor) {
-    const err = new Error(`New professor ${newProfessorId} not found`);
-    err.statusCode = 404;
-    throw err;
-  }
-
-  // Check for conflicts with new professor
+  // Conflict check for the new professor
   const conflict = await Group.findOne({
     advisorId: newProfessorId,
     advisorStatus: 'assigned',
-    groupId: { $ne: groupId }, // Exclude current group
-  });
+    groupId: { $ne: groupId },
+  }).lean();
 
   if (conflict) {
-    const err = new Error(
-      `Target professor ${newProfessorId} already has conflicting assignment with group ${conflict.groupId}`
-    );
-    err.statusCode = 409;
-    throw err;
+    throw new AdvisorAssignmentError(`Target professor ${newProfessorId} already assigned to group ${conflict.groupId}`, 409);
   }
 
-  // Transfer advisor
-  const updatedGroup = await AdvisorAssignmentRepository.transferAdvisor(
-    groupId,
-    newProfessorId
-  );
+  const updatedGroup = await AdvisorAssignmentRepository.transferAdvisor(groupId, newProfessorId);
 
   return {
     success: true,
@@ -273,29 +218,18 @@ async function transferAdvisor(groupId, newProfessorId, options = {}) {
 /**
  * GROUP DISBAND - Process 3.7 (f13: 3.7 → D2)
  */
-
-/**
- * Disband groups without assigned advisor.
- * Called by sanitization process 3.7 after deadline.
- *
- * @param {Array<string>} groupIds - Optional list of specific group IDs to disband
- * @returns {Promise<object>} { success: true, disbandedGroups: [], disbandedCount }
- * @throws {Error} with status code for validation failures
- */
 async function disbandUnassignedGroups(groupIds = null) {
   let targetGroups;
 
   if (groupIds && groupIds.length > 0) {
-    // Disband specific groups
     targetGroups = await Group.find({
       groupId: { $in: groupIds },
       $or: [
         { advisorId: null },
         { advisorStatus: { $in: [null, 'pending', 'released'] } },
       ],
-    });
+    }).lean();
   } else {
-    // Disband all groups without advisor
     targetGroups = await AdvisorAssignmentRepository.getGroupsWithoutAdvisor();
   }
 
@@ -303,9 +237,7 @@ async function disbandUnassignedGroups(groupIds = null) {
 
   for (const group of targetGroups) {
     try {
-      const updatedGroup = await AdvisorAssignmentRepository.disbandGroup(
-        group.groupId
-      );
+      const updatedGroup = await AdvisorAssignmentRepository.disbandGroup(group.groupId);
       disbandedGroups.push({
         groupId: updatedGroup.groupId,
         groupName: updatedGroup.groupName,
@@ -326,15 +258,7 @@ async function disbandUnassignedGroups(groupIds = null) {
 }
 
 /**
- * NOTIFICATION INTEGRATION - Process 3.3 & 3.7
- */
-
-/**
- * Mark notification as triggered for advisor request.
- * Called after successful notification dispatch (Issue #69).
- *
- * @param {string} groupId - Group identifier
- * @returns {Promise<object>} Updated group document
+ * NOTIFICATION INTEGRATION - Mark triggered after Process 3.3 succeeds
  */
 async function markAdvisorNotificationTriggered(groupId) {
   return AdvisorAssignmentRepository.markNotificationTriggered(groupId);
@@ -343,54 +267,28 @@ async function markAdvisorNotificationTriggered(groupId) {
 /**
  * QUERY OPERATIONS
  */
-
-/**
- * Get advisor assignment status for a group (read-after-write consistency).
- *
- * @param {string} groupId - Group identifier
- * @returns {Promise<object|null>} { advisorId, advisorStatus, advisorUpdatedAt }
- */
 async function getAdvisorAssignmentStatus(groupId) {
   return AdvisorAssignmentRepository.getAdvisorAssignment(groupId);
 }
 
-/**
- * Get all groups assigned to a specific advisor.
- *
- * @param {string} professorId - Professor identifier
- * @returns {Promise<Array>} Array of assigned groups
- */
 async function getAdvisorAssignments(professorId) {
   return AdvisorAssignmentRepository.getGroupsByAdvisor(professorId);
 }
 
-/**
- * Get advisor request details for a group.
- *
- * @param {string} groupId - Group identifier
- * @returns {Promise<object|null>} Advisor request object
- */
 async function getAdvisorRequestDetails(groupId) {
   return AdvisorAssignmentRepository.getAdvisorRequest(groupId);
 }
 
 module.exports = {
-  // Advisor request creation (Process 3.2)
   validateAndCreateAdvisorRequest,
-
-  // Advisor assignment (Process 3.5)
   approveAndAssignAdvisor,
   releaseAdvisor,
   transferAdvisor,
-
-  // Group disband (Process 3.7)
   disbandUnassignedGroups,
-
-  // Notification integration
   markAdvisorNotificationTriggered,
-
-  // Query operations
   getAdvisorAssignmentStatus,
   getAdvisorAssignments,
   getAdvisorRequestDetails,
+  validateGroupAndProfessor,
+  AdvisorAssignmentError
 };

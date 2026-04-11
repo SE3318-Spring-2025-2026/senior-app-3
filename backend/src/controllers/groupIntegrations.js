@@ -472,7 +472,15 @@ const configureJira = async (req, res) => {
 /**
  * GET /groups/:groupId/jira
  *
- * Returns the stored JIRA config for the group (token excluded).
+ * Returns the stored JIRA integration state for the group (token excluded).
+ *
+ * DFD flow: f25 (2.7 → Student) — confirmation status check
+ *
+ * Response:
+ *   connected    — true when project binding is complete
+ *   project_key  — JIRA project key (only if connected)
+ *   board_url    — JIRA board URL (only if connected)
+ *   last_sync_error — most recent sync failure, if any
  */
 const getJira = async (req, res) => {
   try {
@@ -483,19 +491,16 @@ const getJira = async (req, res) => {
       return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
     }
 
+    const isConnected = !!(group.jiraUrl && group.projectKey && group.jiraBoardUrl);
+
     const lastSyncError = await SyncErrorLog.findOne(
       { groupId, service: 'jira' },
       null,
       { sort: { createdAt: -1, _id: -1 } }
     );
 
-    return res.status(200).json({
-      group_id: groupId,
-      jira_url: group.jiraUrl,
-      jira_project: group.jiraProject,
-      jira_project_key: group.projectKey,
-      jira_board_url: group.jiraBoardUrl,
-      validated: !!group.jiraUrl,
+    const response = {
+      connected: isConnected,
       last_sync_error: lastSyncError
         ? {
             error_id: lastSyncError.errorId,
@@ -504,7 +509,14 @@ const getJira = async (req, res) => {
             timestamp: lastSyncError.createdAt,
           }
         : null,
-    });
+    };
+
+    if (isConnected) {
+      response.project_key = group.projectKey;
+      response.board_url = group.jiraBoardUrl;
+    }
+
+    return res.status(200).json(response);
   } catch (err) {
     console.error('getJira error:', err);
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
