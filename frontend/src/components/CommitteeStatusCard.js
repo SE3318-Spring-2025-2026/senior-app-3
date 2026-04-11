@@ -20,22 +20,14 @@ const CommitteeStatusCard = ({ committeeStatus, user }) => {
         </span>
       </div>
       <div className="card-content">
-        {!committeeStatus?.committeeId && (
+        {(!committeeStatus?.committeeId || !isPublished) && (
           <div className="empty-state">
             <p>Committee not yet published.</p>
             <p>When published, the committee name, advisors, and jury members will appear here.</p>
           </div>
         )}
 
-        {committee && !isPublished && (
-          <div className="committee-preview">
-            <p className="info-label">Committee draft:</p>
-            <p className="info-value">{committee.committeeName}</p>
-            <p className="card-hint">This committee has not yet reached published status.</p>
-          </div>
-        )}
-
-        {committee && (
+        {isPublished && committee && (
           <div className="committee-details">
             <div className="info-row">
               <span className="info-label">Name</span>

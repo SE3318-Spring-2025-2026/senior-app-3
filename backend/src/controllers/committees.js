@@ -1,5 +1,6 @@
 const Committee = require('../models/Committee');
 const Group = require('../models/Group');
+const GroupMembership = require('../models/GroupMembership');
 
 const formatCommitteeResponse = (committee) => ({
   committeeId: committee.committeeId,
@@ -23,6 +24,22 @@ const getGroupCommitteeStatus = async (req, res) => {
         code: 'GROUP_NOT_FOUND',
         message: 'Group not found',
       });
+    }
+
+    // Verify membership: user must be group member (approved status) or coordinator/admin
+    const isCoordinator = ['coordinator', 'admin'].includes(req.user.role);
+    if (!isCoordinator) {
+      const membership = await GroupMembership.findOne({
+        groupId,
+        studentId: req.user.userId,
+        status: 'approved',
+      });
+      if (!membership) {
+        return res.status(403).json({
+          code: 'FORBIDDEN',
+          message: 'You do not have permission to view this group\'s committee status',
+        });
+      }
     }
 
     if (!group.committeeId) {
@@ -59,7 +76,12 @@ const getGroupCommitteeStatus = async (req, res) => {
 const getAssignedJuryCommittees = async (req, res) => {
   try {
     const userId = req.user.userId;
-    const committees = await Committee.find({ juryIds: userId }).sort({ createdAt: -1 });
+    const isCoordinator = ['coordinator', 'admin'].includes(req.user.role);
+    const query = { juryIds: userId };
+    if (!isCoordinator) {
+      query.status = 'published';
+    }
+    const committees = await Committee.find(query).sort({ createdAt: -1 });
 
     return res.status(200).json({
       committees: committees.map(formatCommitteeResponse),
