@@ -176,6 +176,55 @@ const systemTokenMiddleware = (req, res, next) => {
 };
 
 /**
+ * Issue #67: Combined auth for advisor sanitization (M2M + coordinator/admin JWT).
+ * Order matters: valid X-Service-Auth is accepted WITHOUT a Bearer token so cron/M2M
+ * is not blocked by authMiddleware.
+ *
+ * Allows: (1) SYSTEM_SERVICE_TOKEN via X-Service-Auth, or (2) valid JWT with coordinator/admin.
+ */
+const flexibleSystemOrRoleAuth = (req, res, next) => {
+  const expectedToken = process.env.SYSTEM_SERVICE_TOKEN || 'system';
+  const serviceAuth = req.headers['x-service-auth'];
+
+  if (serviceAuth === expectedToken) {
+    req.isSystemCall = true;
+    req.user = {
+      userId: 'system',
+      role: 'system',
+      isServiceAccount: true,
+    };
+    return next();
+  }
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      code: 'UNAUTHORIZED',
+      message: 'Missing or invalid authorization header',
+    });
+  }
+
+  const token = authHeader.substring(7);
+  try {
+    const decoded = verifyAccessToken(token);
+    if (decoded.role !== 'coordinator' && decoded.role !== 'admin') {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'You do not have permission to access this resource',
+      });
+    }
+    req.user = decoded;
+    req.isSystemCall = false;
+    return next();
+  } catch (tokenError) {
+    return res.status(401).json({
+      code: 'INVALID_TOKEN',
+      message: 'Invalid or expired token',
+    });
+  }
+};
+
+/**
  * Global error handler for 401/403 responses
  * Can be used by frontend as middleware to intercept errors
  */
@@ -195,5 +244,6 @@ module.exports = {
   roleMiddleware,
   ownerOrAdminMiddleware,
   systemTokenMiddleware,
+  flexibleSystemOrRoleAuth,
   errorHandler,
 };

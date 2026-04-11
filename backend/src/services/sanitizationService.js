@@ -14,9 +14,9 @@
  *         Prevents coordinator manipulation of deadline
  * 
  * Fix #3: disbandGroupBatch() - PERFORMANCE & CORRECTNESS FIXES
- *         - Uses Mongoose bulkWrite() for single DB round-trip (no N+1 pattern)
+ *         - Uses Mongoose bulkWrite() only (no per-group update fallback)
+ *         - Retries bulkWrite up to 2 times on failure (3 attempts total)
  *         - Changes status from 'inactive' to 'disbanded' (spec compliance)
- *         - Includes fallback mechanism if bulkWrite fails
  * 
  * FLOW DIAGRAM:
  * ─────────────
@@ -30,7 +30,6 @@
 const Group = require('../models/Group');
 const ScheduleWindow = require('../models/ScheduleWindow');
 const { createAuditLog } = require('../utils/auditLogger');
-const SyncErrorLog = require('../models/SyncErrorLog');
 
 /**
  * Custom error class for sanitization service operations.
@@ -185,23 +184,30 @@ const fetchUnassignedGroups = async (optionalGroupIds) => {
  * @param {object} options - Additional options
  * @returns {Promise<{disbanded_count: number, failed_count: number, disbanded_ids: string[], errors: object[]}>}
  */
+const BULK_WRITE_MAX_ATTEMPTS = 3; // initial + 2 retries
+
 const disbandGroupBatch = async (groups, coordinatorId, options = {}) => {
-  const disbanded = [];
-  const failed = [];
   const errors = [];
 
-  // Issue #67 Fix #3a: Prepare bulkWrite operations (no immediate DB calls)
-  // Collect all update operations into a single batch
+  if (!groups.length) {
+    return {
+      disbanded_count: 0,
+      failed_count: 0,
+      disbanded_ids: [],
+      errors: [],
+    };
+  }
+
   const ops = groups.map((group) => ({
     updateOne: {
       filter: {
         groupId: group.groupId,
         status: 'active',
-        advisorId: null, // Only disband groups without advisor
+        advisorId: null,
       },
       update: {
         $set: {
-          status: 'disbanded', // Issue #67 Fix #3b: Correct status (was 'inactive')
+          status: 'disbanded',
           advisorId: null,
           advisorStatus: null,
           sanitizedAt: new Date(),
@@ -211,138 +217,75 @@ const disbandGroupBatch = async (groups, coordinatorId, options = {}) => {
     },
   }));
 
-  // Issue #67 Fix #3a: Execute bulkWrite - single DB round-trip
-  // ordered: false allows partial success (some groups fail, others succeed)
-  try {
-    const bulkWriteResult = await Group.bulkWrite(ops, { ordered: false });
-
-    // Process results
-    for (let i = 0; i < groups.length; i++) {
-      const group = groups[i];
-      const matched = bulkWriteResult.matchedCount > 0;
-      const modified = bulkWriteResult.modifiedCount > 0;
-
-      if (matched && modified) {
-        disbanded.push(group.groupId);
-
-        // Create audit log for successful disband
-        try {
-          await createAuditLog({
-            action: 'group_sanitized',
-            actorId: coordinatorId,
-            targetId: group.groupId,
-            groupId: group.groupId,
-            payload: {
-              previous_status: 'active',
-              new_status: 'disbanded', // Issue #67 Fix #3b: Correct status in audit
-              reason: 'advisor_association_deadline_missed',
-              previous_advisor_id: group.advisorId,
-            },
-            ipAddress: options.ipAddress || 'system',
-            userAgent: options.userAgent || 'advisor-sanitization-job',
-          });
-        } catch (auditErr) {
-          console.error(
-            `Failed to create audit log for group ${group.groupId}:`,
-            auditErr.message
-          );
-          // Non-fatal: continue processing
-        }
-      } else {
-        // Group not found or already doesn't have advisor
-        failed.push(group.groupId);
-        errors.push({
-          groupId: group.groupId,
-          error: 'Group not found or does not match filter criteria',
-        });
-      }
-    }
-  } catch (bulkErr) {
-    // bulkWrite failed - attempt individual updates as fallback
-    console.error('[Sanitization] bulkWrite failed, attempting individual updates:', bulkErr.message);
-
-    for (const group of groups) {
-      try {
-        const updatedGroup = await Group.findOneAndUpdate(
-          {
-            groupId: group.groupId,
-            status: 'active',
-            advisorId: null,
-          },
-          {
-            $set: {
-              status: 'disbanded', // Issue #67 Fix #3b: Correct status
-              advisorId: null,
-              advisorStatus: null,
-              sanitizedAt: new Date(),
-              updatedAt: new Date(),
-            },
-          },
-          { new: true }
+  for (let attempt = 0; attempt < BULK_WRITE_MAX_ATTEMPTS; attempt++) {
+    try {
+      await Group.bulkWrite(ops, { ordered: false });
+      break;
+    } catch (bulkErr) {
+      console.error(
+        `[Sanitization] bulkWrite attempt ${attempt + 1}/${BULK_WRITE_MAX_ATTEMPTS} failed:`,
+        bulkErr.message
+      );
+      if (attempt === BULK_WRITE_MAX_ATTEMPTS - 1) {
+        throw new SanitizationServiceError(
+          500,
+          'BULK_WRITE_FAILED',
+          `Bulk disband failed after ${BULK_WRITE_MAX_ATTEMPTS} attempts: ${bulkErr.message}`
         );
-
-        if (!updatedGroup) {
-          throw new Error('Group not found or does not match filter criteria');
-        }
-
-        disbanded.push(group.groupId);
-
-        // Create audit log
-        try {
-          await createAuditLog({
-            action: 'group_sanitized',
-            actorId: coordinatorId,
-            targetId: group.groupId,
-            groupId: group.groupId,
-            payload: {
-              previous_status: 'active',
-              new_status: 'disbanded', // Issue #67 Fix #3b: Correct status
-              reason: 'advisor_association_deadline_missed',
-              previous_advisor_id: group.advisorId,
-            },
-            ipAddress: options.ipAddress || 'system',
-            userAgent: options.userAgent || 'advisor-sanitization-job',
-          });
-        } catch (auditErr) {
-          console.error(
-            `Failed to create audit log for group ${group.groupId}:`,
-            auditErr.message
-          );
-        }
-      } catch (err) {
-        failed.push(group.groupId);
-        errors.push({
-          groupId: group.groupId,
-          error: err.message,
-        });
-
-        // Log sync error for tracking
-        try {
-          await SyncErrorLog.create({
-            errorType: 'advisor_sanitization_failed',
-            targetId: group.groupId,
-            groupId: group.groupId,
-            message: err.message,
-            timestamp: new Date(),
-            details: {
-              operation: 'disband_group',
-              reason: 'advisor_association_deadline_missed',
-            },
-          });
-        } catch (logErr) {
-          console.error(
-            `Failed to log sync error for group ${group.groupId}:`,
-            logErr.message
-          );
-        }
       }
     }
   }
 
+  const groupIds = groups.map((g) => g.groupId);
+  const disbandedRows = await Group.find({
+    groupId: { $in: groupIds },
+    status: 'disbanded',
+  })
+    .select('groupId')
+    .lean();
+
+  const disbandedSet = new Set(disbandedRows.map((r) => r.groupId));
+  const disbanded_ids = groupIds.filter((id) => disbandedSet.has(id));
+  const failed = groupIds.filter((id) => !disbandedSet.has(id));
+
+  for (const gid of failed) {
+    errors.push({
+      groupId: gid,
+      error: 'Group not found or does not match filter criteria',
+    });
+  }
+
+  const groupById = new Map(groups.map((g) => [g.groupId, g]));
+  for (const gid of disbanded_ids) {
+    const group = groupById.get(gid);
+    if (!group) continue;
+    try {
+      await createAuditLog({
+        action: 'group_sanitized',
+        actorId: coordinatorId,
+        targetId: group.groupId,
+        groupId: group.groupId,
+        payload: {
+          previous_status: 'active',
+          new_status: 'disbanded',
+          reason: 'advisor_association_deadline_missed',
+          previous_advisor_id: group.advisorId,
+        },
+        ipAddress: options.ipAddress || 'system',
+        userAgent: options.userAgent || 'advisor-sanitization-job',
+      });
+    } catch (auditErr) {
+      console.error(
+        `Failed to create audit log for group ${group.groupId}:`,
+        auditErr.message
+      );
+    }
+  }
+
   return {
-    disbanded_count: disbanded.length,
+    disbanded_count: disbanded_ids.length,
     failed_count: failed.length,
-    disbanded_ids: disbanded,
+    disbanded_ids,
     errors,
   };
 };

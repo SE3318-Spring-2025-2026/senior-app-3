@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { authMiddleware, roleMiddleware, systemTokenMiddleware } = require('../middleware/auth');
+const { authMiddleware, roleMiddleware, flexibleSystemOrRoleAuth } = require('../middleware/auth');
 const { checkScheduleWindow } = require('../middleware/scheduleWindow');
 const { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride } = require('../controllers/groups');
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
@@ -122,16 +122,8 @@ router.patch(
  * 
  * MIDDLEWARE STACK (EXECUTION ORDER):
  * ───────────────────────────────────
- * 1. authMiddleware - Verifies request is from authenticated user/system
- *                    Sets req.user from JWT token
- * 
- * 2. systemTokenMiddleware - Issue #67 Fix #4
- *                           Accepts BOTH:
- *                           - User auth: req.user with coordinator/admin role
- *                           - System auth: X-Service-Auth header with service token
- *                           Creates synthetic req.user if service token matches
- * 
- * 3. advisorSanitization - Main controller logic
+ * 1. flexibleSystemOrRoleAuth — M2M first (X-Service-Auth), else coordinator/admin JWT
+ * 2. advisorSanitization — Main controller logic
  * 
  * AUTHORIZATION:
  * ──────────────
@@ -160,7 +152,7 @@ router.patch(
  *         Changes status from 'inactive' to 'disbanded' (spec compliant)
  *         Eliminates N+1 database write pattern
  * 
- * Fix #4: AUTHORIZATION - Accepts system service token (this middleware)
+ * Fix #4: AUTHORIZATION - flexibleSystemOrRoleAuth (service token without JWT, or coordinator/admin JWT)
  *         Enables schedulers/cron jobs to trigger sanitization
  * 
  * Fix #5: INPUT VALIDATION - Validates groupIds parameter
@@ -199,14 +191,7 @@ router.patch(
  *   -H "Content-Type: application/json" \
  *   -d '{}'
  */
-// Issue #67 Fix #4: Route accepts both user and system authentication
-// authMiddleware: Standard JWT authentication
-// systemTokenMiddleware: Issue #67 Fix #4 - Also accepts system service token
-router.post(
-  '/advisor-sanitization',
-  authMiddleware, // Standard user authentication (JWT token)
-  systemTokenMiddleware, // Issue #67 Fix #4: Supports both user and system authentication
-  advisorSanitization
-);
+// Issue #67: Service token (X-Service-Auth) does not require Bearer JWT
+router.post('/advisor-sanitization', flexibleSystemOrRoleAuth, advisorSanitization);
 
 module.exports = router;
