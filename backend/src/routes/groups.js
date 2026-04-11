@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { authMiddleware, roleMiddleware } = require('../middleware/auth');
+const { authMiddleware, roleMiddleware, flexibleSystemOrRoleAuth } = require('../middleware/auth');
 const { checkScheduleWindow } = require('../middleware/scheduleWindow');
 const {
   forwardApprovalResults,
@@ -17,6 +17,7 @@ const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPe
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
 const { advisorApproveRequest, releaseAdvisorHandler, transferAdvisorHandler } = require('../controllers/advisorDecision');
+const { advisorSanitization } = require('../controllers/sanitizationController');
 const advisorRequestController = require('../controllers/advisorRequestController');
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
@@ -142,5 +143,31 @@ router.patch(
   checkScheduleWindow('advisor_association'),
   advisorApproveRequest
 );
+
+/**
+ * ========================================
+ * POST /api/v1/groups/advisor-sanitization
+ * Issue #67: Disband Unassigned Groups After Advisor Association Deadline
+ * ========================================
+ * * Process 3.7 of Level 2.3 (Advisor Association) Flow
+ * * PURPOSE:
+ * ────────
+ * After the coordinator-defined advisor association deadline passes,
+ * automatically disband all groups that failed to secure an advisor.
+ * Clears their advisor-related fields and notifies group members.
+ * * MIDDLEWARE STACK (EXECUTION ORDER):
+ * ───────────────────────────────────
+ * 1. flexibleSystemOrRoleAuth — M2M first (X-Service-Auth), else coordinator/admin JWT
+ * 2. advisorSanitization — Main controller logic
+ * * AUTHORIZATION:
+ * ──────────────
+ * Allowed callers:
+ * ✅ Coordinator user (JWT + role:coordinator)
+ * ✅ Admin user (JWT + role:admin)
+ * ✅ System service account (X-Service-Auth header with SYSTEM_SERVICE_TOKEN)
+ * ✅ Cron job / Scheduler (if configured with service token)
+ */
+// Issue #67: Service token (X-Service-Auth) does not require Bearer JWT
+router.post('/advisor-sanitization', flexibleSystemOrRoleAuth, advisorSanitization);
 
 module.exports = router;

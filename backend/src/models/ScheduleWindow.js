@@ -10,7 +10,8 @@ const { v4: uuidv4 } = require('uuid');
  * - 'advisor_association': window for advisor association (Process 3.0)
  *
  * Only one active window per operationType may cover a given point in time.
- * Boundary checks reject requests outside an active window for their respective operationType.
+ * Boundary checks in createGroup (2.1), addMember (2.3), and advisor endpoints reject requests
+ * outside an active window for their respective operationType.
  */
 const scheduleWindowSchema = new mongoose.Schema(
   {

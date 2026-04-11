@@ -76,7 +76,8 @@ const groupSchema = new mongoose.Schema(
     },
     advisorStatus: {
       type: String,
-      enum: ['assigned', 'released', 'transferred', null],
+      // feature/67 'pending' değerini eklerken, main null desteğini sağlıyor
+      enum: ['pending', 'assigned', 'released', 'transferred', null],
       default: null,
     },
     advisorUpdatedAt: {
@@ -175,6 +176,9 @@ groupSchema.index({ 'advisorRequest.professorId': 1 });
 groupSchema.index({ 'advisorRequest.status': 1 });
 groupSchema.index({ advisorId: 1 });
 groupSchema.index({ advisorStatus: 1 });
+
+// feature/67: Boşta kalan grupları hızlıca taramak için yeni kompozit indeks
+groupSchema.index({ status: 1, advisorId: 1 });
 
 const Group = mongoose.model('Group', groupSchema);
 
