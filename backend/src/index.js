@@ -6,6 +6,7 @@ const authRoutes = require('./routes/auth');
 const onboardingRoutes = require('./routes/onboarding');
 const groupRoutes = require('./routes/groups');
 const committeeRoutes = require('./routes/committees');
+const advisorRequestRoutes = require('./routes/advisorRequests');
 const scheduleWindowRoutes = require('./routes/scheduleWindow');
 const auditLogRoutes = require('./routes/auditLogs');
 const { errorHandler } = require('./middleware/auth');
@@ -55,6 +56,7 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/onboarding', onboardingRoutes);
 app.use('/api/v1/groups', groupRoutes);
 app.use('/api/v1/committees', committeeRoutes);
+app.use('/api/v1/advisor-requests', advisorRequestRoutes);
 app.use('/api/v1/schedule-window', scheduleWindowRoutes);
 app.use('/api/v1/audit-logs', auditLogRoutes);
 

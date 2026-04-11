@@ -15,6 +15,7 @@ import GitHubCallbackHandler from './components/GitHubCallbackHandler';
 import GroupDashboard from './components/GroupDashboard';
 import GroupCreationPage from './components/GroupCreationPage';
 import CoordinatorPanel from './components/CoordinatorPanel';
+import ProfessorInbox from './components/ProfessorInbox';
 import Dashboard from './components/Dashboard';
 import Sidebar from './components/layout/Sidebar';
 import './App.css';
@@ -57,10 +58,14 @@ function App() {
             <Route path="/auth/github/callback" element={<GitHubCallbackHandler />} />
             <Route path="/onboarding" element={<OnboardingStepper />} />
 
-            {/* Professor first-login: dedicated route, protected */}
+            {/* Professor Routes */}
             <Route
               path="/professor/setup"
               element={<ProtectedRoute component={ProfessorOnboardModal} />}
+            />
+            <Route
+              path="/professor/inbox"
+              element={<ProtectedRoute component={ProfessorInbox} requiredRoles={['professor', 'advisor']} />}
             />
 
             {/* Admin Routes */}
