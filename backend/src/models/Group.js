@@ -133,7 +133,7 @@ groupSchema.index({ groupId: 1 }, { unique: true });
 
 /**
  * FIX #3 ADDITION: Enforce global uniqueness on advisor request ID.
- * Sparse index allows groups without an active request to exist.
+ * Sparse index allows groups without an active advisor request to exist.
  */
 groupSchema.index({ 'advisorRequest.requestId': 1 }, { unique: true, sparse: true });
 
