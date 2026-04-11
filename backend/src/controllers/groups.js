@@ -10,6 +10,7 @@ const { forwardToMemberRequestPipeline, forwardOverrideToReconciliation } = requ
 const { dispatchGroupCreationNotification, dispatchAdvisorRequestNotification } = require('../services/notificationService');
 const { INACTIVE_GROUP_STATUSES, VALID_STATUS_TRANSITIONS } = require('../utils/groupStatusEnum');
 const SyncErrorLog = require('../models/SyncErrorLog');
+const AdvisorRequest = require('../models/AdvisorRequest');
 
 const VALID_DECISIONS = new Set(['approved', 'rejected']);
 
@@ -456,6 +457,7 @@ const formatGroupResponse = (group, extras = {}) => ({
   groupName: group.groupName,
   leaderId: group.leaderId,
   advisorId: group.advisorId,
+  advisorStatus: group.advisorStatus || null,
   advisorName: extras.advisorName ?? null,
   advisorRequest: extras.advisorRequest ?? null,
   status: group.status,

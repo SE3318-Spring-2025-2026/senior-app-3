@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { v4: uuidv4 } = require('uuid');
 
 /**
  * Audit/history of advisor assignments for a group.
@@ -10,6 +11,7 @@ const advisorAssignmentSchema = new mongoose.Schema(
   {
     assignmentId: {
       type: String,
+      default: () => `asn_${uuidv4().split('-')[0]}`,
       unique: true,
       required: true,
     },
@@ -52,7 +54,8 @@ const advisorAssignmentSchema = new mongoose.Schema(
     // Reason for the change (release, transfer, etc.)
     releaseReason: {
       type: String,
-      default: '', // Using empty string default from main for string type consistency
+      default: '', 
+      maxlength: 1000, // feature/65 dalından gelen karakter sınırı
     },
     // For transfer tracking: previous advisor userId
     previousAdvisorId: {

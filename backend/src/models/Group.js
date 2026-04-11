@@ -76,7 +76,7 @@ const groupSchema = new mongoose.Schema(
     },
     advisorStatus: {
       type: String,
-      enum: ['assigned', 'released', 'transferred'],
+      enum: ['assigned', 'released', 'transferred', null],
       default: null,
     },
     advisorUpdatedAt: {

@@ -2,20 +2,27 @@ const express = require('express');
 const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const { checkScheduleWindow } = require('../middleware/scheduleWindow');
-const { createAdvisorRequest } = require('../controllers/groups');
+
+// Controllers
+const advisorRequestController = require('../controllers/advisorRequestController');
 const { listProfessorPendingRequests, decideAdvisorRequest } = require('../controllers/advisorRequests');
 
 /**
- * POST /api/v1/advisor-requests — Process 3.2 (Issue #61)
+ * POST /api/v1/advisor-requests
+ * Submit a new advisor request (Process 3.1)
  */
 router.post(
   '/',
   authMiddleware,
   roleMiddleware(['student']),
   checkScheduleWindow('advisor_association'),
-  createAdvisorRequest
+  advisorRequestController.createRequest
 );
 
+/**
+ * GET /api/v1/advisor-requests/mine
+ * List professor's pending requests
+ */
 router.get(
   '/mine',
   authMiddleware,
@@ -23,6 +30,10 @@ router.get(
   listProfessorPendingRequests
 );
 
+/**
+ * PATCH /api/v1/advisor-requests/:requestId
+ * Professor decides on an advisor request
+ */
 router.patch(
   '/:requestId',
   authMiddleware,

@@ -31,11 +31,12 @@ export const checkAdvisorWindow = async () => {
 };
 
 /**
- * Team Leader: release the currently assigned advisor (backend uses a transaction)
+ * Release the currently assigned advisor from the group (Process 3.5)
+ * Team Leader or Coordinator: releases the currently assigned advisor (backend uses a transaction)
  */
-export const releaseAdvisor = async (groupId, reason = '') => {
-  const response = await apiClient.post(`/groups/${groupId}/release-advisor`, {
-    reason,
+export const releaseAdvisor = async (groupId, professorId, reason = '') => {
+  const response = await apiClient.delete(`/groups/${groupId}/advisor`, {
+    data: { professorId, reason }
   });
   return response.data;
 };

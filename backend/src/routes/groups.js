@@ -24,6 +24,15 @@ router.post('/:groupId/release-advisor', authMiddleware, advisorRequestControlle
 // GET /api/v1/groups/:groupId — Process 2.2: retrieve validated group record from D2
 router.get('/:groupId', authMiddleware, getGroup);
 
+// DELETE /api/v1/groups/:groupId/advisor — Process 3.5: release current advisor
+router.delete(
+  '/:groupId/advisor', 
+  authMiddleware, 
+  roleMiddleware(['student', 'coordinator', 'admin']),
+  checkScheduleWindow('advisor_association'),
+  advisorRequestController.releaseAdvisor
+);
+
 // POST /api/v1/groups/:groupId/members — Process 2.3: leader invites a student (f05, f19)
 router.post('/:groupId/members', authMiddleware, checkScheduleWindow('member_addition'), addMember);
 
@@ -111,18 +120,6 @@ router.patch(
   roleMiddleware(['professor', 'admin']),
   checkScheduleWindow('advisor_association'),
   advisorApproveRequest
-);
-
-// DELETE /api/v1/groups/:groupId/advisor — Process 3.5 Release Path: Team Leader or Coordinator releases assignment
-// Issue #64 Fix #3: Added roleMiddleware to enforce Team Leader or Coordinator authorization only
-// Request body: { reason?: string }
-// Response: AdvisorAssignment schema with status: released, professorId: null
-router.delete(
-  '/:groupId/advisor',
-  authMiddleware,
-  roleMiddleware(['student', 'coordinator']),
-  checkScheduleWindow('advisor_association'),
-  releaseAdvisorHandler
 );
 
 // POST /api/v1/groups/:groupId/advisor/transfer — Process 3.6→3.5: Coordinator transfers advisor to new professor
