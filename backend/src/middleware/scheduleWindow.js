@@ -39,8 +39,6 @@ const checkScheduleWindow = (operationType) => async (req, res, next) => {
   }
 };
 
-module.exports = { checkScheduleWindow, checkAdvisorAssociationSchedule };
-
 /**
  * checkAdvisorAssociationSchedule()
  *
@@ -82,4 +80,27 @@ const checkAdvisorAssociationSchedule = () => async (req, res, next) => {
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred.' });
   }
 };
+
+/**
+ * =====================================================================
+ * FIX #2: MODULE EXPORT ORDER (ISSUE #70 - CRITICAL)
+ * =====================================================================
+ * PROBLEM: Module.exports was placed on line 42 BEFORE the function
+ * definitions at lines 56-85, causing a Temporal Dead Zone (TDZ) error.
+ * 
+ * When Node.js encounters `module.exports = { checkAdvisorAssociationSchedule }`
+ * before the const declaration for checkAdvisorAssociationSchedule, it tries to
+ * reference a variable that hasn't been initialized yet, throwing:
+ *   ReferenceError: Cannot access 'checkAdvisorAssociationSchedule' before initialization
+ * 
+ * This blocks server startup entirely.
+ * 
+ * SOLUTION: Move module.exports to the END of the file, after ALL function
+ * definitions are complete. This ensures both functions are fully initialized
+ * before being exported.
+ * 
+ * IMPACT: Server now starts successfully without ReferenceError on module load.
+ * =====================================================================
+ */
+module.exports = { checkScheduleWindow, checkAdvisorAssociationSchedule };
 

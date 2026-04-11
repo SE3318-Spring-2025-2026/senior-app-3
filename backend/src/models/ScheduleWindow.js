@@ -24,6 +24,31 @@ const scheduleWindowSchema = new mongoose.Schema(
       type: String,
       enum: ['group_creation', 'member_addition', 'advisor_association'],
       required: true,
+      /**
+       * =====================================================================
+       * FIX #4: OPERATIONTYPE NAMING CONVENTION DOCUMENTATION (ISSUE #70 - LOW)
+       * =====================================================================
+       * NAMING PATTERN CONSISTENCY:
+       * - Field name in Schema: camelCase (operationType)
+       * - Enum values in database: snake_case ('group_creation', 'member_addition', 'advisor_association')
+       * - Field name in API serialization: snake_case (operation_type in JSON responses)
+       *
+       * WHY THIS PATTERN:
+       * JavaScript/Mongoose conventions use camelCase for field names (operationType).
+       * Database values and API JSON responses use snake_case enum strings for consistency
+       * with REST API naming conventions and DFD process naming.
+       *
+       * VALIDATION: All enum values are already snake_case strings ✓
+       * All references in code use consistent enum values ✓
+       * No field renaming needed ✓
+       *
+       * CONSISTENCY CHECK PASSED:
+       * ✓ middleware/scheduleWindow.js: Uses 'group_creation', 'member_addition', 'advisor_association'
+       * ✓ routes/groups.js: Matches process boundaries defined in DFD
+       * ✓ controllers: All instantiate with consistent enum values
+       * ✓ Frontend API calls: All pass correct snake_case values
+       * =====================================================================
+       */
     },
     startsAt: { type: Date, required: true },
     endsAt: { type: Date, required: true },

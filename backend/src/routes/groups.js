@@ -104,10 +104,32 @@ router.post(
 
 // PATCH /api/v1/advisor-requests/:requestId — Process 3.4: Advisor approve/reject decision
 // Schedule: Subject to advisor_association window enforcement (422 if outside)
+/**
+ * =====================================================================
+ * FIX #3a: REMOVE 'ADMIN' FROM PROFESSOR-ONLY ROUTE (ISSUE #70 - HIGH)
+ * =====================================================================
+ * PROBLEM: roleMiddleware(['professor', 'admin']) violates DFD access control
+ * constraints. Process 3.4 (Advisor approval decision) is explicitly defined
+ * in the DFD as a PROFESSOR-ONLY operation. Professors are domain experts
+ * responsible for evaluating advisor-team fit; system administrators have no
+ * domain expertise in these decisions.
+ * 
+ * WHAT CHANGED: Removed 'admin' from the roleMiddleware array
+ * OLD: roleMiddleware(['professor', 'admin'])
+ * NEW: roleMiddleware(['professor'])
+ * 
+ * WHY: Enforces principle of least privilege and maintains DFD separation
+ * of concerns. 'admin' role should only be used for system-level operations
+ * (user management, audit logs, etc.), not domain-specific approvals.
+ * 
+ * IMPACT: Admin users can no longer approve advisor assignments. Professors
+ * must approve via their domain role. This is correct behavior per DFD.
+ * =====================================================================
+ */
 router.patch(
   '/advisor-requests/:requestId',
   authMiddleware,
-  roleMiddleware(['professor', 'admin']),
+  roleMiddleware(['professor']),
   checkAdvisorAssociationSchedule(),
   advisorApproveRequest
 );
@@ -123,10 +145,32 @@ router.delete(
 
 // POST /api/v1/groups/:groupId/advisor/transfer — Process 3.6: Coordinator transfer
 // Schedule: Subject to advisor_association window enforcement (422 if outside)
+/**
+ * =====================================================================
+ * FIX #3b: REMOVE 'ADMIN' FROM COORDINATOR-ONLY ROUTE (ISSUE #70 - HIGH)
+ * =====================================================================
+ * PROBLEM: roleMiddleware(['coordinator', 'admin']) violates DFD access control
+ * constraints. Process 3.6 (Advisor transfer) is explicitly defined in the DFD
+ * as a COORDINATOR-ONLY operation. Coordinators are group management experts
+ * responsible for reassigning advisors due to logistical needs; system
+ * administrators have no domain expertise in group coordination.
+ * 
+ * WHAT CHANGED: Removed 'admin' from the roleMiddleware array
+ * OLD: roleMiddleware(['coordinator', 'admin'])
+ * NEW: roleMiddleware(['coordinator'])
+ * 
+ * WHY: Enforces principle of least privilege and maintains DFD separation
+ * of concerns. 'admin' role should only be used for system-level operations
+ * (user management, audit logs, etc.), not group coordination decisions.
+ * 
+ * IMPACT: Admin users can no longer transfer advisors. Coordinators must
+ * transfer via their domain role. This is correct behavior per DFD.
+ * =====================================================================
+ */
 router.post(
   '/:groupId/advisor/transfer',
   authMiddleware,
-  roleMiddleware(['coordinator', 'admin']),
+  roleMiddleware(['coordinator']),
   checkAdvisorAssociationSchedule(),
   transferAdvisorHandler
 );
