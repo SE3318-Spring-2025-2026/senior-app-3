@@ -287,10 +287,14 @@ const releaseAdvisor = async (groupId, releasedBy, reason = null, options = {}) 
  * @returns {object} { groupId, professorId, status, updatedAt }
  */
 const transferAdvisor = async (groupId, newProfessorId, transferredBy, reason = null, options = {}) => {
+  const session = await Group.startSession();
+  session.startTransaction();
+
   try {
     // Fetch group
-    const group = await Group.findOne({ groupId });
+    const group = await Group.findOne({ groupId }).session(session);
     if (!group) {
+      await session.abortTransaction();
       throw new AdvisorServiceError(404, 'GROUP_NOT_FOUND', 'Group not found');
     }
 
@@ -302,6 +306,7 @@ const transferAdvisor = async (groupId, newProfessorId, transferredBy, reason = 
     // If group has no current advisor, reject immediately with clear error message
     // This guides the user to use the advisee request flow instead (normal approval flow)
     if (!group.advisorId) {
+      await session.abortTransaction();
       throw new AdvisorServiceError(
         409,
         'NO_ADVISOR_TO_TRANSFER',
@@ -312,9 +317,10 @@ const transferAdvisor = async (groupId, newProfessorId, transferredBy, reason = 
     const previousAdvisorId = group.advisorId;
 
     // Validate new professor exists and is active
-    const professor = await User.findOne({ userId: newProfessorId });
+    const professor = await User.findOne({ userId: newProfessorId }).session(session);
     // eslint-disable-next-line no-unsafe-optional-chaining
     if (!professor || professor?.role !== 'professor' || professor?.accountStatus !== 'active') {
+      await session.abortTransaction();
       throw new AdvisorServiceError(409, 'PROFESSOR_INVALID', 'New professor is not active or does not exist');
     }
 
@@ -323,9 +329,10 @@ const transferAdvisor = async (groupId, newProfessorId, transferredBy, reason = 
       advisorId: newProfessorId,
       groupId: { $ne: groupId },
       status: 'active',
-    });
+    }).session(session);
 
     if (existingAssignment) {
+      await session.abortTransaction();
       throw new AdvisorServiceError(409, 'PROFESSOR_ALREADY_ASSIGNED', 'Professor is already assigned to another active group');
     }
 
@@ -335,20 +342,25 @@ const transferAdvisor = async (groupId, newProfessorId, transferredBy, reason = 
     group.advisorId = newProfessorId;
     group.advisorStatus = 'transferred';
     group.advisorUpdatedAt = now;
-    await group.save();
+    await group.save({ session });
 
     // Create AdvisorAssignment record for tracking
-    const assignment = await AdvisorAssignment.create({
-      assignmentId: `asn_${uuidv4().split('-')[0]}`,
-      groupRef: group._id,
-      groupId,
-      advisorId: newProfessorId,
-      previousAdvisorId: previousAdvisorId,
-      status: 'transferred',
-      assignedAt: group.advisorUpdatedAt,
-      releasedBy: transferredBy,
-      releaseReason: reason || 'Coordinator transferred advisor',
-    });
+    const assignment = await AdvisorAssignment.create(
+      [
+        {
+          assignmentId: `asn_${uuidv4().split('-')[0]}`,
+          groupRef: group._id,
+          groupId,
+          advisorId: newProfessorId,
+          previousAdvisorId: previousAdvisorId,
+          status: 'transferred',
+          assignedAt: group.advisorUpdatedAt,
+          releasedBy: transferredBy,
+          releaseReason: reason || 'Coordinator transferred advisor',
+        },
+      ],
+      { session }
+    );
 
     // Create audit log
     try {
@@ -362,7 +374,7 @@ const transferAdvisor = async (groupId, newProfessorId, transferredBy, reason = 
           reason: reason || 'Coordinator transferred advisor',
           previousAdvisorId,
           newAdvisorId: newProfessorId,
-          assignmentId: assignment.assignmentId,
+          assignmentId: assignment[0].assignmentId,
         },
         ipAddress: options.ipAddress,
         userAgent: options.userAgent,
@@ -371,6 +383,8 @@ const transferAdvisor = async (groupId, newProfessorId, transferredBy, reason = 
       console.error('Audit log failed (non-fatal):', auditErr.message);
     }
 
+    await session.commitTransaction();
+
     return {
       groupId,
       advisorId: newProfessorId,
@@ -378,11 +392,15 @@ const transferAdvisor = async (groupId, newProfessorId, transferredBy, reason = 
       updatedAt: now.toISOString(),
     };
   } catch (error) {
+    await session.abortTransaction();
+
     if (error instanceof AdvisorServiceError) {
       throw error;
     }
     console.error('advisorService.transferAdvisor error:', error);
     throw new AdvisorServiceError(500, 'SERVER_ERROR', 'An error occurred while transferring the advisor');
+  } finally {
+    session.endSession();
   }
 };
 
