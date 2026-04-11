@@ -66,6 +66,9 @@ const auditLogSchema = new mongoose.Schema(
         'group_disbanded',
         // Test sentinel (used in existing test suite)
         'TEST_ACTION',
+        // Advisor request notifications (Issue #61)
+        'ADVISOR_REQUEST_NOTIFICATION_FAILED',
+        'advisor_request_created',
       ],
     },
     actorId: {

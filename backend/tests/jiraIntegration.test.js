@@ -51,9 +51,9 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
     });
 
   const validJiraBody = (overrides = {}) => ({
-    jira_url: 'https://mycompany.atlassian.net',
-    jira_username: 'user@example.com',
-    jira_token: 'jira_token_abc',
+    host: 'https://mycompany.atlassian.net',
+    email: 'user@example.com',
+    api_token: 'jira_token_abc',
     project_key: 'PROJ',
     ...overrides,
   });
@@ -116,7 +116,7 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
   // ── configureJira happy path ───────────────────────────────────────────────────
 
   describe('POST /groups/:groupId/jira — configureJira', () => {
-    it('returns 200 with jira_url, jira_project, project_key, validated: true on success', async () => {
+    it('returns 201 with project_id, project_key, binding, board_url on success', async () => {
       mockValidCredentials();
       mockValidProject('PROJ');
 
@@ -127,10 +127,10 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
 
       expect(res.status).toHaveBeenCalledWith(201);
       const body = res.json.mock.calls[0][0];
-      expect(body.validated).toBe(true);
-      expect(body.jira_url).toBe('https://mycompany.atlassian.net');
-      expect(body.jira_project_key).toBe('PROJ');
-      expect(body.jira_project).toBe('My Project');
+      expect(body.project_id).toBe('10001');
+      expect(body.project_key).toBe('PROJ');
+      expect(body.binding).toBe('confirmed');
+      expect(body.board_url).toBe('https://mycompany.atlassian.net/jira/software/projects/PROJ/boards');
     });
 
     it('f25: stores jiraUrl, jiraUsername, jiraToken, projectKey in D2 group record', async () => {
@@ -182,7 +182,7 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
       );
     });
 
-    it('strips trailing slash from jira_url before storing', async () => {
+    it('strips trailing slash from host before storing', async () => {
       mockValidCredentials();
       mockValidProject();
 
@@ -190,7 +190,7 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
       await configureJira(
         makeReq(
           { groupId: group.groupId },
-          validJiraBody({ jira_url: 'https://mycompany.atlassian.net/' })
+          validJiraBody({ host: 'https://mycompany.atlassian.net/' })
         ),
         makeRes()
       );
@@ -201,43 +201,43 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
 
     // ── 400 validation ───────────────────────────────────────────────────────────
 
-    it('returns 400 MISSING_JIRA_URL when jira_url is absent', async () => {
+    it('returns 400 MISSING_HOST when host is absent', async () => {
       const group = await makeGroup();
       const res = makeRes();
 
       await configureJira(
-        makeReq({ groupId: group.groupId }, validJiraBody({ jira_url: undefined })),
+        makeReq({ groupId: group.groupId }, validJiraBody({ host: undefined })),
         res
       );
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json.mock.calls[0][0].code).toBe('MISSING_JIRA_URL');
+      expect(res.json.mock.calls[0][0].code).toBe('MISSING_HOST');
     });
 
-    it('returns 400 MISSING_JIRA_USERNAME when jira_username is absent', async () => {
+    it('returns 400 MISSING_EMAIL when email is absent', async () => {
       const group = await makeGroup();
       const res = makeRes();
 
       await configureJira(
-        makeReq({ groupId: group.groupId }, validJiraBody({ jira_username: undefined })),
+        makeReq({ groupId: group.groupId }, validJiraBody({ email: undefined })),
         res
       );
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json.mock.calls[0][0].code).toBe('MISSING_JIRA_USERNAME');
+      expect(res.json.mock.calls[0][0].code).toBe('MISSING_EMAIL');
     });
 
-    it('returns 400 MISSING_JIRA_TOKEN when jira_token is absent', async () => {
+    it('returns 400 MISSING_API_TOKEN when api_token is absent', async () => {
       const group = await makeGroup();
       const res = makeRes();
 
       await configureJira(
-        makeReq({ groupId: group.groupId }, validJiraBody({ jira_token: undefined })),
+        makeReq({ groupId: group.groupId }, validJiraBody({ api_token: undefined })),
         res
       );
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json.mock.calls[0][0].code).toBe('MISSING_JIRA_TOKEN');
+      expect(res.json.mock.calls[0][0].code).toBe('MISSING_API_TOKEN');
     });
 
     it('returns 400 MISSING_PROJECT_KEY when project_key is absent', async () => {
@@ -372,11 +372,12 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
   // ── getJira ────────────────────────────────────────────────────────────────────
 
   describe('GET /groups/:groupId/jira — getJira', () => {
-    it('returns 200 with group_id, jira_url, jira_project, project_key, validated: true when config is set', async () => {
+    it('returns 200 with connected: true, project_key, board_url when config is set', async () => {
       const group = await makeGroup({
         jiraUrl: 'https://mycompany.atlassian.net',
         jiraProject: 'My Project',
         projectKey: 'PROJ',
+        jiraBoardUrl: 'https://mycompany.atlassian.net/jira/software/projects/PROJ/boards',
         jiraUsername: 'user@example.com',
         jiraToken: 'tok_secret',
       });
@@ -386,11 +387,9 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
 
       expect(res.status).toHaveBeenCalledWith(200);
       const body = res.json.mock.calls[0][0];
-      expect(body.group_id).toBe(group.groupId);
-      expect(body.jira_url).toBe('https://mycompany.atlassian.net');
-      expect(body.jira_project).toBe('My Project');
-      expect(body.jira_project_key).toBe('PROJ');
-      expect(body.validated).toBe(true);
+      expect(body.connected).toBe(true);
+      expect(body.project_key).toBe('PROJ');
+      expect(body.board_url).toBe('https://mycompany.atlassian.net/jira/software/projects/PROJ/boards');
     });
 
     it('does not expose jiraToken in the response', async () => {
@@ -406,14 +405,16 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
       expect(body.jiraToken).toBeUndefined();
     });
 
-    it('returns validated: false when no JIRA config is set', async () => {
+    it('returns connected: false when no JIRA config is set', async () => {
       const group = await makeGroup();
       const res = makeRes();
 
       await getJira(makeReq({ groupId: group.groupId }), res);
 
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json.mock.calls[0][0].validated).toBe(false);
+      expect(res.json.mock.calls[0][0].connected).toBe(false);
+      expect(res.json.mock.calls[0][0].project_key).toBeUndefined();
+      expect(res.json.mock.calls[0][0].board_url).toBeUndefined();
     });
 
     it('returns 404 GROUP_NOT_FOUND when group does not exist', async () => {

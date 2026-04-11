@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import './AuthMethodSelection.css';
 
@@ -11,11 +11,6 @@ const AuthMethodSelection = () => {
   const [searchParams] = useSearchParams();
   const isRegistration = searchParams.get('register') === 'true';
   const [loading, setLoading] = useState(false);
-
-  // Log for debugging
-  useEffect(() => {
-    console.log('isRegistration:', isRegistration, 'URL:', window.location.href);
-  }, [isRegistration]);
 
   const handleLocalAuth = () => {
     if (isRegistration) {

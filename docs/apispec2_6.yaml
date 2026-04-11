@@ -1,0 +1,630 @@
+openapi: 3.0.0
+info:
+  title: Senior Project Management System — Deliverable Review API
+  description: >
+    API specification for Process 6.0: Deliverable Review.
+    
+    Handles the review workflow where committee members read submitted deliverables,
+    provide comments, mark sections with status (ok / needs clarification), and
+    track clarification requests sent back to teams for revision.
+    
+    External entities:
+      - Student / Team (submits deliverable, receives feedback)
+      - Committee Members (reviewers and commenters)
+      - Coordinator (manages review schedule, receives completion reports)
+      - Notification Service (event notifications)
+    
+    Data stores:
+      - D3: Committee Assignments (reviewer list)
+      - D4: Deliverable Files & Submissions (content to review)
+      - D5: Reviews & Clarifications (comments, section marks, clarification requests)
+    
+    Sub-processes (3-step review workflow):
+      6.1  Assign Review to Committee Members
+      6.2  Collect Review Comments & Marks (read, leave comments, mark sections)
+      6.3  Mark Sections & Log Reviews (track clarification requests)
+    
+    DFD Source: dfdLevel2_Process6.drawio
+  version: 2.6.0
+  contact:
+    name: Development Team
+    email: support@senior-project.dev
+  license:
+    name: MIT
+
+servers:
+  - url: https://api.senior-project.dev/v1
+    description: Production server
+  - url: http://localhost:3000/api/v1
+    description: Development server
+
+tags:
+  - name: Deliverable Review
+    description: Review submission workflow, comment threads, clarification tracking
+  - name: Review Management
+    description: Administrative endpoints for review assignment and coordination
+
+paths:
+  # =============================================================================
+  # 6.1 — Assign Review to Committee Members
+  #
+  # DFD Flows:
+  #   f11: Coordinator → 6.1 (review schedule + instructions)
+  #   f5: D3 → 6.1 (committee assignment list)
+  #   f13: 6.1 → Committee (review assignment + deliverable link)
+  #   f14: 6.1 → NotificationService (review assignment notification)
+  #
+  # Action: Create review task and send to assigned committee members
+  # (Usually automatic when deliverable stored, but exposed for admin)
+  # =============================================================================
+  
+  /reviews/assign:
+    post:
+      operationId: assignDeliverableReview
+      summary: "6.1 — Assign Review to Committee Members"
+      description: >
+        Coordinator initiates review workflow for a deliverable.
+        Fetches committee members from D3 and creates review tasks.
+        Sends review assignment notifications to committee (flow f13, f16).
+        
+        Usually triggered automatically when deliverable is stored (5.6),
+        but can be manually invoked for reissignment or retry.
+      tags: ["Review Management"]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deliverableId, reviewDeadlineDays]
+              properties:
+                deliverableId:
+                  type: string
+                  description: Deliverable to be reviewed
+                  example: "del_5e8f9d2a3c"
+                reviewDeadlineDays:
+                  type: integer
+                  minimum: 1
+                  maximum: 30
+                  description: Days from now until review deadline
+                  example: 7
+                selectedCommitteeMembers:
+                  type: array
+                  items:
+                    type: string
+                  description: Optional - specific committee members. If omitted, all assigned committee members are selected.
+                instructions:
+                  type: string
+                  description: Optional review instructions or guidelines
+      responses:
+        "201":
+          description: >
+            Review tasks created and assignments sent to committee.
+            Returns review workflow identifier.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewAssignmentResponse'
+        "400":
+          description: Invalid deliverable or assignment parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "403":
+          description: Only coordinator can assign reviews
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: Deliverable not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "409":
+          description: Review already assigned for this deliverable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # =============================================================================
+  # 6.2 — Collect Review Comments & Marks
+  #
+  # DFD Flows:
+  #   f13: 6.1 → Committee (review assignment + deliverable link)
+  #   f16: Committee → 6.2 (review data - reading, comments, marks)
+  #   f6: D4 → 6.2 (deliverable content + files)
+  #   f9: 6.2 → Student (clarification / revision requests) — async
+  #   f7: 6.2 → D5 (store comments)
+  #
+  # Action: Allow committee members to read, comment, mark sections
+  # =============================================================================
+  
+  /deliverables/{deliverableId}/comments:
+    get:
+      operationId: getDeliverableComments
+      summary: Retrieve all comments and clarification requests for a deliverable
+      tags: ["Deliverable Review"]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deliverableId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Deliverable being reviewed
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [timestamp, author, section, status]
+            default: timestamp
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, resolved, acknowledged]
+          description: Filter by comment status
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+      responses:
+        "200":
+          description: List of all comments and clarification requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentThreadResponse'
+        "403":
+          description: Unauthorized to view comments for this deliverable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: Deliverable not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      operationId: addCommentToDeliverable
+      summary: "6.2.a — Add Comment or Clarification Request"
+      description: >
+        Committee member (or coordinator) adds a comment to a deliverable.
+        Can be a general comment, or a section-specific clarification request.
+        
+        Creates record in D5 (Reviews & Evaluations data store).
+        Async notification sent to group if marked as clarification request.
+      tags: ["Deliverable Review"]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deliverableId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                  minLength: 1
+                  maxLength: 5000
+                  description: Comment text (markdown supported)
+                  example: "This section needs clarification - explain the architecture choices."
+                commentType:
+                  type: string
+                  enum: [general, question, clarification_required, suggestion, praise]
+                  default: general
+                  description: Type of comment for categorization
+                sectionNumber:
+                  type: integer
+                  nullable: true
+                  description: If referencing specific section (for structured docs)
+                  example: 3
+                needsResponse:
+                  type: boolean
+                  default: false
+                  description: Mark as requiring response/acknowledgment from group
+      responses:
+        "201":
+          description: Comment created and stored in D5
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliverableComment'
+        "400":
+          description: Invalid comment content
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "403":
+          description: Unauthorized to comment on this deliverable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: Deliverable or review assignment not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /deliverables/{deliverableId}/comments/{commentId}:
+    patch:
+      operationId: updateComment
+      summary: Edit or resolve a comment
+      tags: ["Deliverable Review"]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deliverableId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+                  description: Updated comment content (if editing)
+                status:
+                  type: string
+                  enum: [open, resolved, acknowledged]
+                  description: Update comment status
+      responses:
+        "200":
+          description: Comment updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliverableComment'
+        "403":
+          description: Only comment author can edit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: Comment not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /deliverables/{deliverableId}/comments/{commentId}/reply:
+    post:
+      operationId: replyToComment
+      summary: "6.2.b — Group replies to clarification request"
+      description: >
+        Group (or committee) replies to a comment thread.
+        Response recorded in D5.
+        If this addresses all clarifications, can trigger evaluation step.
+      tags: ["Deliverable Review"]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deliverableId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+                  description: Reply text
+      responses:
+        "201":
+          description: Reply recorded in comment thread
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliverableComment'
+        "400":
+          description: Invalid reply
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "403":
+          description: Unauthorized to reply to this thread
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: Deliverable or comment not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # =============================================================================
+  # =============================================================================
+  # 6.3 — Mark Sections & Log Reviews
+  #
+  # DFD Flows:
+  #   f3: P6.2 → 6.3 (review data + comments collected)
+  #   f8: 6.3 → D5 (store section marks + review status)
+  #   f10: 6.3 → Student (section status + final feedback)
+  #   f12: 6.3 → Coordinator (review completion + results report)
+  #   f17: 6.3 → NotificationService (review complete event)
+  #
+  # Action: Final logging, store section statuses, and completion report
+  # =============================================================================
+
+  # [Section marking is handled through /deliverables/{id}/comments 
+  #  with section-specific marks and needsResponse flag]
+
+  /reviews/status:
+    get:
+      operationId: getReviewsStatus
+      summary: Get overview of all reviews and their status
+      description: >
+        Coordinator dashboard view of all active and completed reviews.
+        Shows assignment status, review progress, and completion status.
+      tags: ["Review Management"]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, in_progress, needs_clarification, completed]
+          description: Filter by review status
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+      responses:
+        "200":
+          description: Review status overview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewStatusOverview'
+        "403":
+          description: Only coordinator can view review status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # =========================================================================
+    # Review Assignment (6.1)
+    # =========================================================================
+    ReviewAssignmentResponse:
+      type: object
+      required: [deliverableId, reviewId, assignedCount, deadline]
+      properties:
+        deliverableId:
+          type: string
+        reviewId:
+          type: string
+          description: Identifier for this review task
+          example: "rev_5e8f9d2a3c"
+        assignedCommitteeMembers:
+          type: array
+          items:
+            type: object
+            properties:
+              memberId:
+                type: string
+              name:
+                type: string
+              email:
+                type: string
+              status:
+                type: string
+                enum: [notified, accepted, started]
+        assignedCount:
+          type: integer
+          example: 3
+        deadline:
+          type: string
+          format: date-time
+          description: When review must be completed
+        notificationsSent:
+          type: integer
+          description: Count of notifications delivered
+        instructions:
+          type: string
+          nullable: true
+
+    # =========================================================================
+    # Comments & Clarifications (6.2)
+    # =========================================================================
+    CommentThreadResponse:
+      type: object
+      required: [deliverableId, comments]
+      properties:
+        deliverableId:
+          type: string
+        comments:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeliverableComment'
+        totalCount:
+          type: integer
+        openClarificationCount:
+          type: integer
+          description: Count of unresolved clarification requests
+
+    DeliverableComment:
+      type: object
+      required: [commentId, deliverableId, authorId, content, createdAt]
+      properties:
+        commentId:
+          type: string
+          example: "cmt_5e8f9d2a3c"
+        deliverableId:
+          type: string
+        authorId:
+          type: string
+          description: Committee member or group ID
+        authorName:
+          type: string
+        content:
+          type: string
+          description: Comment text (markdown)
+        commentType:
+          type: string
+          enum: [general, question, clarification_required, suggestion, praise]
+          default: general
+        sectionNumber:
+          type: integer
+          nullable: true
+        needsResponse:
+          type: boolean
+        status:
+          type: string
+          enum: [open, resolved, acknowledged]
+          default: open
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        replies:
+          type: array
+          items:
+            type: object
+            properties:
+              replyId:
+                type: string
+              authorId:
+                type: string
+              content:
+                type: string
+              createdAt:
+                type: string
+                format: date-time
+
+    # =========================================================================
+    # Review Status Overview (Management)
+    # =========================================================================
+    ReviewStatusOverview:
+      type: object
+      required: [total, statuses]
+      properties:
+        total:
+          type: integer
+          description: Total reviews in selected filter
+        statuses:
+          type: object
+          properties:
+            pending:
+              type: integer
+              description: Awaiting review start
+            in_progress:
+              type: integer
+              description: Under discussion (comments active)
+            needs_clarification:
+              type: integer
+              description: Clarification requests pending
+            completed:
+              type: integer
+              description: Review finished
+        reviews:
+          type: array
+          items:
+            type: object
+            properties:
+              deliverableId:
+                type: string
+              groupId:
+                type: string
+              deliverableType:
+                type: string
+              sprintId:
+                type: string
+              reviewStatus:
+                type: string
+              commentCount:
+                type: integer
+              clarificationsRemaining:
+                type: integer
+              deadline:
+                type: string
+                format: date-time
+
+    # =========================================================================
+    # Error Response
+    # =========================================================================
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Error code for programmatic handling
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: object
+          nullable: true
+          description: Additional context
+          additionalProperties: true
+        requestId:
+          type: string
+          description: Trace ID for debugging
+        timestamp:
+          type: string
+          format: date-time
