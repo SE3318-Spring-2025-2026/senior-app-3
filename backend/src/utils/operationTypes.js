@@ -1,12 +1,17 @@
+'use strict';
+
 /**
- * Centralized list of operation types, notification types, and audit actions
- * for the Senior Project Management System.
+ * Centralized operation types, notification types, and audit action constants.
  */
 
 const OPERATION_TYPES = {
   GROUP_CREATION: 'group_creation',
   MEMBER_ADDITION: 'member_addition',
   ADVISOR_ASSOCIATION: 'advisor_association',
+  ADVISOR_DECISION: 'advisor_decision',
+  ADVISOR_RELEASE: 'advisor_release',
+  ADVISOR_TRANSFER: 'advisor_transfer',
+  ADVISOR_SANITIZATION: 'advisor_sanitization',
 };
 
 const NOTIFICATION_TYPES = {
@@ -24,9 +29,11 @@ const AUDIT_ACTIONS = {
   ADVISOR_TRANSFERRED: 'advisor_transferred',
 };
 
+const VALID_OPERATION_TYPES = Object.values(OPERATION_TYPES);
+
 module.exports = {
   ...OPERATION_TYPES,
-  VALID_OPERATION_TYPES: Object.values(OPERATION_TYPES),
+  VALID_OPERATION_TYPES,
   NOTIFICATION_TYPES,
   AUDIT_ACTIONS,
 };

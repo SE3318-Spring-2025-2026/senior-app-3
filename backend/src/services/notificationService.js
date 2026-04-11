@@ -122,7 +122,7 @@ const dispatchAdvisorTransferNotification = async ({ groupId, oldProfessorId, ne
  *
  * @param {object} payload
  * @param {string} payload.groupId
- * @param {string} payload.reason
+ * @param {string} [payload.reason]
  * @returns {object} { notification_id }
  */
 const dispatchGroupDisbandNotification = async ({ groupId, reason }) => {

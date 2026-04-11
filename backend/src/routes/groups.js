@@ -1,12 +1,21 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
-const { checkScheduleWindow } = require('../middleware/scheduleWindow');
-const { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride, transferAdvisor, createAdvisorRequest } = require('../controllers/groups');
+const { checkScheduleWindow, checkAdvisorOperationWindow } = require('../middleware/scheduleWindow');
+const OPERATION_TYPES = require('../utils/operationTypes');
+const {
+  forwardApprovalResults,
+  createGroup,
+  getGroup,
+  getAllGroups,
+  createMemberRequest,
+  decideMemberRequest,
+  coordinatorOverride,
+} = require('../controllers/groups');
+const { releaseAdvisor, transferAdvisor, advisorSanitization } = require('../controllers/advisorAssociation');
 const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
-const { releaseAdvisor, advisorSanitization } = require('../controllers/advisorRequests');
 
 // POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
 router.post('/', authMiddleware, roleMiddleware(['student']), createGroup);
@@ -17,11 +26,36 @@ router.get('/pending-invitation', authMiddleware, getMyPendingInvitation);
 // GET /api/v1/groups — List all groups (coordinator only) for group management dashboard
 router.get('/', authMiddleware, roleMiddleware(['coordinator']), getAllGroups);
 
+// POST /api/v1/groups/advisor-sanitization — Issue #75 (must be registered before /:groupId routes)
+router.post(
+  '/advisor-sanitization',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'system']),
+  advisorSanitization
+);
+
+// DELETE /api/v1/groups/:groupId/advisor — Issue #75 release advisor
+router.delete(
+  '/:groupId/advisor',
+  authMiddleware,
+  checkAdvisorOperationWindow(OPERATION_TYPES.ADVISOR_RELEASE),
+  releaseAdvisor
+);
+
+// POST /api/v1/groups/:groupId/advisor/transfer — Issue #75 transfer advisor (coordinator)
+router.post(
+  '/:groupId/advisor/transfer',
+  authMiddleware,
+  roleMiddleware(['coordinator']),
+  checkAdvisorOperationWindow(OPERATION_TYPES.ADVISOR_TRANSFER),
+  transferAdvisor
+);
+
 // GET /api/v1/groups/:groupId — Process 2.2: retrieve validated group record from D2
 router.get('/:groupId', authMiddleware, getGroup);
 
 // POST /api/v1/groups/:groupId/members — Process 2.3: leader invites a student (f05, f19)
-router.post('/:groupId/members', authMiddleware, checkScheduleWindow('member_addition'), addMember);
+router.post('/:groupId/members', authMiddleware, checkScheduleWindow(OPERATION_TYPES.MEMBER_ADDITION), addMember);
 
 // GET /api/v1/groups/:groupId/members — return current member list from D2
 router.get('/:groupId/members', authMiddleware, getMembers);
@@ -85,27 +119,6 @@ router.patch(
   authMiddleware,
   roleMiddleware(['coordinator', 'committee_member', 'professor', 'admin']),
   transitionStatus
-);
-
-// DELETE /api/v1/groups/:groupId/advisor - Release an advisor
-router.delete('/:groupId/advisor', authMiddleware, releaseAdvisor);
-
-// POST /api/v1/groups/:groupId/advisor/transfer - Transfer an advisor (Coordinator only)
-router.post(
-  '/:groupId/advisor/transfer',
-  authMiddleware,
-  roleMiddleware(['coordinator']),
-  // We use the same controller function as PR 143, but PR 143 might have it in advisorRequests.js
-  // In the current context I'll keep it pointing to advisorRequests or groups based on final merge
-  require('../controllers/advisorRequests').transferAdvisor
-);
-
-// POST /api/v1/groups/advisor-sanitization - Global advisor sanitization (Coordinator only)
-router.post(
-  '/advisor-sanitization',
-  authMiddleware,
-  roleMiddleware(['coordinator']),
-  advisorSanitization
 );
 
 module.exports = router;

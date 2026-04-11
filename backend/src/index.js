@@ -7,9 +7,7 @@ const onboardingRoutes = require('./routes/onboarding');
 const groupRoutes = require('./routes/groups');
 const advisorRequestRoutes = require('./routes/advisorRequests');
 const scheduleWindowRoutes = require('./routes/scheduleWindow');
-const advisorRequestRoutes = require('./routes/advisorRequests');
 const auditLogRoutes = require('./routes/auditLogs');
-const advisorRequestRoutes = require('./routes/advisorRequests');
 const { errorHandler } = require('./middleware/auth');
 
 const app = express();
@@ -60,9 +58,7 @@ app.use('/api/v1/onboarding', onboardingRoutes);
 app.use('/api/v1/groups', groupRoutes);
 app.use('/api/v1/advisor-requests', advisorRequestRoutes);
 app.use('/api/v1/schedule-window', scheduleWindowRoutes);
-app.use('/api/v1/advisor-requests', advisorRequestRoutes);
 app.use('/api/v1/audit-logs', auditLogRoutes);
-app.use('/api/v1/advisor-requests', advisorRequestRoutes);
 
 // 404 handler
 app.use((req, res) => {

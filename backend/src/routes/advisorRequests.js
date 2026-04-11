@@ -1,15 +1,14 @@
+'use strict';
+
 const express = require('express');
 const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
-const { checkScheduleWindow } = require('../middleware/scheduleWindow');
-const { ADVISOR_ASSOCIATION } = require('../utils/operationTypes');
-const {
-  listProfessorPendingRequests,
-  createAdvisorRequest,
-  decideAdvisorRequest
-} = require('../controllers/advisorRequests');
+const { checkAdvisorOperationWindow } = require('../middleware/scheduleWindow');
+const OPERATION_TYPES = require('../utils/operationTypes');
+const { listProfessorPendingRequests } = require('../controllers/advisorRequests');
+const { submitAdvisorRequest, processAdvisorRequest } = require('../controllers/advisorAssociation');
 
-// GET /api/v1/advisor-requests/pending - List pending requests (Professor only)
+// GET /api/v1/advisor-requests/pending — List pending requests (Professor only)
 router.get(
   '/pending',
   authMiddleware,
@@ -17,21 +16,22 @@ router.get(
   listProfessorPendingRequests
 );
 
-// POST /api/v1/advisor-requests - Submit a request (Student leader only)
+// POST /api/v1/advisor-requests — Submit a request (Student leader only)
 router.post(
   '/',
   authMiddleware,
   roleMiddleware(['student']),
-  checkScheduleWindow(ADVISOR_ASSOCIATION),
-  createAdvisorRequest
+  checkAdvisorOperationWindow(OPERATION_TYPES.ADVISOR_ASSOCIATION),
+  submitAdvisorRequest
 );
 
-// PATCH /api/v1/advisor-requests/:requestId - Approve/Reject (Professor only)
+// PATCH /api/v1/advisor-requests/:requestId — Approve/Reject (Professor only)
 router.patch(
   '/:requestId',
   authMiddleware,
   roleMiddleware(['professor']),
-  decideAdvisorRequest
+  checkAdvisorOperationWindow(OPERATION_TYPES.ADVISOR_DECISION),
+  processAdvisorRequest
 );
 
 module.exports = router;

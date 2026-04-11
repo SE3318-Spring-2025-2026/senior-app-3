@@ -37,22 +37,24 @@ const groupSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    /** Assigned professor userId (D2 advisor association; Issue #75) */
     professorId: {
       type: String,
       default: null,
     },
+    /** Advisor workflow state distinct from group lifecycle `status` */
     advisorStatus: {
       type: String,
       enum: ['pending', 'assigned', 'none', 'released', 'transferred'],
-      default: 'none',
+      default: 'pending',
     },
     advisorUpdatedAt: {
       type: Date,
-      default: null
+      default: null,
     },
     advisorAssignedAt: {
       type: Date,
-      default: null
+      default: null,
     },
     status: {
       type: String,
