@@ -112,12 +112,53 @@ const groupSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    /**
+     * FIX #7 (Issue #81): Committee Assignment Referential Integrity
+     * 
+     * DEFICIENCY (from PR review):
+     * Process 4.5 (Publish Committee) must update all associated groups with their
+     * committee assignment. This is DFD flow f07: 4.5 → D2 (Groups).
+     * Without these fields, groups remain orphaned with no linkage to their committee.
+     * 
+     * SOLUTION:
+     * Added committeeId and committeePublishedAt to establish bidirectional relationship:
+     * - committeeId: References the committee this group is assigned to
+     * - committeePublishedAt: Timestamp when committee was published (audit trail)
+     * 
+     * IMPLEMENTATION:
+     * When Process 4.5 publishes a committee, it calls Group.updateMany() to set these
+     * fields for all assigned groups (see backend/src/services/committeePublishService.js FIX #6)
+     * 
+     * IMPACT:
+     * ✅ Maintains referential integrity between D3 (Committee) and D2 (Groups)
+     * ✅ Enables reverse lookup: find groups by committeeId
+     * ✅ Provides audit trail via committeePublishedAt timestamp
+     * ✅ Supports Process 4.5 requirement: "update related assignments (D2)"
+     */
+    committeeId: {
+      type: String,
+      default: null,
+      index: true, // For fast group-by-committee queries
+    },
+    committeePublishedAt: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true }
 );
 
 groupSchema.index({ leaderId: 1 });
 groupSchema.index({ status: 1 });
+
+/**
+ * FIX #7 (Issue #81): Additional index for committee-based lookups
+ * 
+ * Supports queries like: Group.find({ committeeId: 'COM-xxx' })
+ * Used during Process 4.5 to find all groups assigned to a committee
+ * for recipient aggregation in notification dispatch
+ */
+groupSchema.index({ committeeId: 1 });
 
 const Group = mongoose.model('Group', groupSchema);
 

@@ -1,32 +1,56 @@
 const Committee = require('../models/Committee');
-const { dispatchCommitteePublishNotification } = require('../services/notificationService');
 const { createAuditLog } = require('../services/auditService');
+const { publishCommitteeWithTransaction } = require('../services/committeePublishService');
 
 /**
  * Publish Committee (Process 4.5)
  * 
  * Publishes the validated committee configuration, stores the final committee data,
- * updates related sprint assignments (D6), and triggers committee notifications.
+ * updates related group assignments (D2), and triggers committee notifications.
  * 
- * DFD flow f09: 4.5 → Notification Service
+ * DFD flows:
+ * - f06: 4.5 → D3 (Committee) - Publish committee status
+ * - f07: 4.5 → D2 (Groups) - Link groups to committee
+ * - f09: 4.5 → Notification Service - Dispatch notifications
  * 
  * Request: POST /committees/{committeeId}/publish
  * Response: { committeeId, status, publishedAt, notificationTriggered }
  * 
- * Non-fatal error handling: notification failures are logged but do not block publish.
+ * ARCHITECTURAL IMPROVEMENTS (Issue #81 Fixes):
+ * ✅ FIX #1: Route now requires authMiddleware before roleMiddleware
+ * ✅ FIX #2: D2 Groups update implemented with Group.updateMany()
+ * ✅ FIX #3: MongoDB transaction wraps D3 + D2 + audit for atomicity
+ * ✅ FIX #4: Notification dispatch moved to setImmediate (fire-and-forget, non-blocking)
+ * ✅ FIX #5: Group members fetched and included in notification recipients
+ * ✅ FIX #6: New committeePublishService encapsulates all transaction logic
  * 
  * @param {object} req
  * @param {string} req.params.committeeId
- * @param {object} req.user - Authenticated user (from roleMiddleware)
+ * @param {object} req.body.assignedGroupIds - Group IDs to link to committee
+ * @param {object} req.user - Authenticated user (from authMiddleware)
  * @param {object} res
  * @returns {Promise<void>}
  */
 const publishCommittee = async (req, res) => {
   try {
     const { committeeId } = req.params;
+    const { assignedGroupIds = [] } = req.body;
+
+    /**
+     * FIX #1 (Issue #81): Authorization via authMiddleware
+     * 
+     * DEFICIENCY: PR review identified missing authMiddleware
+     * "Without req.user being set by authMiddleware, the role check will fail with a 401"
+     * 
+     * SOLUTION:
+     * Route middleware chain now includes authMiddleware BEFORE roleMiddleware
+     * (see backend/src/routes/committees.js line 60)
+     * 
+     * This ensures req.user is properly populated by authMiddleware
+     * before roleMiddleware checks coordinator role
+     */
     const coordinatorId = req.user?.userId;
 
-    // Validate coordinator is authenticated
     if (!coordinatorId) {
       return res.status(403).json({
         error: 'Forbidden',
@@ -34,94 +58,48 @@ const publishCommittee = async (req, res) => {
       });
     }
 
-    // Fetch committee from D3
-    const committee = await Committee.findOne({ committeeId });
+    /**
+     * FIX #3, #2, #5, #4, #6 (Issue #81): Use transaction service
+     * 
+     * Delegates all complex logic to committeePublishService:
+     * - FIX #3: Wraps all writes in MongoDB session.withTransaction()
+     * - FIX #2: Updates D2 (Groups) with committeeId and committeePublishedAt
+     * - FIX #5: Fetches group members from assigned groups for recipients
+     * - FIX #4: Dispatches notifications via setImmediate (fire-and-forget)
+     * - FIX #6: Encapsulates all transactional logic in reusable service
+     */
+    const result = await publishCommitteeWithTransaction({
+      committeeId,
+      coordinatorId,
+      assignedGroupIds,
+    });
 
-    if (!committee) {
+    // Return success response with complete transaction results
+    return res.status(200).json(result);
+  } catch (err) {
+    // Handle specific error types with appropriate status codes
+    if (err.statusCode === 404) {
       return res.status(404).json({
         error: 'Not Found',
-        message: `Committee ${committeeId} not found`,
+        message: err.message,
       });
     }
 
-    // Check if committee is already published
-    if (committee.status === 'published') {
+    if (err.statusCode === 409) {
       return res.status(409).json({
         error: 'Conflict',
-        message: 'Committee is already published',
+        message: err.message,
       });
     }
 
-    // Check if committee is validated (prerequisite for publish)
-    if (committee.status !== 'validated') {
+    if (err.statusCode === 400) {
       return res.status(400).json({
         error: 'Bad Request',
-        message: 'Committee must be validated before publishing. Current status: ' + committee.status,
+        message: err.message,
       });
     }
 
-    // Update committee status to published
-    const publishedAt = new Date();
-    committee.status = 'published';
-    committee.publishedAt = publishedAt;
-    committee.publishedBy = coordinatorId;
-    await committee.save();
-
-    // Create audit log for committee publish
-    await createAuditLog({
-      action: 'COMMITTEE_PUBLISHED',
-      actorId: coordinatorId,
-      targetId: committeeId,
-      details: {
-        committeeName: committee.committeeName,
-        advisorCount: committee.advisorIds?.length || 0,
-        juryCount: committee.juryIds?.length || 0,
-      },
-    });
-
-    // Dispatch committee publish notifications (non-fatal; failure is logged but doesn't block response)
-    let notificationTriggered = false;
-    try {
-      const notificationResult = await dispatchCommitteePublishNotification({
-        committeeId,
-        committeeName: committee.committeeName,
-        advisorIds: committee.advisorIds,
-        juryIds: committee.juryIds,
-        groupMemberIds: null, // Default: do not notify group members
-        coordinatorId,
-      });
-
-      notificationTriggered = notificationResult.success;
-
-      // Log notification dispatch outcome
-      await createAuditLog({
-        action: 'NOTIFICATION_DISPATCHED',
-        actorId: coordinatorId,
-        targetId: committeeId,
-        details: {
-          operation: 'committee_published',
-          notificationId: notificationResult.notificationId,
-          success: notificationResult.success,
-          recipientCount: [
-            ...(committee.advisorIds || []),
-            ...(committee.juryIds || []),
-          ].length,
-        },
-      });
-    } catch (notificationError) {
-      // Log notification error as non-fatal issue
-      console.error(`[WARNING] Committee publish notification failed for ${committeeId}:`, notificationError.message);
-      // Do not throw; notification failure is non-fatal
-    }
-
-    // Return success response with notificationTriggered flag
-    return res.status(200).json({
-      committeeId,
-      status: 'published',
-      publishedAt,
-      notificationTriggered,
-    });
-  } catch (err) {
+    // Generic database/transaction error
     console.error('publishCommittee error:', err);
     return res.status(500).json({
       error: 'Internal Server Error',
