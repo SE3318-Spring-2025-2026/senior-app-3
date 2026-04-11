@@ -1,10 +1,10 @@
 const mongoose = require('mongoose');
-const { v4: uuidv4 } = require('uuid'); // Main branch'ten gelen ID oluşturucu
+const { v4: uuidv4 } = require('uuid');
 
 /**
  * Issue #61: AdvisorRequest Model (D2 Extension)
- * * Data Store: D2 - Advisory Assignment Tracking
- * * Purpose:
+ * Data Store: D2 - Advisory Assignment Tracking
+ * Purpose:
  * Stores advisor request records for Process 3.0-3.7 workflow.
  * Tracks all advisor association requests and their lifecycle.
  */
@@ -14,6 +14,7 @@ const advisorRequestSchema = new mongoose.Schema(
       type: String,
       default: () => `req_${uuidv4().split('-')[0]}`, // Main'in otomatik ID üretimi
       unique: true,
+      required: true,
       index: true,
     },
     groupId: {
@@ -33,13 +34,17 @@ const advisorRequestSchema = new mongoose.Schema(
     message: {
       type: String,
       default: '',
-      maxlength: 1000, // Main'in karakter sınırı eklendi
+      maxlength: 1000, // Main'in karakter sınırı
     },
     status: {
       type: String,
-      enum: ['pending', 'approved', 'rejected', 'cancelled'], // Main'deki 'cancelled' eklendi
+      enum: ['pending', 'approved', 'rejected', 'cancelled'],
       default: 'pending',
       index: true,
+    },
+    reason: {
+      type: String,
+      default: '', // feature/63 dalından
     },
     notificationTriggered: {
       type: Boolean,
@@ -55,10 +60,19 @@ const advisorRequestSchema = new mongoose.Schema(
       default: '',
     },
     decisionReason: {
-      type: String // Main'den gelen olası veri kayıplarını önlemek için eklendi
+      type: String, // Main'den gelen olası veri kayıplarını önlemek için eklendi
     },
-    decidedAt: Date,
-    decidedBy: String,
+    decidedAt: {
+      type: Date,
+      default: null,
+    },
+    decidedBy: {
+      type: String,
+    },
+    processedAt: {
+      type: Date,
+      default: null, // feature/63 dalından süreç takibi için
+    },
   },
   {
     timestamps: true,
@@ -83,4 +97,9 @@ advisorRequestSchema.index({ professorId: 1 });
 advisorRequestSchema.index({ status: 1, createdAt: -1 });
 advisorRequestSchema.index({ groupId: 1, status: 1 });
 
-module.exports = mongoose.model('AdvisorRequest', advisorRequestSchema);
+// feature/63 kompozit indeksi (Profesörlerin isteklerini listelerken performansı artırır)
+advisorRequestSchema.index({ professorId: 1, status: 1, createdAt: -1 });
+
+const AdvisorRequest = mongoose.model('AdvisorRequest', advisorRequestSchema);
+
+module.exports = AdvisorRequest;

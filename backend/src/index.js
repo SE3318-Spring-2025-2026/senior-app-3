@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const authRoutes = require('./routes/auth');
 const onboardingRoutes = require('./routes/onboarding');
 const groupRoutes = require('./routes/groups');
+const advisorRequestRoutes = require('./routes/advisorRequests');
 const scheduleWindowRoutes = require('./routes/scheduleWindow');
 const auditLogRoutes = require('./routes/auditLogs');
 const advisorRequestRoutes = require('./routes/advisorRequests');

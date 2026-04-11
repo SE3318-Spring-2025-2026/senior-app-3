@@ -1,63 +1,58 @@
 const ScheduleWindow = require('../models/ScheduleWindow');
 
 /**
+ * checkScheduleWindow(operationType, options)
+ *
  * Issue #61 Resolution: Schedule Window Enforcement Middleware
- * 
- * This middleware addresses PR Review Issue #7: Hardcoded Message in Reusable Middleware
+ * * This middleware addresses PR Review Issue #7: Hardcoded Message in Reusable Middleware
  * Original Problem: Error message always "Advisor association schedule is closed"
  * - Issue: Middleware used for multiple operation types (group_creation, member_addition, advisor_association)
  * - Bug: All errors showed same message regardless of operation type
  * - Solution: Dynamic message mapping based on operationType parameter
- * 
- * Purpose:
+ * * Purpose:
  * Enforce time-based access control. Out-of-window responses:
  * - group_creation / member_addition: 403 + { code, reason } (legacy, tests/clients)
  * - advisor_association (Issue #70): 422 + { code, message }
- * 
- * Applied To:
+ * * Applied To:
  * - POST /groups → checkScheduleWindow('group_creation')
  * - POST /groups/:groupId/members → checkScheduleWindow('member_addition')
  * - POST /advisor-requests → checkScheduleWindow('advisor_association') [Issue #61]
  * - PATCH /advisor-requests/{requestId} → checkScheduleWindow('advisor_association')
  * - DELETE /groups/:groupId/advisor → checkScheduleWindow('advisor_association')
  * - POST /groups/:groupId/advisor/transfer → checkScheduleWindow('advisor_association')
- * 
- * NOT applied to:
+ * * NOT applied to:
  * - PATCH /groups/:groupId/override (coordinator bypass)
  * - POST /groups/advisor-sanitization (deadline-based, not schedule window)
- * 
- * Schedule Window Model:
+ * * Schedule Window Model:
  * {
- *   operationType: string,  // 'group_creation' | 'member_addition' | 'advisor_association'
- *   startsAt: Date,         // Window open timestamp
- *   endsAt: Date,           // Window close timestamp
- *   isActive: boolean,      // Whether this window is active
- *   coordinatorId: string   // Who set this window
+ * operationType: string,  // 'group_creation' | 'member_addition' | 'advisor_association'
+ * startsAt: Date,         // Window open timestamp
+ * endsAt: Date,           // Window close timestamp
+ * isActive: boolean,      // Whether this window is active
+ * coordinatorId: string   // Who set this window
  * }
- * 
- * Query Logic:
+ * * Query Logic:
  * - Find ScheduleWindow with matching operationType
  * - Check isActive === true
  * - Check NOW >= startsAt AND NOW <= endsAt
  * - If found: call next() (middleware passes)
  * - If not found: status depends on operationType (see handler)
- * checkScheduleWindow(operationType)
  *
  * Returns Express middleware that enforces schedule boundaries for the given
  * operation type ('group_creation' | 'member_addition' | 'advisor_association').
  *
  * If no active window covers the current timestamp:
- *   - advisor_association → 422 { code: 'WINDOW_CLOSED', message: '...' } (aligns with advisee API)
- *   - other operation types → 403 { code: 'OUTSIDE_SCHEDULE_WINDOW', reason: '...' }
+ * - advisor_association → 422 { code: 'WINDOW_CLOSED', message: '...' } (aligns with advisee API)
+ * - other operation types → 403 { code: 'OUTSIDE_SCHEDULE_WINDOW', reason: '...' }
  *
  * Applied to:
- *   POST /groups                      → checkScheduleWindow('group_creation')
- *   POST /groups/:groupId/members     → checkScheduleWindow('member_addition')
- *   POST /advisor-requests            → checkScheduleWindow('advisor_association')
+ * POST /groups                      → checkScheduleWindow('group_creation')
+ * POST /groups/:groupId/members     → checkScheduleWindow('member_addition')
+ * POST /advisor-requests            → checkScheduleWindow('advisor_association')
  *
  * The PATCH /groups/:groupId/override endpoint is explicitly exempt (not wrapped).
  */
-const checkScheduleWindow = (operationType) => async (req, res, next) => {
+const checkScheduleWindow = (operationType, options = {}) => async (req, res, next) => {
   try {
     const now = new Date();
     const activeWindow = await ScheduleWindow.findOne({
@@ -70,20 +65,16 @@ const checkScheduleWindow = (operationType) => async (req, res, next) => {
     if (!activeWindow) {
       /**
        * Issue #61 Fix #7: Dynamic error message based on operationType
-       * 
-       * PR Review Issue #7: Hardcoded Message in Reusable Middleware
-       * 
-       * Problem:
+       * * PR Review Issue #7: Hardcoded Message in Reusable Middleware
+       * * Problem:
        * - Original code always returned "Advisor association schedule is closed"
        * - This middleware is reused for 3 different operation types
        * - Result: Incorrect error messages for group_creation and member_addition
-       * 
-       * Solution:
+       * * Solution:
        * - Map operationType to descriptive error message
        * - Each operation type gets its specific message
        * - Fallback message for unknown operation types
-       * 
-       * Message Mapping Details:
+       * * Message Mapping Details:
        */
       const messageMap = {
         /**
@@ -111,24 +102,19 @@ const checkScheduleWindow = (operationType) => async (req, res, next) => {
          */
         advisor_association: 'Advisor association schedule is closed',
       };
-      const message = messageMap[operationType] || 'Operation is not available at this time';
+      
+      const mappedMessage = messageMap[operationType] || 'Operation is not available at this time';
+      
+      // Feature branch options overrides main branch defaults if provided
+      const statusCode = options.statusCode || (operationType === 'advisor_association' ? 422 : 403);
+      const message = options.message || mappedMessage;
+      
+      // Main branch issue #61 requested WINDOW_CLOSED code specifically for advisor_association
+      const code = operationType === 'advisor_association' ? 'WINDOW_CLOSED' : 'OUTSIDE_SCHEDULE_WINDOW';
 
-      if (operationType === 'advisor_association') {
-        return res.status(422).json({
-          code: 'OUTSIDE_SCHEDULE_WINDOW',
-          message,
-        });
-      }
-
-      if (operationType === 'advisor_association') {
-        return res.status(422).json({
-          code: 'WINDOW_CLOSED',
-          message: 'The advisor association window is currently closed. Please check the coordinator schedule.',
-        });
-      }
-      return res.status(403).json({
-        code: 'OUTSIDE_SCHEDULE_WINDOW',
-        reason: 'Operation not available outside the configured schedule window',
+      return res.status(statusCode).json({
+        code,
+        message,
       });
     }
 

@@ -5,9 +5,9 @@ const { v4: uuidv4 } = require('uuid');
  * ScheduleWindow — stores coordinator-defined schedule windows per operation type.
  *
  * Each window is scoped to an operationType:
- *   - 'group_creation': window for group creation (Process 2.1)
- *   - 'member_addition': window for member addition (Process 2.3)
- *   - 'advisor_association': window for advisor association (Process 3.0)
+ * - 'group_creation': window for group creation (Process 2.1)
+ * - 'member_addition': window for member addition (Process 2.3)
+ * - 'advisor_association': window for advisor association (Process 3.0)
  *
  * Only one active window per operationType may cover a given point in time.
  * Boundary checks reject requests outside an active window for their respective operationType.
