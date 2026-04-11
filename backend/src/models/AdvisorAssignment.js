@@ -1,5 +1,10 @@
 const mongoose = require('mongoose');
 
+/**
+ * Audit/history of advisor assignments for a group.
+ * Stores both advisory relationships (advisorId/professorId reference) and status changes.
+ * Denormalized groupId for API consistency with rest of codebase.
+ */
 const advisorAssignmentSchema = new mongoose.Schema(
   {
     assignmentId: {
@@ -7,12 +12,18 @@ const advisorAssignmentSchema = new mongoose.Schema(
       unique: true,
       required: true,
     },
+    groupRef: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Group',
+      required: true,
+    },
     groupId: {
       type: String,
       required: true,
       index: true,
     },
-    professorId: {
+    // advisorId refers to the userId of the assigned professor/advisor
+    advisorId: {
       type: String,
       required: true,
     },
@@ -21,19 +32,28 @@ const advisorAssignmentSchema = new mongoose.Schema(
       enum: ['assigned', 'released', 'transferred'],
       required: true,
     },
-    previousProfessorId: {
-      type: String,
-      default: null,
-    },
-    updatedAt: {
+    // When the assignment was initially created
+    assignedAt: {
       type: Date,
       default: Date.now,
     },
-    updatedBy: {
+    // When the advisor was released (if status: 'released')
+    releasedAt: {
+      type: Date,
+      default: null,
+    },
+    // userId of the team leader or admin who released the advisor
+    releasedBy: {
       type: String,
       default: null,
     },
-    reason: {
+    // Reason for the change (release, transfer, etc.)
+    releaseReason: {
+      type: String,
+      default: null,
+    },
+    // For transfer tracking: previous advisor userId
+    previousAdvisorId: {
       type: String,
       default: null,
     },
@@ -41,9 +61,13 @@ const advisorAssignmentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Compound index for efficient queries
+// Compound indexes for efficient queries
+// Query pattern: find all assignments for a group in specific status
 advisorAssignmentSchema.index({ groupId: 1, status: 1 });
-advisorAssignmentSchema.index({ professorId: 1 });
+// Query pattern: find all assignments for an advisor
+advisorAssignmentSchema.index({ advisorId: 1 });
+// Query pattern: historical audit - latest assignments for a group
+advisorAssignmentSchema.index({ groupId: 1, createdAt: -1 });
 
 const AdvisorAssignment = mongoose.model('AdvisorAssignment', advisorAssignmentSchema);
 

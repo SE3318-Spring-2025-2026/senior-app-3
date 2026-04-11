@@ -105,12 +105,13 @@ const approveAdvisorRequest = async (groupId, requestId, professorId, approverId
       [
         {
           assignmentId: `asn_${uuidv4().split('-')[0]}`,
+          groupRef: group._id,
           groupId,
-          professorId,
+          advisorId: professorId,
           status: 'assigned',
-          updatedAt: now,
+          assignedAt: now,
           updatedBy: approverId,
-          reason: 'Advisor approved the assignment request',
+          releaseReason: 'Advisor approved the assignment request',
         },
       ],
       { session }  // Pass session so create is part of the transaction
@@ -142,7 +143,7 @@ const approveAdvisorRequest = async (groupId, requestId, professorId, approverId
 
     return {
       groupId,
-      professorId,
+      advisorId: professorId,
       status: 'assigned',
       updatedAt: now.toISOString(),
     };
@@ -213,12 +214,14 @@ const releaseAdvisor = async (groupId, releasedBy, reason = null, options = {}) 
       [
         {
           assignmentId: `asn_${uuidv4().split('-')[0]}`,
+          groupRef: group._id,
           groupId,
-          professorId: previousAdvisorId,
+          advisorId: previousAdvisorId,
           status: 'released',
-          updatedAt: now,
-          updatedBy: releasedBy,
-          reason: reason || 'Advisor released from group',
+          assignedAt: group.advisorUpdatedAt,
+          releasedAt: now,
+          releasedBy,
+          releaseReason: reason || 'Advisor released from group',
         },
       ],
       { session }
@@ -249,7 +252,7 @@ const releaseAdvisor = async (groupId, releasedBy, reason = null, options = {}) 
 
     return {
       groupId,
-      professorId: null,
+      advisorId: null,
       status: 'released',
       updatedAt: now.toISOString(),
     };
@@ -337,13 +340,14 @@ const transferAdvisor = async (groupId, newProfessorId, transferredBy, reason = 
     // Create AdvisorAssignment record for tracking
     const assignment = await AdvisorAssignment.create({
       assignmentId: `asn_${uuidv4().split('-')[0]}`,
+      groupRef: group._id,
       groupId,
-      professorId: newProfessorId,
-      previousProfessorId: previousAdvisorId,
+      advisorId: newProfessorId,
+      previousAdvisorId: previousAdvisorId,
       status: 'transferred',
-      updatedAt: now,
-      updatedBy: transferredBy,
-      reason: reason || 'Coordinator transferred advisor',
+      assignedAt: group.advisorUpdatedAt,
+      releasedBy: transferredBy,
+      releaseReason: reason || 'Coordinator transferred advisor',
     });
 
     // Create audit log
@@ -369,7 +373,7 @@ const transferAdvisor = async (groupId, newProfessorId, transferredBy, reason = 
 
     return {
       groupId,
-      professorId: newProfessorId,
+      advisorId: newProfessorId,
       status: 'transferred',
       updatedAt: now.toISOString(),
     };

@@ -111,7 +111,7 @@ const dispatchApprovalNotification = async (group, professor, professorId) => {
  * @param {string} req.params.requestId - Advisor request ID
  * @param {string} req.body.decision - 'approve' | 'reject'
  * @param {string} req.body.reason - optional reason/comment
- * @returns {200} { requestId, groupId, decision, status, professorId, assignedAt }
+ * @returns {200} { requestId, groupId, decision, status, advisorId, assignedAt }
  */
 const advisorApproveRequest = async (req, res) => {
   try {
@@ -183,7 +183,7 @@ const advisorApproveRequest = async (req, res) => {
           groupId: group.groupId,
           decision: 'approve',
           status: 'approved',
-          professorId,
+          advisorId: professorId,
           notificationTriggered: !notifLastError,
           assignedAt: now.toISOString(),
         });
@@ -249,7 +249,7 @@ const advisorApproveRequest = async (req, res) => {
  *
  * @param {string} req.params.groupId - Group ID
  * @param {string} req.body.reason - optional reason for release
- * @returns {200} { groupId, professorId, status, updatedAt }
+ * @returns {200} { groupId, advisorId, status, updatedAt }
  */
 const releaseAdvisorHandler = async (req, res) => {
   try {
@@ -326,7 +326,7 @@ const releaseAdvisorHandler = async (req, res) => {
  * @param {string} req.params.groupId - Group ID
  * @param {string} req.body.newProfessorId - New professor to assign
  * @param {string} req.body.reason - optional reason for transfer
- * @returns {200} { groupId, professorId, status, updatedAt }
+ * @returns {200} { groupId, advisorId, status, updatedAt }
  */
 const transferAdvisorHandler = async (req, res) => {
   try {
