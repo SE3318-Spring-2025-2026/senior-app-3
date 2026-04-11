@@ -7,10 +7,9 @@ const User = require('../models/User');
 const AdvisorRequest = require('../models/AdvisorRequest');
 const { createAuditLog } = require('../services/auditService');
 const { forwardToMemberRequestPipeline, forwardOverrideToReconciliation } = require('../services/groupService');
-const { dispatchGroupCreationNotification } = require('../services/notificationService');
+const { dispatchGroupCreationNotification, dispatchAdvisorRequestNotification } = require('../services/notificationService');
 const { INACTIVE_GROUP_STATUSES, VALID_STATUS_TRANSITIONS } = require('../utils/groupStatusEnum');
 const SyncErrorLog = require('../models/SyncErrorLog');
-const AdvisorRequest = require('../models/AdvisorRequest');
 
 const VALID_DECISIONS = new Set(['approved', 'rejected']);
 
@@ -151,9 +150,9 @@ const forwardApprovalResults = async (req, res) => {
  * Process 2.1 + 2.2: Create group, validate data, persist to D2, forward to 2.5.
  *
  * DFD flows:
- *   f02 — 2.1 sends groupName + leaderId to 2.2 for validation
- *   f18 — 2.2 writes validated group record to D2
- *   f03 — 2.2 forwards valid group data to Process 2.5
+ * f02 — 2.1 sends groupName + leaderId to 2.2 for validation
+ * f18 — 2.2 writes validated group record to D2
+ * f03 — 2.2 forwards valid group data to Process 2.5
  */
 const createGroup = async (req, res) => {
   try {
@@ -349,7 +348,7 @@ const createGroup = async (req, res) => {
  * Process 2.2: Return validated group record from D2.
  *
  * Returns: group_id, group_name, leader, advisor, status, members,
- *          github_org, jira_project
+ * github_org, jira_project
  */
 const displayNameFromUser = (user) => {
   if (!user) return null;
@@ -498,9 +497,9 @@ const VALID_GROUP_STATUSES = new Set(['pending_validation', 'active', 'inactive'
  * bypassing the standard invitation/approval flow.
  *
  * DFD flows:
- *   f16 — Coordinator → 2.8 (override request received)
- *   f21 — 2.8 → D2  (member records updated immediately)
- *   f17 — 2.8 → 2.5 (override confirmation forwarded for reconciliation)
+ * f16 — Coordinator → 2.8 (override request received)
+ * f21 — 2.8 → D2  (member records updated immediately)
+ * f17 — 2.8 → 2.5 (override confirmation forwarded for reconciliation)
  *
  * Role guard: coordinator only (403 for all other roles).
  * Not restricted by coordinator-defined schedule windows.
@@ -1025,8 +1024,7 @@ const decideMemberRequest = async (req, res) => {
 /**
  * GET /api/v1/groups
  * Coordinator-only endpoint: List all groups with status, member count, and integration health
- * 
- * Returns array of groups with:
+ * * Returns array of groups with:
  * - groupId, groupName, leaderId, status, members (count + details)
  * - githubConnected: boolean (based on githubOrg and githubRepoUrl existence)
  * - jiraConnected: boolean (based on projectKey and jiraBoardUrl existence)
@@ -1111,14 +1109,11 @@ const getAllGroups = async (req, res) => {
  * Returns: { isValid, error?, data?: { group, professor } }
  *
  * Issue #61 Fix #2 & #6: Validate Advisor Request Input
- * 
- * Purpose: Early validation before calling advisorAssignmentService
- * 
- * PR Review Issues Fixed:
+ * * Purpose: Early validation before calling advisorAssignmentService
+ * * PR Review Issues Fixed:
  * - Fix #2: Non-parallel entity checks → Now uses Promise.all()
  * - Fix #6: Missing .lean() optimization → Added for read-only queries
- * 
- * Validation Sequence:
+ * * Validation Sequence:
  * 1. Auth: requester === authUserId (403 if mismatch)
  * 2. Group: exists in D2 (404 if not found)
  * 3. Group: status === 'active' (409 if not active)
@@ -1128,8 +1123,7 @@ const getAllGroups = async (req, res) => {
  * 7. Professor: accountStatus === 'active' (409 if inactive)
  * 8. Group: no existing advisor (409 if has advisor)
  * (Duplicate pending requests are enforced in advisorAssignmentService + DB index, not via group.advisorRequest.)
- * 
- * Performance Notes:
+ * * Performance Notes:
  * - Promise.all([findGroup, findProfessor]) runs queries concurrently
  * - .lean() avoids Mongoose Document instantiation for read-only checks
  * - Result: ~50ms saved per request (significant for high concurrency)
@@ -1149,24 +1143,20 @@ const validateAdvisorRequest = async (groupId, professorId, requesterId, authUse
 
   /**
    * Issue #61 Fix #2 & #6: Parallel entity validation with .lean()
-   * 
-   * PR Review Issue #2: Non-Parallel Entity Checks
+   * * PR Review Issue #2: Non-Parallel Entity Checks
    * - Original: Sequential queries (Group first, then User)
    * - Impact: Adds 50-100ms latency (two database round trips)
    * - Fixed: Promise.all() to execute queries concurrently
-   * 
-   * PR Review Issue #8: Missing .lean() on read-only queries
+   * * PR Review Issue #8: Missing .lean() on read-only queries
    * - .lean() tells Mongoose to skip Document instantiation
    * - For read-only validation: No need for full Document objects
    * - Memory Savings: ~40-60% for validation phase
    * - Time Savings: Avoids Mongoose schema processing
-   * 
-   * Combined Impact:
+   * * Combined Impact:
    * - Sequential + full Document: ~150ms for validation
    * - Parallel + .lean(): ~50ms for validation
    * - Total improvement: ~100ms per request
-   * 
-   * Note: ValidateGroupAndProfessor in advisorAssignmentService
+   * * Note: ValidateGroupAndProfessor in advisorAssignmentService
    * also does this check, but we do early validation for fast-fail pattern
    */
   const [group, professor] = await Promise.all([
@@ -1233,46 +1223,40 @@ const validateAdvisorRequest = async (groupId, professorId, requesterId, authUse
 
 /**
  * Issue #61 Resolution: POST /advisor-requests Handler
- * 
- * This handler addresses PR Review Issue #2: Model/Schema Mismatch (Runtime Error Risk)
+ * * This handler addresses PR Review Issue #2: Model/Schema Mismatch (Runtime Error Risk)
  * Original Problem: Response tried to read from group.advisorRequest.* which doesn't exist
- * 
- * Endpoint: POST /api/v1/advisor-requests
+ * * Endpoint: POST /api/v1/advisor-requests
  * Process: 3.2 (Request Validation & D2 Persistence)
  * DFD Flow: f02 (3.1 → 3.2)
- * 
- * Role Authorization: student only (checked by roleMiddleware)
+ * * Role Authorization: student only (checked by roleMiddleware)
  * Schedule Boundary: advisor_association window enforced (checkScheduleWindow)
- * 
- * Request Workflow:
+ * * Request Workflow:
  * 1. Input validation: groupId, professorId, requesterId, message (optional)
  * 2. Auth validation: requester === authenticated user ID
  * 3. Entity validation: group exists & active, professor exists & active
  * 4. Call advisorAssignmentService.validateAndCreateAdvisorRequest()
  * 5. Service returns flat advisorRequest object (not nested in group)
- * 6. Return 201 with flat response schema
- * 
- * Response Schema (201 Created):
+ * 6. Return 201 with flat response schema IMMEDIATELY (Issue #62 Fire-and-Forget)
+ * 7. Dispatch notification asynchronously in background
+ * * Response Schema (201 Created):
  * {
- *   requestId: string,                  // ADVREQ_${timestamp}_${random}
- *   groupId: string,                    // From request
- *   professorId: string,                // From request
- *   requesterId: string,                // From request
- *   status: 'pending',                  // Always pending on creation
- *   message: string,                    // Optional message from team leader
- *   notificationTriggered: boolean,     // false at 201 (notification dispatched in background)
- *   createdAt: ISO8601 timestamp        // When request was created
+ * requestId: string,                  // ADVREQ_${timestamp}_${random}
+ * groupId: string,                    // From request
+ * professorId: string,                // From request
+ * requesterId: string,                // From request
+ * status: 'pending',                  // Always pending on creation
+ * message: string,                    // Optional message from team leader
+ * notificationTriggered: boolean,     // false at 201 (notification dispatched in background)
+ * createdAt: ISO8601 timestamp        // When request was created
  * }
- * 
- * Error Responses:
+ * * Error Responses:
  * - 400: Input validation failed (missing/invalid fields)
  * - 403: Not authenticated or not request submitter
  * - 404: Group or professor not found
  * - 409: Duplicate request, group has advisor, or professor inactive
  * - 422: Outside schedule window (checkScheduleWindow middleware)
  * - 500: Unexpected error
- * 
- * Issue #61 Key Features Implemented:
+ * * Issue #61 & #62 Key Features Implemented:
  * ✅ Group existence validated before persistence
  * ✅ Professor existence validated before persistence
  * ✅ Unique partial index prevents duplicate pending requests
@@ -1336,19 +1320,16 @@ const createAdvisorRequest = async (req, res) => {
     } catch (serviceError) {
       /**
        * Issue #61: Handle AdvisorAssignmentError correctly
-       * 
-       * AdvisorAssignmentError structure:
+       * * AdvisorAssignmentError structure:
        * - error.name = 'AdvisorAssignmentError' (for code field)
        * - error.status = HTTP status code (404, 409, 400, 500)
        * - error.message = descriptive error message
-       * 
-       * Common Status Codes from advisorAssignmentService:
+       * * Common Status Codes from advisorAssignmentService:
        * - 404: Group not found in D2, or Professor not found in D1
        * - 409: Group already has advisor, or duplicate pending request
        * - 400: Validation error (invalid input to service)
        * - 500: Unexpected database or service error
-       * 
-       * E11000 Handling:
+       * * E11000 Handling:
        * If unique partial index violation occurs:
        * - MongoDB throws error code 11000
        * - Service catches and throws AdvisorAssignmentError(409)
@@ -1383,32 +1364,10 @@ const createAdvisorRequest = async (req, res) => {
       console.error('Audit log failed (non-fatal):', auditError.message);
     }
 
-    // === RETURN SUCCESS RESPONSE (201) ===
-    /**
-     * Issue #61 Fix #3: Return flat advisorRequest object directly
-     * 
-     * PR Review Issue #2: Model/Schema Mismatch (Runtime Error Risk)
-     * 
-     * Original (BROKEN) Response:
-     * return res.status(201).json({
-     *   requestId: requestResult.requestId,
-     *   groupId: requestResult.group.groupId,                    // ❌ CRASH
-     *   professorId: requestResult.group.advisorRequest.professorId,  // ❌ CRASH
-     * });
-     * 
-     * Problem:
-     * - Tried to read requestResult.group.advisorRequest.*
-     * - But Group model doesn't have advisorRequest field
-     * - Result: "Cannot read properties of undefined" TypeError at runtime
-     * 
-     * Fixed Response:
-     * - advisorAssignmentService returns flat advisorRequest object
-     * - No nesting, direct field access
-     * - All fields from AdvisorRequest D2 record
-     * 
-     * Response schema matches OpenAPI: AdvisorRequest
-     */
-    return res.status(201).json({
+    // === RETURN SUCCESS RESPONSE (201) IMMEDIATELY ===
+    // Issue #62 Fix #2 (CRITICAL): Fire-and-Forget Pattern
+    // Return 201 without awaiting notification dispatch.
+    res.status(201).json({
       requestId: requestResult.requestId,
       groupId: requestResult.groupId,
       professorId: requestResult.professorId,
@@ -1418,6 +1377,84 @@ const createAdvisorRequest = async (req, res) => {
       notificationTriggered: requestResult.notificationTriggered,
       createdAt: requestResult.createdAt.toISOString(),
     });
+
+    // BACKGROUND TASK: Dispatch notification asynchronously (Process 3.3)
+    // Non-blocking execution resolving Issue #62 timeout problems while
+    // using the independent AdvisorRequest model implemented in Issue #61.
+    setImmediate(async () => {
+      try {
+        const { dispatchAdvisorRequestWithRetry } = require('../services/notificationService');
+
+        // Issue #62 Fix #5 (MEDIUM): Trimmed Payload Format
+        const dispatchResult = await dispatchAdvisorRequestWithRetry({
+          groupId: requestResult.groupId,
+          requesterId: requestResult.requesterId,
+          message: requestResult.message || null,
+        });
+
+        if (dispatchResult.ok) {
+          // Issue #62 Fix #4 & Issue #61: Update AdvisorRequest model in D2
+          await AdvisorRequest.findOneAndUpdate(
+            { requestId: requestResult.requestId },
+            { $set: { notificationTriggered: true } }
+          );
+
+          // Log success with explicit requestId for traceability
+          await createAuditLog({
+            action: 'advisor_request_notification_sent',
+            actorId: requestResult.requesterId,
+            groupId: requestResult.groupId,
+            payload: {
+              requestId: requestResult.requestId,
+              professorId: requestResult.professorId,
+              message: requestResult.message || null,
+              notificationId: dispatchResult.notificationId,
+            },
+          });
+        } else {
+          // Notification failed after 3 retries. Update DB for future batch retries.
+          await AdvisorRequest.findOneAndUpdate(
+            { requestId: requestResult.requestId },
+            { $set: { notificationTriggered: false } }
+          );
+
+          try {
+            const syncErr = await SyncErrorLog.create({
+              service: 'notification',
+              groupId: requestResult.groupId,
+              actorId: requestResult.requesterId,
+              attempts: dispatchResult.attempts,
+              lastError: dispatchResult.lastError,
+            });
+
+            await createAuditLog({
+              action: 'sync_error',
+              actorId: requestResult.requesterId,
+              groupId: requestResult.groupId,
+              payload: {
+                requestId: requestResult.requestId,
+                api_type: 'notification',
+                retry_count: dispatchResult.attempts,
+                last_error: dispatchResult.lastError,
+                sync_error_id: syncErr.errorId,
+                event_type: 'advisor_request_notification_failed',
+              },
+            });
+          } catch (logErr) {
+            console.error(
+              `SyncErrorLog/audit write failed for requestId=${requestResult.requestId} (non-fatal):`,
+              logErr.message
+            );
+          }
+        }
+      } catch (bgErr) {
+        console.error(
+          `Background notification dispatch failed for requestId=${requestResult?.requestId} (non-fatal):`,
+          bgErr.message
+        );
+      }
+    });
+
   } catch (err) {
     console.error('createAdvisorRequest error:', err);
     return res.status(500).json({
