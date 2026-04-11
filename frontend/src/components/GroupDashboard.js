@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import useGroupStore from '../store/groupStore';
 import useAuthStore from '../store/authStore';
 import GitHubStatusCard from './GitHubStatusCard';
@@ -9,6 +9,7 @@ import JiraSetupForm from './JiraSetupForm';
 import GroupMemberList from './GroupMemberList';
 import AddMemberForm from './AddMemberForm';
 import { submitMembershipDecision, getMyPendingInvitation } from '../api/groupService';
+import { releaseAdvisor } from '../api/advisorService';
 import './GroupDashboard.css';
 
 /**
@@ -24,6 +25,7 @@ const GroupDashboard = () => {
   const [invitationInfo, setInvitationInfo] = useState(null);
   const [decisionLoading, setDecisionLoading] = useState(false);
   const [decisionMsg, setDecisionMsg] = useState('');
+  const [releaseLoading, setReleaseLoading] = useState(false);
 
   // Group store state
   const {
@@ -67,7 +69,7 @@ const GroupDashboard = () => {
       if (inv && inv.group_id === groupId) {
         setInvitationInfo(inv);
       }
-    }).catch(() => {});
+    }).catch(() => { });
   }, [groupId, user]);
 
   const handleDecision = async (decision) => {
@@ -107,6 +109,26 @@ const GroupDashboard = () => {
     navigate(`/groups/${groupId}/coordinator`);
   };
 
+  const handleReleaseAdvisor = async () => {
+    if (!groupId) return;
+    const confirmed = window.confirm(
+      'Release the current advisor from this group? You can request a new advisor later if the schedule allows.'
+    );
+    if (!confirmed) return;
+
+    const reason = window.prompt('Optional reason (stored in assignment history):', '') ?? '';
+
+    setReleaseLoading(true);
+    try {
+      await releaseAdvisor(groupId, reason);
+      await fetchGroupDashboard(groupId);
+    } catch (err) {
+      window.alert(err.response?.data?.message || 'Could not release the advisor. Please try again.');
+    } finally {
+      setReleaseLoading(false);
+    }
+  };
+
   if (!groupId) {
     return <div className="page error">Invalid group ID</div>;
   }
@@ -131,8 +153,8 @@ const GroupDashboard = () => {
           )}
         </div>
         <div className="dashboard-actions">
-          <button 
-            className="refresh-button" 
+          <button
+            className="refresh-button"
             onClick={handleRefresh}
             disabled={manualRefresh || isLoading}
             title="Refresh dashboard data"
@@ -208,6 +230,65 @@ const GroupDashboard = () => {
               <JiraStatusCard data={jira} isLoading={isLoading} />
             </div>
 
+            {/* Advisor Status Card */}
+            <div className="status-card">
+              <div className="card-header">
+                <h3 className="card-title">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 8a3 3 0 100-6 3 3 0 000 6zm2 1H6a4 4 0 00-4 4v1h12v-1a4 4 0 00-4-4z" />
+                  </svg>
+                  Advisor
+                </h3>
+                {groupData?.advisorId ? (
+                  <span className="status-badge active">Assigned</span>
+                ) : groupData?.advisorRequest?.status === 'pending' ? (
+                  <span className="status-badge pending">Request Pending</span>
+                ) : (
+                  <span className="status-badge none">Not Assigned</span>
+                )}
+              </div>
+              <div className="card-content">
+                {groupData?.advisorId ? (
+                  <>
+                    <div className="info-row">
+                      <span className="info-label">Assigned Advisor:</span>
+                      <span className="info-value">Dr. {groupData.advisorName || 'Advisor'}</span>
+                    </div>
+                    {isLeader && (
+                      <button
+                        type="button"
+                        className="release-advisor-btn"
+                        onClick={handleReleaseAdvisor}
+                        disabled={releaseLoading}
+                      >
+                        {releaseLoading ? 'Releasing…' : 'Release Advisor'}
+                      </button>
+                    )}
+                  </>
+                ) : groupData?.advisorRequest?.status === 'pending' ? (
+                  <div className="advisor-empty-state">
+                    <p>You have a pending request sent to a professor.</p>
+                    <div className="info-row">
+                      <span className="info-label">Status:</span>
+                      <span className="info-value">Awaiting Response</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="advisor-empty-state">
+                    <p>No advisor assigned to this group yet.</p>
+                    {isLeader && (
+                      <button 
+                        className="request-advisor-btn"
+                        onClick={() => navigate(`/groups/${groupId}/advisor-request`)}
+                      >
+                        Request Advisor
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Pending Approvals Card */}
             <div className="status-card">
               <div className="card-header">
@@ -231,6 +312,42 @@ const GroupDashboard = () => {
                     {pendingApprovalsCount} student{pendingApprovalsCount !== 1 ? 's' : ''}{' '}
                     {pendingApprovalsCount !== 1 ? 'have' : 'has'} not yet responded.
                   </p>
+                )}
+              </div>
+            </div>
+
+            {/* Faculty advisor — enriched from GET /groups/:groupId */}
+            <div className="status-card">
+              <div className="card-header">
+                <h3 className="card-title">Faculty advisor</h3>
+              </div>
+              <div className="card-content">
+                {groupData.advisorId ? (
+                  <div className="info-row">
+                    <span className="info-label">Assigned:</span>
+                    <span className="info-value">
+                      {groupData.advisorName || groupData.advisorId}
+                    </span>
+                  </div>
+                ) : groupData.advisorRequest?.status === 'pending' ? (
+                  <p className="card-hint">
+                    Request pending for{' '}
+                    <strong>
+                      {groupData.advisorRequest.professorName || groupData.advisorRequest.professorId}
+                    </strong>
+                    {groupData.advisorRequest.notificationTriggered === false && (
+                      <span> (notification delivery pending or failed — refresh later)</span>
+                    )}
+                  </p>
+                ) : (
+                  <>
+                    <p className="card-hint">No advisor assigned yet.</p>
+                    {isLeader && groupData.status === 'active' && (
+                      <Link className="advisor-request-link" to={`/groups/${groupId}/advisor-request`}>
+                        Request an advisor
+                      </Link>
+                    )}
+                  </>
                 )}
               </div>
             </div>

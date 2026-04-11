@@ -2,8 +2,9 @@ const mongoose = require('mongoose');
 
 /**
  * Audit/history of advisor assignments for a group.
+ * Uses Group document _id as groupRef (Mongoose ref) plus denormalized groupId (API id string)
+ * to match the rest of the codebase.
  * Stores both advisory relationships (advisorId/professorId reference) and status changes.
- * Denormalized groupId for API consistency with rest of codebase.
  */
 const advisorAssignmentSchema = new mongoose.Schema(
   {
@@ -29,10 +30,11 @@ const advisorAssignmentSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['assigned', 'released', 'transferred'],
+      // Combined enums from both main ('active') and feature ('assigned') to prevent validation errors
+      enum: ['active', 'assigned', 'released', 'transferred'],
       required: true,
     },
-    // When the assignment was initially created
+    /** When the advisor was assigned; omitted if unknown (legacy data) */
     assignedAt: {
       type: Date,
       default: Date.now,
@@ -42,7 +44,7 @@ const advisorAssignmentSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
-    // userId of the team leader or admin who released the advisor
+    /** userId of the team leader or admin who released the advisor */
     releasedBy: {
       type: String,
       default: null,
@@ -50,7 +52,7 @@ const advisorAssignmentSchema = new mongoose.Schema(
     // Reason for the change (release, transfer, etc.)
     releaseReason: {
       type: String,
-      default: null,
+      default: '', // Using empty string default from main for string type consistency
     },
     // For transfer tracking: previous advisor userId
     previousAdvisorId: {
