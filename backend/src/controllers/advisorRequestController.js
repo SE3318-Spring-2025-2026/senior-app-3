@@ -8,8 +8,7 @@ const { createAuditLog } = require('../services/auditService');
 
 /**
  * Process 3.1: Submit Advisee Request
- * 
- * Logic:
+ * * Logic:
  * - Enforce schedule window boundary (422)
  * - Authorize requester: must be the Team Leader of the specified group (403)
  * - Forward valid data to Process 3.2 (Service)
@@ -20,10 +19,13 @@ const createRequest = async (req, res) => {
     const requesterId = req.user.userId;
 
     // 1. Input validation
-    if (!groupId || !professorId) {
+    if (
+      typeof groupId !== 'string' || !groupId.trim() ||
+      typeof professorId !== 'string' || !professorId.trim()
+    ) {
       return res.status(400).json({
-        code: 'MISSING_FIELDS',
-        message: 'groupId and professorId are required.'
+        code: 'INVALID_INPUT',
+        message: 'groupId and professorId must be non-empty strings.',
       });
     }
 
@@ -45,10 +47,10 @@ const createRequest = async (req, res) => {
     // 3. Authorization (Team Leader Guard)
     const group = await Group.findOne({ groupId });
     if (!group) {
-        return res.status(404).json({
-          code: 'GROUP_NOT_FOUND',
-          message: 'Group not found.'
-        });
+      return res.status(404).json({
+        code: 'GROUP_NOT_FOUND',
+        message: 'Group not found.'
+      });
     }
 
     if (group.leaderId !== requesterId) {
@@ -91,23 +93,30 @@ const createRequest = async (req, res) => {
 
 /**
  * Process 3.5: Release Advisor
- * 
- * Logic:
+ * POST /groups/:groupId/release-advisor — Team Leader releases current advisor
+ * * Logic:
  * - Authorize requester: Team Leader or Coordinator (403)
- * - Enforce schedule window boundary (422)
  * - Verify group currently has an assigned advisor (409)
  * - Update D2 group record: clear advisorId, set advisorStatus to 'released'
  * - Log the action to audit trail
  */
 const releaseAdvisor = async (req, res) => {
   const session = await mongoose.startSession();
+  let responsePayload;
+
   try {
     const { groupId } = req.params;
-    const { professorId, reason } = req.body;
     const requesterId = req.user.userId;
     const requesterRole = req.user.role;
+    // Handle both req.body structures
+    const { professorId, reason } = req.body || {};
 
-    let responsePayload;
+    if (typeof groupId !== 'string' || !groupId.trim()) {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'groupId is required.',
+      });
+    }
 
     await session.withTransaction(async () => {
       // 1. Fetch group and check if it exists (using session for atomic read-modify-write)
@@ -124,7 +133,7 @@ const releaseAdvisor = async (req, res) => {
         throw { status: 403, code: 'FORBIDDEN', message: 'Only the Team Leader or a Coordinator can release the advisor.' };
       }
 
-      // 4. Conflict Check: check if group HAS an advisor
+      // 3. Conflict Check: check if group HAS an advisor
       if (!group.advisorId) {
         throw { status: 409, code: 'NO_ASSIGNED_ADVISOR', message: 'Group does not currently have an assigned advisor.' };
       }
@@ -136,23 +145,24 @@ const releaseAdvisor = async (req, res) => {
 
       const oldAdvisorId = group.advisorId;
 
-      // 5. Update Group Record
+      // 4. Update Group Record
       group.advisorId = null;
       group.advisorStatus = 'released';
       await group.save({ session });
 
-      // 6. Persist to Assignment History
+      // 5. Persist to Assignment History
       await AdvisorAssignment.create([{
         assignmentId: `asn_${uuidv4().split('-')[0]}`,
         groupId: group.groupId,
-        professorId: oldAdvisorId,
+        groupRef: group._id, // Ensuring groupRef is provided per the updated schema
+        advisorId: oldAdvisorId,
         status: 'released',
-        updatedBy: requesterId,
-        reason: reason || 'No reason provided',
-        updatedAt: new Date()
+        releasedBy: requesterId,
+        releaseReason: reason || 'No reason provided',
+        releasedAt: new Date()
       }], { session });
 
-      // 7. Audit Log (outside transaction might be better but we'll try to keep it consistent or just catch errors)
+      // 6. Audit Log (non-fatal)
       try {
         await createAuditLog({
           action: 'ADVISOR_RELEASED',
@@ -169,21 +179,21 @@ const releaseAdvisor = async (req, res) => {
         }, session);
       } catch (auditError) {
         console.error('Advisor release audit log failed:', auditError.message);
-        // Non-fatal, don't throw
       }
 
       responsePayload = {
         groupId: group.groupId,
         professorId: null,
         status: 'released',
-        updatedAt: group.updatedAt
+        updatedAt: group.updatedAt,
+        message: 'Advisor has been released from this group.'
       };
     });
 
     return res.status(200).json(responsePayload);
 
   } catch (error) {
-    console.error('Release advisor error:', error);
+    console.error('releaseAdvisor error:', error);
     const status = error.status || 500;
     return res.status(status).json({
       code: error.code || 'SERVER_ERROR',
@@ -196,6 +206,5 @@ const releaseAdvisor = async (req, res) => {
 
 module.exports = {
   createRequest,
-  releaseAdvisor
+  releaseAdvisor,
 };
-

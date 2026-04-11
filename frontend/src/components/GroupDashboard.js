@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import useGroupStore from '../store/groupStore';
 import useAuthStore from '../store/authStore';
 import GitHubStatusCard from './GitHubStatusCard';
 import GitHubSetupForm from './GitHubSetupForm';
 import JiraStatusCard from './JiraStatusCard';
+import JiraSetupForm from './JiraSetupForm';
 import GroupMemberList from './GroupMemberList';
 import AddMemberForm from './AddMemberForm';
 import { submitMembershipDecision, getMyPendingInvitation } from '../api/groupService';
@@ -25,7 +26,7 @@ const GroupDashboard = () => {
   const [decisionLoading, setDecisionLoading] = useState(false);
   const [decisionMsg, setDecisionMsg] = useState('');
   
-  // Release Advisor state
+  // Release Advisor Modal & State
   const [releaseModalOpen, setReleaseModalOpen] = useState(false);
   const [releaseReason, setReleaseReason] = useState('');
   const [releaseLoading, setReleaseLoading] = useState(false);
@@ -91,16 +92,18 @@ const GroupDashboard = () => {
     }
   };
 
+  // Modern handleReleaseAdvisor (using the Modal state)
   const handleReleaseAdvisor = async () => {
-    if (!groupData.advisorId) return;
+    if (!groupData?.advisorId) return;
     
     setReleaseLoading(true);
     setReleaseError('');
     try {
+      // apiClient.delete -> { professorId, reason } in data
       await releaseAdvisor(groupId, groupData.advisorId, releaseReason);
       setReleaseModalOpen(false);
       setReleaseReason('');
-      fetchGroupDashboard(groupId);
+      await fetchGroupDashboard(groupId);
     } catch (err) {
       const status = err.response?.status;
       if (status === 403) {
@@ -324,6 +327,42 @@ const GroupDashboard = () => {
                 )}
               </div>
             </div>
+
+            {/* Faculty advisor — enriched from GET /groups/:groupId */}
+            <div className="status-card">
+              <div className="card-header">
+                <h3 className="card-title">Faculty advisor</h3>
+              </div>
+              <div className="card-content">
+                {groupData.advisorId ? (
+                  <div className="info-row">
+                    <span className="info-label">Assigned:</span>
+                    <span className="info-value">
+                      {groupData.advisorName || groupData.advisorId}
+                    </span>
+                  </div>
+                ) : groupData.advisorRequest?.status === 'pending' ? (
+                  <p className="card-hint">
+                    Request pending for{' '}
+                    <strong>
+                      {groupData.advisorRequest.professorName || groupData.advisorRequest.professorId}
+                    </strong>
+                    {groupData.advisorRequest.notificationTriggered === false && (
+                      <span> (notification delivery pending or failed — refresh later)</span>
+                    )}
+                  </p>
+                ) : (
+                  <>
+                    <p className="card-hint">No advisor assigned yet.</p>
+                    {isLeader && groupData.status === 'active' && (
+                      <Link className="advisor-request-link" to={`/groups/${groupId}/advisor-request`}>
+                        Request an advisor
+                      </Link>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Members Section */}
@@ -339,13 +378,21 @@ const GroupDashboard = () => {
               <h2 className="integration-title">GitHub Integration Setup</h2>
               <GitHubSetupForm
                 groupId={groupId}
-                onSuccess={() => {
-                  // Refresh dashboard to show updated GitHub configuration
-                  fetchGroupDashboard(groupId);
-                }}
-                onError={(error) => {
-                  console.error('GitHub setup error:', error);
-                }}
+                onSuccess={() => fetchGroupDashboard(groupId)}
+                onError={(error) => console.error('GitHub setup error:', error)}
+                isLeader={isLeader}
+              />
+            </div>
+          )}
+
+          {/* JIRA Integration Setup — Team Leader only (Process 2.7) */}
+          {isLeader && (
+            <div className="integration-section">
+              <h2 className="integration-title">JIRA Integration Setup</h2>
+              <JiraSetupForm
+                groupId={groupId}
+                onSuccess={() => fetchGroupDashboard(groupId)}
+                onError={(error) => console.error('JIRA setup error:', error)}
                 isLeader={isLeader}
               />
             </div>
