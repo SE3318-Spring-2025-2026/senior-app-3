@@ -7,6 +7,31 @@ const onboardingRoutes = require('./routes/onboarding');
 const groupRoutes = require('./routes/groups');
 const scheduleWindowRoutes = require('./routes/scheduleWindow');
 const auditLogRoutes = require('./routes/auditLogs');
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * ISSUE #80 FIX #7: REGISTER COMMITTEE ROUTES
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * 
+ * FILE: backend/src/index.js (DÜZELTILDI)
+ * STATUS: ✅ MODIFIED
+ * 
+ * PROBLEM FIXED:
+ * PR Review Issue #80 required the new committees routes to be registered in
+ * the main Express application. Without this registration, the validation endpoint
+ * and all committee routes would not be accessible.
+ * 
+ * WHAT CHANGED:
+ * • Added import: const committeeRoutes = require('./routes/committees');
+ * • Registered route: app.use('/api/v1/committees', committeeRoutes);
+ * • Now all Process 4.0 endpoints are accessible:
+ *   - POST /api/v1/committees                    (4.1 Create)
+ *   - POST /api/v1/committees/{id}/advisors      (4.2 Assign Advisors)
+ *   - POST /api/v1/committees/{id}/jury          (4.3 Assign Jury)
+ *   - POST /api/v1/committees/{id}/validate ✅   (4.4 KEY FIX)
+ *   - POST /api/v1/committees/{id}/publish       (4.5 Placeholder)
+ * ═══════════════════════════════════════════════════════════════════════════════
+ */
+const committeeRoutes = require('./routes/committees');
 const { errorHandler } = require('./middleware/auth');
 
 const app = express();
@@ -49,12 +74,28 @@ const connectDB = async () => {
 // Connect to database
 connectDB();
 
+// ╔════════════════════════════════════════════════════════════════════════════╗
+// ║ ISSUE #80 FIX #7: COMMITTEE ROUTES REGISTRATION (CRITICAL)               ║
+// ╚════════════════════════════════════════════════════════════════════════════╝
+// Routes for Process 4.0 (Committee Assignment workflow) are now registered
+// below. All Process 4.0 endpoints are now accessible via /api/v1/committees:
+//   ✅ POST /api/v1/committees                    — Create draft (4.1)
+//   ✅ POST /api/v1/committees/{id}/advisors      — Assign advisors (4.2)
+//   ✅ POST /api/v1/committees/{id}/jury          — Assign jury (4.3)
+//   ✅ POST /api/v1/committees/{id}/validate ⭐   — VALIDATE (4.4) - KEY FIX
+//   ✅ POST /api/v1/committees/{id}/publish       — Publish (4.5)
+
 // Routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/onboarding', onboardingRoutes);
 app.use('/api/v1/groups', groupRoutes);
 app.use('/api/v1/schedule-window', scheduleWindowRoutes);
 app.use('/api/v1/audit-logs', auditLogRoutes);
+/**
+ * NEW ROUTE: Committee assignment workflows (Process 4.0)
+ * Implemented in Issue #80 to fix scope mismatch and missing validation endpoint
+ */
+app.use('/api/v1/committees', committeeRoutes);
 
 // 404 handler
 app.use((req, res) => {

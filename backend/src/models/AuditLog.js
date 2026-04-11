@@ -1,6 +1,62 @@
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * ISSUE #80 FIX #4: AUDITLOG SCHEMA - COMMITTEE AUDIT EVENTS
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * 
+ * FILE: backend/src/models/AuditLog.js (DÜZELTILDI)
+ * STATUS: ✅ MODIFIED
+ * 
+ * PROBLEM FIXED:
+ * PR Review Issue #80 identified that AuditLog schema was missing enum values
+ * for committee-related operations. When d6UpdateService and committeeValidationService
+ * tried to create audit logs with actions like 'SPRINT_COMMITTEE_ASSIGNED' or
+ * 'COMMITTEE_VALIDATION_PASSED', the enum validation failed because these actions
+ * weren't in the allowed list.
+ * 
+ * WHAT CHANGED:
+ * • Added 8 new audit event types for complete committee lifecycle
+ * • Enabled audit trail for all Process 4.0 operations
+ * • Ensures consistency across committee and sprint record operations
+ * 
+ * NEW ENUM VALUES ADDED:
+ * ✅ COMMITTEE_CREATED          — Process 4.1 (Coordinator creates committee draft)
+ * ✅ COMMITTEE_ADVISORS_ASSIGNED — Process 4.2 (Advisors assigned to committee)
+ * ✅ COMMITTEE_JURY_ASSIGNED     — Process 4.3 (Jury members assigned)
+ * ✅ COMMITTEE_VALIDATION_PASSED — Process 4.4 (Validation succeeds)
+ * ✅ COMMITTEE_VALIDATION_FAILED — Process 4.4 (Validation fails)
+ * ✅ COMMITTEE_PUBLISHED         — Process 4.5 (Committee published)
+ * ✅ SPRINT_COMMITTEE_ASSIGNED   — Flow f13 (D6 update with committee assignment)
+ * ✅ DELIVERABLE_LINKED_TO_SPRINT — Flow f14 (D4 → D6 cross-reference)
+ * 
+ * AUDIT FIELD NAMES (per Issue #80 Fix #3):
+ * • action: Enum value (SCREAMING_SNAKE_CASE)
+ * • actorId: User/system performing action (was incorrectly 'userId')
+ * • targetId: Resource being acted upon (was incorrectly 'resourceType'/'resourceId')
+ * • groupId: Group context (optional but recommended)
+ * • payload: Mixed data with operation-specific fields (was incorrectly 'changeDetails')
+ * 
+ * EXAMPLE AUDIT LOG:
+ * {
+ *   action: 'COMMITTEE_VALIDATION_PASSED',
+ *   actorId: 'coord_xyz',
+ *   targetId: 'com_abc123',
+ *   groupId: 'grp_def456',
+ *   payload: {
+ *     committeeId: 'com_abc123',
+ *     committeeName: 'Final Review Panel',
+ *     advisorCount: 2,
+ *     juryCount: 3,
+ *     valid: true,
+ *     missingRequirements: []
+ *   },
+ *   createdAt: 2026-04-11T10:30:00.000Z
+ * }
+ * ═══════════════════════════════════════════════════════════════════════════════
+ */
+
 const auditLogSchema = new mongoose.Schema(
   {
     auditId: {
@@ -57,6 +113,37 @@ const auditLogSchema = new mongoose.Schema(
         'jira_integration_setup',
         'status_transition',
         'sync_error',
+        // Committee assignment events (Process 4.0)
+        /**
+         * =====================================================================
+         * FIX #4: ADD COMMITTEE VALIDATION AUDIT EVENTS (ISSUE #80 - MEDIUM)
+         * =====================================================================
+         * PROBLEM: PR review identified missing audit enum values for committee
+         * operations. When d6UpdateService calls createAuditLog with
+         * 'SPRINT_COMMITTEE_ASSIGNED' or 'DELIVERABLE_LINKED_TO_SPRINT', the
+         * enum validation failed because these actions weren't in the allowed list.
+         *
+         * SOLUTION: Add all committee-related audit events to enum:
+         * - COMMITTEE_CREATED: Process 4.1 (Coordinator creates draft)
+         * - COMMITTEE_ADVISORS_ASSIGNED: Process 4.2 (Advisor assignment)
+         * - COMMITTEE_JURY_ASSIGNED: Process 4.3 (Jury assignment)
+         * - COMMITTEE_VALIDATION_PASSED: Process 4.4 (Validation succeeds)
+         * - COMMITTEE_VALIDATION_FAILED: Process 4.4 (Validation fails)
+         * - COMMITTEE_PUBLISHED: Process 4.5 (Committee published)
+         * - SPRINT_COMMITTEE_ASSIGNED: Flow f13 (D6 update)
+         * - DELIVERABLE_LINKED_TO_SPRINT: Flow f14 (D4 → D6)
+         *
+         * These enable complete audit trail for committee lifecycle.
+         * =====================================================================
+         */
+        'COMMITTEE_CREATED',
+        'COMMITTEE_ADVISORS_ASSIGNED',
+        'COMMITTEE_JURY_ASSIGNED',
+        'COMMITTEE_VALIDATION_PASSED',
+        'COMMITTEE_VALIDATION_FAILED',
+        'COMMITTEE_PUBLISHED',
+        'SPRINT_COMMITTEE_ASSIGNED',
+        'DELIVERABLE_LINKED_TO_SPRINT',
         // Test sentinel (used in existing test suite)
         'TEST_ACTION',
       ],

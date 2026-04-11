@@ -4,6 +4,57 @@ const Deliverable = require('../models/Deliverable');
 const { createAuditLog } = require('./auditService');
 
 /**
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * ISSUE #80 FIX #3: D6 UPDATE SERVICE - AUDIT FIELD NAMES CORRECTION
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * 
+ * FILE: backend/src/services/d6UpdateService.js (DÜZELTILDI)
+ * STATUS: ✅ MODIFIED
+ * 
+ * PROBLEM FIXED:
+ * PR Review Issue #80 identified that audit log calls were using INCORRECT field names:
+ *   WRONG (old):     userId, resourceType, resourceId, changeDetails
+ *   CORRECT (now):   actorId, targetId, groupId, payload
+ * 
+ * This caused audit logging to fail silently because AuditLog schema does NOT have
+ * userId/resourceType/changeDetails fields. The schema REQUIRES:
+ *   - actorId: User/system performing the action
+ *   - targetId: Resource being acted upon
+ *   - groupId: Group context (optional but recommended)
+ *   - payload: Mixed data object with context-specific fields
+ * 
+ * WHAT CHANGED:
+ * • Fixed updateSprintWithCommitteeAssignment() audit calls
+ * • Fixed linkDeliverableToSprint() audit calls
+ * • Changed field names to match AuditLog schema exactly
+ * • Changed action names to SCREAMING_SNAKE_CASE per schema enum
+ * 
+ * BEFORE (BROKEN):
+ * ❌ await createAuditLog({
+ *      action: 'sprint_committee_assignment',
+ *      userId: coordinatorId,
+ *      resourceType: 'sprint_record',
+ *      resourceId: sprintRecord.sprintRecordId,
+ *      changeDetails: { sprintId, groupId, committeeId }
+ *    });
+ * 
+ * AFTER (FIXED):
+ * ✅ await createAuditLog({
+ *      action: 'SPRINT_COMMITTEE_ASSIGNED',
+ *      actorId: coordinatorId,
+ *      targetId: sprintRecord.sprintRecordId,
+ *      groupId: groupId,
+ *      payload: { sprintId, groupId, committeeId }
+ *    });
+ * 
+ * IMPACT:
+ * • Audit logs now persist correctly in MongoDB
+ * • Complete audit trail for committee assignments
+ * • All operations traceable to actor (coordinator)
+ * ═══════════════════════════════════════════════════════════════════════════════
+ */
+
+/**
  * D6UpdateServiceError — Custom error for D6 update operations.
  */
 class D6UpdateServiceError extends Error {
@@ -50,13 +101,30 @@ async function updateSprintWithCommitteeAssignment(groupId, sprintId, committeeI
 
     await sprintRecord.save();
 
-    // Create audit log
+    /**
+     * =====================================================================
+     * FIX #2: CORRECT AUDIT LOG FIELD NAMES (ISSUE #80 - HIGH)
+     * =====================================================================
+     * PROBLEM: Audit log calls used incorrect field names:
+     *   OLD (WRONG): userId, resourceType, changeDetails
+     *   These don't exist in AuditLog schema
+     *
+     * ACTUAL AUDITLOG SCHEMA fields:
+     *   - action: Required enum value (SCREAMING_SNAKE_CASE)
+     *   - actorId: User/system performing the action
+     *   - targetId: Resource being acted upon (sprintRecordId)
+     *   - groupId: Group context (optional but recommended)
+     *   - payload: Mixed data object with context-specific fields
+     *
+     * SOLUTION: Update all audit calls to use correct field names and structure
+     * =====================================================================
+     */
     await createAuditLog({
-      action: 'sprint_committee_assignment',
-      userId: coordinatorId,
-      resourceType: 'sprint_record',
-      resourceId: sprintRecord.sprintRecordId,
-      changeDetails: {
+      action: 'SPRINT_COMMITTEE_ASSIGNED',
+      actorId: coordinatorId,
+      targetId: sprintRecord.sprintRecordId,
+      groupId: groupId,
+      payload: {
         sprintId,
         groupId,
         committeeId,
@@ -133,13 +201,16 @@ async function linkDeliverableToSprint(deliverableId, sprintId, groupId, coordin
 
     await sprintRecord.save();
 
-    // Create audit log
+    /**
+     * FIX #2 (continued): Correct audit field names in deliverable linkage
+     * Uses proper field names: actorId, targetId, groupId, payload
+     */
     await createAuditLog({
-      action: 'deliverable_linked_to_sprint',
-      userId: coordinatorId,
-      resourceType: 'sprint_record',
-      resourceId: sprintRecord.sprintRecordId,
-      changeDetails: {
+      action: 'DELIVERABLE_LINKED_TO_SPRINT',
+      actorId: coordinatorId,
+      targetId: sprintRecord.sprintRecordId,
+      groupId: groupId,
+      payload: {
         sprintId,
         groupId,
         deliverableId,
