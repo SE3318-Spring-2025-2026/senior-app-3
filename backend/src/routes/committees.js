@@ -1,112 +1,53 @@
 const express = require('express');
 const router = express.Router();
-const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const {
-  createCommittee,
-  validateCommitteeHandler,
-  publishCommitteeHandler,
+  createCommitteeHandler,
   assignAdvisorsHandler,
   assignJuryHandler,
+  validateCommitteeHandler,
+  publishCommitteeHandler,
+  getCommitteeHandler,
 } = require('../controllers/committees');
+const { authorize } = require('../middleware/authorization');
 
 /**
- * POST /committees
- * Create Committee (Process 4.1)
- * 
- * Coordinator creates a new committee draft.
- * Requires: coordinator role, committeeName (unique), optional description
- * 
- * Response (201):
- * {
- *   committeeId, committeeName, description, advisorIds[], juryIds[],
- *   status: "draft", createdAt, updatedAt
- * }
+ * Process 4.1: Create Committee Draft
+ * POST /api/v1/committees
  */
-router.post(
-  '/',
-  authMiddleware,
-  roleMiddleware(['coordinator']),
-  createCommittee
-);
+router.post('/', authorize(['coordinator']), createCommitteeHandler);
 
 /**
- * POST /committees/{committeeId}/advisors
- * Assign Advisors to Committee (Process 4.2)
- * 
- * Coordinator assigns advisors to a committee draft.
- * Requires: coordinator role, advisorIds[]
- * 
- * Response (200):
- * Updated Committee object with populated advisorIds[]
+ * Process 4.2: Assign Advisors
+ * POST /api/v1/committees/:committeeId/advisors
  */
-router.post(
-  '/:committeeId/advisors',
-  authMiddleware,
-  roleMiddleware(['coordinator']),
-  assignAdvisorsHandler
-);
+router.post('/:committeeId/advisors', authorize(['coordinator']), assignAdvisorsHandler);
 
 /**
- * POST /committees/{committeeId}/jury
- * Add Jury Members to Committee (Process 4.3)
- * 
- * Coordinator assigns jury members to a committee draft.
- * Requires: coordinator role, juryIds[]
- * 
- * Response (200):
- * Updated Committee object with populated juryIds[]
+ * Process 4.3: Assign Jury Members
+ * POST /api/v1/committees/:committeeId/jury
  */
-router.post(
-  '/:committeeId/jury',
-  authMiddleware,
-  roleMiddleware(['coordinator']),
-  assignJuryHandler
-);
+router.post('/:committeeId/jury', authorize(['coordinator']), assignJuryHandler);
 
 /**
- * POST /committees/{committeeId}/validate
- * Validate Committee Setup (Process 4.4)
- * 
- * Validates whether the committee contains required advisor and jury assignments.
- * Sets status to "validated" if valid.
- * Requires: coordinator role
- * 
- * Response (200):
- * {
- *   committeeId, valid: boolean, missingRequirements[], checkedAt
- * }
+ * Process 4.4: Validate Committee
+ * POST /api/v1/committees/:committeeId/validate
  */
-router.post(
-  '/:committeeId/validate',
-  authMiddleware,
-  roleMiddleware(['coordinator']),
-  validateCommitteeHandler
-);
+router.post('/:committeeId/validate', authorize(['coordinator']), validateCommitteeHandler);
 
 /**
- * POST /committees/{committeeId}/publish
- * Publish Committee (Process 4.5)
- * 
- * Publishes the validated committee configuration, stores final committee data,
- * and triggers committee notifications (Flow f06: 4.5 → D3).
- * Requires: coordinator role, committee must be in "validated" status
- * 
- * Response (200):
- * {
- *   committeeId, status: "published", publishedAt, notificationTriggered
- * }
- * 
- * Error responses:
- * - 400: Committee is incomplete or invalid / not in validated status
- * - 403: Not a coordinator
- * - 404: Committee not found
- * - 409: Committee is already published
+ * Process 4.5: Publish Committee (transaction + notifications — committeePublishService)
+ * POST /api/v1/committees/:committeeId/publish
  */
-router.post(
-  '/:committeeId/publish',
-  authMiddleware,
-  roleMiddleware(['coordinator']),
-  publishCommitteeHandler
+router.post('/:committeeId/publish', authorize(['coordinator']), publishCommitteeHandler);
+
+/**
+ * Get Committee
+ * GET /api/v1/committees/:committeeId
+ */
+router.get(
+  '/:committeeId',
+  authorize(['coordinator', 'advisor', 'jury', 'student']),
+  getCommitteeHandler
 );
 
 module.exports = router;

@@ -5,9 +5,6 @@ const Group = require('../models/Group');
 const NOTIFICATION_SERVICE_URL =
   process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:4000';
 
-/**
- * Dispatch a GROUP_INVITATION notification to a student.
- */
 const dispatchInvitationNotification = async ({ groupId, groupName, inviteeId, invitedBy }) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
@@ -17,10 +14,13 @@ const dispatchInvitationNotification = async ({ groupId, groupName, inviteeId, i
   return response.data;
 };
 
-/**
- * Dispatch a MEMBERSHIP_DECISION notification.
- */
-const dispatchMembershipDecisionNotification = async ({ groupId, groupName, studentId, decision, decidedAt }) => {
+const dispatchMembershipDecisionNotification = async ({
+  groupId,
+  groupName,
+  studentId,
+  decision,
+  decidedAt,
+}) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
     { type: 'membership_decision', groupId, groupName, studentId, decision, decidedAt },
@@ -29,9 +29,6 @@ const dispatchMembershipDecisionNotification = async ({ groupId, groupName, stud
   return response.data;
 };
 
-/**
- * Dispatch a GROUP_CREATED notification.
- */
 const dispatchGroupCreationNotification = async ({ groupId, groupName, leaderId }) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
@@ -41,9 +38,6 @@ const dispatchGroupCreationNotification = async ({ groupId, groupName, leaderId 
   return response.data;
 };
 
-/**
- * Dispatch a batch APPROVAL_REQUEST notification.
- */
 const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipients, invitedBy }) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
@@ -62,7 +56,38 @@ const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipie
 };
 
 /**
- * Dispatch a COMMITTEE_PUBLISHED notification (Integrated from main).
+ * Used by committeeNotificationService — payload includes recipients and counts.
+ */
+const dispatchCommitteePublishedNotification = async (payload, publishedBy) => {
+  const response = await axios.post(
+    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+    {
+      type: 'committee_published',
+      committeeId: payload.committeeId,
+      committeeName: payload.committeeName,
+      recipients: payload.recipients,
+      recipientCount: payload.recipientCount,
+      publishedAt: payload.publishedAt,
+      publishedBy,
+    },
+    { timeout: 5000 }
+  );
+
+  console.log(
+    `[Notification] Committee ${payload.committeeId} published notification dispatched to ${payload.recipientCount} recipients`
+  );
+
+  const notificationId = response.data?.notification_id || `notif_${Date.now()}`;
+
+  return {
+    success: true,
+    notificationId,
+    recipientCount: payload.recipientCount,
+  };
+};
+
+/**
+ * Used by committeePublishService — aggregates IDs and applies retry/backoff.
  */
 const dispatchCommitteePublishNotification = async ({
   committeeId,
@@ -75,7 +100,9 @@ const dispatchCommitteePublishNotification = async ({
   const recipientSet = new Set();
   if (advisorIds && Array.isArray(advisorIds)) advisorIds.forEach((id) => recipientSet.add(id));
   if (juryIds && Array.isArray(juryIds)) juryIds.forEach((id) => recipientSet.add(id));
-  if (groupMemberIds && Array.isArray(groupMemberIds)) groupMemberIds.forEach((id) => recipientSet.add(id));
+  if (groupMemberIds && Array.isArray(groupMemberIds)) {
+    groupMemberIds.forEach((id) => recipientSet.add(id));
+  }
 
   const recipients = Array.from(recipientSet);
 
@@ -93,20 +120,31 @@ const dispatchCommitteePublishNotification = async ({
         },
         { timeout: 5000 }
       );
-      return { success: true, notificationId: response.data.notification_id || response.data.notificationId, error: null };
+      return {
+        success: true,
+        notificationId: response.data.notification_id || response.data.notificationId,
+        error: null,
+      };
     } catch (err) {
       return { success: false, notificationId: null, error: err };
     }
   };
 
-  return await retryNotificationWithBackoff(dispatchFn, {
+  const wrapped = await retryNotificationWithBackoff(dispatchFn, {
+    maxRetries: 3,
+    backoffMs: [100, 200, 400],
     context: {
       committeeId,
       groupId: committeeId,
-      operation: 'committee_published',
-      actorId: coordinatorId,
+      actorId: coordinatorId != null ? String(coordinatorId) : 'unknown',
     },
   });
+
+  return {
+    success: wrapped.success,
+    notificationId: wrapped.notificationId,
+    error: wrapped.error,
+  };
 };
 
 /**
@@ -182,19 +220,17 @@ const dispatchAdvisorRequestNotification = async ({
   return response.data;
 };
 
-/**
- * Professor approve / reject — payload includes explicit notice types for the external service.
- */
 const dispatchAdvisorDecisionNotification = async (payload) => {
-  const response = await axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications`, payload, { timeout: 5000 });
+  const response = await axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications`, payload, {
+    timeout: 5000,
+  });
   return response.data;
 };
 
-/**
- * Group disband (sanitization / admin) — members are user id strings.
- */
 const dispatchDisbandNotification = async (payload) => {
-  const response = await axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications`, payload, { timeout: 5000 });
+  const response = await axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications`, payload, {
+    timeout: 5000,
+  });
   return response.data;
 };
 
@@ -204,7 +240,11 @@ const dispatchAdvisorTransferNotification = async ({ groupId, oldProfessorId, ne
     {
       type: 'advisor_transfer',
       recipient: newProfessorId,
-      payload: { group_id: groupId, old_professor_id: oldProfessorId, new_professor_id: newProfessorId },
+      payload: {
+        group_id: groupId,
+        old_professor_id: oldProfessorId,
+        new_professor_id: newProfessorId,
+      },
     },
     { timeout: 5000 }
   );
@@ -217,7 +257,7 @@ const dispatchGroupDisbandNotification = async ({ groupId, reason }) => {
   const accepted = (group.members || [])
     .filter((m) => m.status === 'accepted')
     .map((m) => m.userId);
-  const members = accepted.length > 0 ? accepted : (group.leaderId ? [group.leaderId] : []);
+  const members = accepted.length > 0 ? accepted : group.leaderId ? [group.leaderId] : [];
   if (members.length === 0) return null;
   return dispatchDisbandNotification({
     type: 'disband_notice',
@@ -233,6 +273,7 @@ module.exports = {
   dispatchMembershipDecisionNotification,
   dispatchGroupCreationNotification,
   dispatchBatchInvitationNotification,
+  dispatchCommitteePublishedNotification,
   dispatchCommitteePublishNotification,
   dispatchAdvisorRequestNotification,
   dispatchAdvisorRequestWithRetry,
