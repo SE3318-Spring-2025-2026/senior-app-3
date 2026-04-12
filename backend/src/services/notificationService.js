@@ -1,4 +1,4 @@
-const axios = require('axios');
+﻿const axios = require('axios');
 
 const NOTIFICATION_SERVICE_URL =
   process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:4000';
@@ -120,9 +120,10 @@ const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipie
  *   publishedBy: coordinatorId
  * }
  * 
- * Response:
+ * Return value (Issue #87 contract for retry wrapper):
  * {
- *   notification_id: string,
+ *   success: true,
+ *   notificationId: string,
  *   recipientCount: number
  * }
  * 
@@ -155,8 +156,12 @@ const dispatchCommitteePublishedNotification = async (payload, publishedBy) => {
     `[Notification] Committee ${payload.committeeId} published notification dispatched to ${payload.recipientCount} recipients`
   );
 
+  const notificationId =
+    response.data?.notification_id || `notif_${Date.now()}`;
+
   return {
-    notification_id: response.data?.notification_id || `notif_${Date.now()}`,
+    success: true,
+    notificationId,
     recipientCount: payload.recipientCount,
   };
 };

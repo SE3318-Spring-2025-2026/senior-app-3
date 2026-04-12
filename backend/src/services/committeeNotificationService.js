@@ -122,6 +122,11 @@ const sendCommitteeNotification = async (committee, publishedBy, groupMemberIds 
       {
         maxRetries: 3,
         backoffMs: [100, 200, 400],
+        context: {
+          committeeId: payload.committeeId,
+          groupId: 'SYSTEM',
+          actorId: publishedBy,
+        },
       }
     );
 
@@ -146,8 +151,14 @@ const sendCommitteeNotification = async (committee, publishedBy, groupMemberIds 
         recipientCount: payload.recipients.length,
       };
     } else {
-      // Retry failed - log error but don't fail publish
-      throw new Error(result.error || 'Notification dispatch failed after 3 retries');
+      const err = result.error;
+      const msg =
+        err instanceof Error
+          ? err.message
+          : typeof err === 'string'
+            ? err
+            : err?.message || 'Notification dispatch failed after 3 retries';
+      throw new Error(msg);
     }
   } catch (error) {
     console.error('[Notification] Committee notification failed:', {
