@@ -1,18 +1,70 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
-const { createCommittee, getCommittee, publishCommittee, assignAdvisorsToCommittee } = require('../controllers/committees');
+const { committeeLimiter } = require('../middleware/committeeLimiter');
+const {
+  createCommittee,
+  listCommittees,
+  getCommittee,
+  publishCommittee,
+  assignAdvisorsToCommittee
+} = require('../controllers/committees');
 
-// Process 4.1 draft write path
-router.post('/', authMiddleware, roleMiddleware(['coordinator']), createCommittee);
+/**
+ * GET /api/v1/committees
+ * Process 4.4: List all committees (Coordinator / Admin visibility)
+ */
+router.get(
+  '/',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
+  listCommittees
+);
 
-// Process 4.4 read path support
-router.get('/:committeeId', authMiddleware, getCommittee);
+/**
+ * POST /api/v1/committees
+ * Process 4.1: Coordinator creates a committee draft (f01, f02)
+ * Security: Rate limited to prevent resource exhaustion
+ */
+router.post(
+  '/',
+  authMiddleware,
+  roleMiddleware(['coordinator']),
+  committeeLimiter,
+  createCommittee
+);
 
-// Process 4.5 publish write path
-router.post('/:committeeId/publish', authMiddleware, roleMiddleware(['coordinator']), publishCommittee);
+/**
+ * GET /api/v1/committees/:committeeId
+ * Process 4.4: Retrieve a single committee record from D3
+ */
+router.get(
+  '/:committeeId',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
+  getCommittee
+);
 
-// Process 4.2 assign advisors path
-router.post('/:committeeId/advisors', authMiddleware, roleMiddleware(['coordinator']), assignAdvisorsToCommittee);
+/**
+ * POST /api/v1/committees/:committeeId/advisors
+ * Process 4.2: Assign advisors to the committee draft
+ */
+router.post(
+  '/:committeeId/advisors',
+  authMiddleware,
+  roleMiddleware(['coordinator']),
+  assignAdvisorsToCommittee
+);
+
+/**
+ * POST /api/v1/committees/:committeeId/publish
+ * Process 4.5: Finalize and publish the committee (f10)
+ */
+router.post(
+  '/:committeeId/publish',
+  authMiddleware,
+  roleMiddleware(['coordinator']),
+  publishCommittee
+);
 
 module.exports = router;

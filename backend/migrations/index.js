@@ -8,6 +8,9 @@ const migration002 = require('./002_add_githubUsername_unique_constraint');
 const migration003 = require('./003_create_group_schema');
 const migration004 = require('./004_add_operation_type_to_schedule_windows');
 const migration005 = require('./005_add_github_fields_to_groups');
+// Main dalından gelen advisor assignment migration'ı
+const migration006 = require('./006_add_advisor_assignment_fields_to_groups');
+// 78 branch'inden gelen yeni committee schema migration'ı
 const migration007 = require('./007_create_committee_schema');
 
 // Migrations are applied in order
@@ -17,6 +20,7 @@ const migrations = [
   migration003,
   migration004,
   migration005,
+  migration006,
   migration007,
 ];
 

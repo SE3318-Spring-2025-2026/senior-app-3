@@ -6,6 +6,7 @@ const ScheduleWindow = require('../models/ScheduleWindow');
 const { createAuditLog } = require('../services/auditService');
 const { dispatchInvitationNotification, dispatchMembershipDecisionNotification, dispatchBatchInvitationNotification } = require('../services/notificationService');
 const { INACTIVE_GROUP_STATUSES } = require('../utils/groupStatusEnum');
+const OT = require('../utils/operationTypes');
 const SyncErrorLog = require('../models/SyncErrorLog');
 
 const VALID_DECISIONS = new Set(['accepted', 'rejected']);
@@ -36,7 +37,7 @@ const addMember = async (req, res) => {
     // --- Schedule boundary check (member_addition window) ---
     const now = new Date();
     const activeWindow = await ScheduleWindow.findOne({
-      operationType: 'member_addition',
+      operationType: OT.MEMBER_ADDITION,
       isActive: true,
       startsAt: { $lte: now },
       endsAt: { $gte: now },
