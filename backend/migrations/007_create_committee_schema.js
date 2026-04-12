@@ -1,5 +1,5 @@
 /**
- * Migration: 006_create_committee_schema
+ * Migration: 007_create_committee_schema
  *
  * Creates D3 committees collection and ensures index strategy for Issue #78:
  * - committeeId (unique)
@@ -8,7 +8,7 @@
  */
 
 module.exports = {
-  name: '006_create_committee_schema',
+  name: '007_create_committee_schema',
 
   up: async (db) => {
     const conn = db.connection.db;
