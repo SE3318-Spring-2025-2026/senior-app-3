@@ -18,7 +18,6 @@ const committeeSchema = new mongoose.Schema(
       required: true,
       trim: true,
       maxlength: [100, 'committeeName cannot exceed 100 characters.'],
-      // NOTE: uniqueness is enforced via case-insensitive collation index below
     },
     description: {
       type: String,
@@ -30,7 +29,7 @@ const committeeSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    // Process 4.2 will populate these
+    // Process 4.2 (Assign Advisor) will populate these fields
     advisorIds: {
       type: [String],
       default: [],
@@ -39,27 +38,46 @@ const committeeSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
-    // Lifecycle status: draft → validated → published
+    /**
+     * Lifecycle status: draft → validated → published
+     */
     status: {
       type: String,
       enum: ['draft', 'validated', 'published'],
       default: 'draft',
+      required: true,
     },
-    // DFD flow f02: forwarded flag — marks that 4.1 has forwarded draft to 4.2
+    /**
+     * DFD flow f02: forwarded flag — marks that 4.1 has forwarded draft to 4.2
+     */
     forwardedToAdvisorAssignment: {
       type: Boolean,
       default: false,
+    },
+    publishedAt: {
+      type: Date,
+      default: null,
     },
   },
   { timestamps: true }
 );
 
+// --- Indexes ---
+
+// Efficient lookup for coordinator-owned committees
 committeeSchema.index({ coordinatorId: 1 });
 committeeSchema.index({ status: 1 });
-// Case-insensitive unique index for committeeName (strength: 2 → case + accent insensitive)
+
+/**
+ * Case-insensitive unique index for committeeName
+ * strength: 2 ensures "MyCommittee" and "mycommittee" are treated as duplicates
+ */
 committeeSchema.index(
   { committeeName: 1 },
-  { unique: true, collation: { locale: 'en', strength: 2 } }
+  { 
+    unique: true, 
+    collation: { locale: 'en', strength: 2 } 
+  }
 );
 
 const Committee = mongoose.model('Committee', committeeSchema);

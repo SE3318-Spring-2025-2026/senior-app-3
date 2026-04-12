@@ -6,11 +6,26 @@ const {
   createCommittee,
   listCommittees,
   getCommittee,
-} = require('../controllers/committeeController');
+  publishCommittee,
+  assignAdvisorsToCommittee
+} = require('../controllers/committees');
 
-// POST /api/v1/committees
-// Process 4.1: Coordinator creates a committee draft → forwarded to 4.2 (f01, f02)
-// Rate limited: max 10 requests per coordinator per 15-minute window
+/**
+ * GET /api/v1/committees
+ * Process 4.4: List all committees (Coordinator / Admin visibility)
+ */
+router.get(
+  '/',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
+  listCommittees
+);
+
+/**
+ * POST /api/v1/committees
+ * Process 4.1: Coordinator creates a committee draft (f01, f02)
+ * Security: Rate limited to prevent resource exhaustion
+ */
 router.post(
   '/',
   authMiddleware,
@@ -19,22 +34,37 @@ router.post(
   createCommittee
 );
 
-// GET /api/v1/committees
-// List all committees (Coordinator / Admin)
-router.get(
-  '/',
-  authMiddleware,
-  roleMiddleware(['coordinator', 'admin']),
-  listCommittees
-);
-
-// GET /api/v1/committees/:committeeId
-// Retrieve a single committee record from D3
+/**
+ * GET /api/v1/committees/:committeeId
+ * Process 4.4: Retrieve a single committee record from D3
+ */
 router.get(
   '/:committeeId',
   authMiddleware,
   roleMiddleware(['coordinator', 'admin']),
   getCommittee
+);
+
+/**
+ * POST /api/v1/committees/:committeeId/advisors
+ * Process 4.2: Assign advisors to the committee draft
+ */
+router.post(
+  '/:committeeId/advisors',
+  authMiddleware,
+  roleMiddleware(['coordinator']),
+  assignAdvisorsToCommittee
+);
+
+/**
+ * POST /api/v1/committees/:committeeId/publish
+ * Process 4.5: Finalize and publish the committee (f10)
+ */
+router.post(
+  '/:committeeId/publish',
+  authMiddleware,
+  roleMiddleware(['coordinator']),
+  publishCommittee
 );
 
 module.exports = router;
