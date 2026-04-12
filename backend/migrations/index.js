@@ -9,8 +9,10 @@ const migration003 = require('./003_create_group_schema');
 const migration004 = require('./004_add_operation_type_to_schedule_windows');
 const migration005 = require('./005_add_github_fields_to_groups');
 const migration006Advisor = require('./006_add_advisor_assignment_fields_to_groups');
-const migration007Committee = require('./007_create_committee_schema');
+const migration008Committee = require('./008_create_committee_schema');
+const migration007Sprint = require('./007_create_sprint_record_schema');
 const migration006Deliverable = require('./006_create_deliverable_schema');
+const migration009D4Storage = require('./009_d4_deliverables_storage_schema');
 const migration008D6 = require('./008_create_d6_sprint_and_contribution_schema');
 
 const migrations = [
@@ -20,8 +22,10 @@ const migrations = [
   migration004,
   migration005,
   migration006Advisor,
-  migration007Committee,
+  migration008Committee,
+  migration007Sprint,
   migration006Deliverable,
+  migration009D4Storage,
   migration008D6,
 ];
 

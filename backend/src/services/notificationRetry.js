@@ -5,7 +5,18 @@
 
 const SyncErrorLog = require('../models/SyncErrorLog');
 
+/**
+ * Determines if an error is transient (should retry) or permanent (should fail fast).
+ *
+ * Transient errors: 5xx, 429 (rate limit), network timeouts
+ * Permanent errors: 4xx (except 429), invalid input, bad configuration
+ *
+ * @param {Error|object} error - The error to classify
+ * @returns {boolean} true if transient (retry), false if permanent (fail fast)
+ */
 const isTransientError = (error) => {
+  if (!error) return false;
+
   if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === 'ENOTFOUND') {
     return true;
   }
@@ -76,22 +87,32 @@ const logExhaustedRetries = async (error, maxRetries, context) => {
 };
 
 /**
- * @param {Function} dispatchFn - async () => result with { success, notificationId?, error? }
- * @param {object} options.context - { committeeId?, groupId?, actorId? } for SyncErrorLog
+ * Retries a notification dispatch function with exponential backoff.
+ *
+ * @param {Function} dispatchFn - Async function to call (must return {success, notificationId, error})
+ * @param {object} options
+ * @param {object} options.context - Error context {groupId, committeeId, actorId}
+ * @param {number} [options.maxRetries=3] - Max retry attempts
+ * @param {number[]} [options.backoffMs=[100,200,400]] - Delay between attempts
+ * @param {number} [options.maxAttempts] - Alias for maxRetries (backwards compatibility)
+ * @returns {Promise<object>} { success: boolean, notificationId: string|null, error: object|null }
  */
 const retryNotificationWithBackoff = async (dispatchFn, options = {}) => {
   const {
     maxRetries = 3,
     backoffMs = [100, 200, 400],
     context = {},
+    maxAttempts,
   } = options;
+
+  const limit = maxAttempts ?? maxRetries;
 
   let lastError = null;
 
-  for (let attempt = 0; attempt < maxRetries; attempt += 1) {
+  for (let attempt = 0; attempt < limit; attempt += 1) {
     try {
       console.log(
-        `[Notification] Dispatch attempt ${attempt + 1}/${maxRetries} for committeeId: ${context.committeeId}`
+        `[Notification] Dispatch attempt ${attempt + 1}/${limit} for committeeId: ${context.committeeId}`
       );
 
       const result = await dispatchFn();
@@ -138,7 +159,7 @@ const retryNotificationWithBackoff = async (dispatchFn, options = {}) => {
       }
     }
 
-    if (attempt < maxRetries - 1) {
+    if (attempt < limit - 1) {
       const delayMs = backoffMs[attempt] ?? backoffMs[backoffMs.length - 1];
       console.log(`[Notification] Transient error, retrying after ${delayMs}ms...`);
       await sleep(delayMs);
@@ -146,17 +167,17 @@ const retryNotificationWithBackoff = async (dispatchFn, options = {}) => {
   }
 
   console.log(
-    `[Notification] All ${maxRetries} attempts exhausted for committeeId: ${context.committeeId}`
+    `[Notification] All ${limit} attempts exhausted for committeeId: ${context.committeeId}`
   );
 
-  await logExhaustedRetries(lastError, maxRetries, context);
+  await logExhaustedRetries(lastError, limit, context);
 
   return {
     success: false,
     notificationId: null,
     result: null,
     error: lastError || new Error('Max retries exhausted'),
-    attempt: maxRetries,
+    attempt: limit,
   };
 };
 

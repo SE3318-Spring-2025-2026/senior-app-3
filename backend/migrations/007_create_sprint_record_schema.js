@@ -1,71 +1,95 @@
-const mongoose = require('mongoose');
-
 /**
- * Migration 007: Create Sprint Record & Contribution Record Schema (D6 Data Store)
- * 
- * Creates the sprint_records collection for Process 7 (Sprint Tracking).
- * Includes fields for committee assignment and deliverable cross-references.
- * 
- * Collections:
- * - sprint_records (D6): Sprint-level tracking with committee assignment and deliverable references
- * 
- * Indexes:
- * - sprintRecordId (unique)
- * - sprintId
- * - groupId
- * - committeeId
- * - (sprintId, groupId) compound
- * - (committeeId, sprintId) compound
- * - (groupId, status) compound
+ * Migration 007: Create Sprint Record Schema (D6)
+ * Phase 1: collection creation (conditional)
+ * Phase 2: indexes (unconditional, idempotent)
  */
 
-const up = async () => {
-  const db = mongoose.connection.db;
-
-  // Check if collection already exists
-  const collections = await db.listCollections().toArray();
-  const collectionNames = collections.map((c) => c.name);
-
-  if (collectionNames.includes('sprint_records')) {
-    console.log('Sprint records collection already exists, skipping creation');
-  } else {
-    console.log('Creating sprint_records collection...');
-    await db.createCollection('sprint_records');
-
-    // Create indexes
-    const collection = db.collection('sprint_records');
-
-    // Unique indexes
-    await collection.createIndex({ sprintRecordId: 1 }, { unique: true });
-
-    // Standard indexes
-    await collection.createIndex({ sprintId: 1 });
-    await collection.createIndex({ groupId: 1 });
-    await collection.createIndex({ committeeId: 1 });
-
-    // Compound indexes
-    await collection.createIndex({ sprintId: 1, groupId: 1 });
-    await collection.createIndex({ committeeId: 1, sprintId: 1 });
-    await collection.createIndex({ groupId: 1, status: 1 });
-
-    console.log('Sprint records collection created with indexes');
+const createIndexSafely = async (collection, indexSpec, options, description) => {
+  try {
+    await collection.createIndex(indexSpec, options);
+    console.log(`[Migration 007] ✅ ${description}`);
+  } catch (err) {
+    if (err.message.includes('already exists')) {
+      console.log(`[Migration 007] ℹ️  ${description} (already exists)`);
+    } else {
+      throw err;
+    }
   }
 };
 
-const down = async () => {
-  const db = mongoose.connection.db;
+const up = async (db) => {
+  const mongoDb = db.connection.db;
+  console.log('[Migration 007] sprint_records (Phase 1 + Phase 2)...');
 
-  // Check if collection exists
-  const collections = await db.listCollections().toArray();
+  const collections = await mongoDb.listCollections().toArray();
+  const collectionNames = collections.map((c) => c.name);
+
+  if (!collectionNames.includes('sprint_records')) {
+    await mongoDb.createCollection('sprint_records', {
+      validator: {
+        $jsonSchema: {
+          bsonType: 'object',
+          required: ['sprintRecordId', 'sprintId', 'groupId', 'status'],
+          properties: {
+            sprintRecordId: { bsonType: 'string', description: 'Unique sprint record identifier' },
+            sprintId: { bsonType: 'string', description: 'Sprint ID' },
+            groupId: { bsonType: 'string', description: 'Group ID' },
+            committeeId: { bsonType: 'string', description: 'Committee ID (if assigned)' },
+            committeeAssignedAt: { bsonType: 'date', description: 'When committee was assigned' },
+            deliverableRefs: {
+              bsonType: 'array',
+              items: {
+                bsonType: 'object',
+                properties: {
+                  deliverableId: { bsonType: 'string', description: 'Reference to D4 deliverable' },
+                  type: {
+                    bsonType: 'string',
+                    enum: ['proposal', 'statement-of-work', 'demonstration'],
+                  },
+                  submittedAt: { bsonType: 'date', description: 'When deliverable was submitted' },
+                },
+              },
+              description: 'Array of deliverable references',
+            },
+            status: {
+              bsonType: 'string',
+              enum: ['pending', 'in_progress', 'submitted', 'reviewed', 'completed'],
+              description: 'Sprint record status',
+            },
+            createdAt: { bsonType: 'date', description: 'Record creation timestamp' },
+            updatedAt: { bsonType: 'date', description: 'Last update timestamp' },
+          },
+        },
+      },
+    });
+    console.log('[Migration 007] sprint_records collection created');
+  } else {
+    console.log('[Migration 007] sprint_records collection already exists');
+  }
+
+  const col = mongoDb.collection('sprint_records');
+  await createIndexSafely(col, { sprintRecordId: 1 }, { unique: true }, 'sprintRecordId unique');
+  await createIndexSafely(col, { sprintId: 1 }, {}, 'sprintId');
+  await createIndexSafely(col, { groupId: 1 }, {}, 'groupId');
+  await createIndexSafely(col, { committeeId: 1 }, {}, 'committeeId');
+  await createIndexSafely(col, { sprintId: 1, groupId: 1 }, {}, 'sprintId+groupId');
+  await createIndexSafely(col, { committeeId: 1, sprintId: 1 }, {}, 'committeeId+sprintId');
+  await createIndexSafely(col, { groupId: 1, status: 1 }, {}, 'groupId+status');
+};
+
+const down = async (db) => {
+  const mongoDb = db.connection.db;
+  console.log('[Migration 007] Dropping sprint_records collection...');
+
+  const collections = await mongoDb.listCollections().toArray();
   const collectionNames = collections.map((c) => c.name);
 
   if (collectionNames.includes('sprint_records')) {
-    console.log('Dropping sprint_records collection...');
-    await db.collection('sprint_records').drop();
-    console.log('Sprint records collection dropped');
+    await mongoDb.collection('sprint_records').drop();
+    console.log('[Migration 007] sprint_records collection dropped');
   } else {
-    console.log('Sprint records collection does not exist, skipping drop');
+    console.log('[Migration 007] sprint_records collection does not exist, skipping');
   }
 };
 
-module.exports = { up, down };
+module.exports = { name: '007_create_sprint_record_schema', up, down };
