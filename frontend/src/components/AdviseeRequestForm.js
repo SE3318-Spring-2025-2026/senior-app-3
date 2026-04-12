@@ -21,6 +21,7 @@ const AdviseeRequestForm = () => {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
   const [windowInfo, setWindowInfo] = useState({ open: null });
+  const [scheduleBoundaryLocked, setScheduleBoundaryLocked] = useState(false);
 
   useEffect(() => {
     if (!groupId || !user?.userId) return;
@@ -89,6 +90,7 @@ const AdviseeRequestForm = () => {
         setError('You must be the team leader to perform this action.');
       } else if (status === 422) {
         setError('The advisor request window is currently closed.');
+        setScheduleBoundaryLocked(true);
       } else if (status === 409) {
         setError('Your group already has a pending request or an assigned advisor.');
       } else {
@@ -150,7 +152,7 @@ const AdviseeRequestForm = () => {
               value={selectedProfessor}
               onChange={(e) => setSelectedProfessor(e.target.value)}
               required
-              disabled={!windowInfo.open || isSubmitting}
+              disabled={!windowInfo.open || isSubmitting || scheduleBoundaryLocked}
             >
               <option value="">-- Choose a Professor --</option>
               {professors.map((p) => (
@@ -169,7 +171,7 @@ const AdviseeRequestForm = () => {
               onChange={(e) => setMessage(e.target.value)}
               placeholder="Explain your project goals or why you'd like this professor to advise you..."
               rows="4"
-              disabled={!windowInfo.open || isSubmitting}
+              disabled={!windowInfo.open || isSubmitting || scheduleBoundaryLocked}
             ></textarea>
           </div>
 
@@ -185,7 +187,7 @@ const AdviseeRequestForm = () => {
             <button
               type="submit"
               className="submit-btn"
-              disabled={!windowInfo.open || !selectedProfessor || isSubmitting}
+              disabled={!windowInfo.open || !selectedProfessor || isSubmitting || scheduleBoundaryLocked}
             >
               {isSubmitting ? 'Submitting...' : 'Submit Request'}
             </button>
