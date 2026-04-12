@@ -313,7 +313,7 @@ describe('sendAccountReadyEmail', () => {
     delete process.env.EMAIL_PASSWORD;
   });
 
-  it.each(['student', 'professor', 'admin', 'committee_member'])(
+  it.each(['student', 'professor', 'admin', 'coordinator'])(
     'sends account-ready email for role: %s',
     async (role) => {
       mockSendMail.mockResolvedValueOnce({ messageId: `ready-${role}` });

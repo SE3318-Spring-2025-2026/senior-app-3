@@ -199,7 +199,7 @@ describe('User Model - Schema Validation', () => {
     });
 
     it('should accept valid roles', async () => {
-      const roles = ['student', 'professor', 'admin', 'committee_member'];
+      const roles = ['student', 'professor', 'admin', 'coordinator'];
 
       for (const role of roles) {
         const user = new User({
