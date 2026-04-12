@@ -39,6 +39,7 @@ describe('CommitteeCreationForm', () => {
   it('renders duplicate name error when API returns 409', async () => {
     committeeService.createCommittee.mockRejectedValue({
       response: {
+        status: 409,
         data: {
           code: 'DUPLICATE_COMMITTEE_NAME',
           message: 'A committee with this name already exists.',

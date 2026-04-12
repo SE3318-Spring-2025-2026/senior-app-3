@@ -37,5 +37,10 @@ describe('JuryCommittees', () => {
     expect(screen.getByText('c1')).toBeInTheDocument();
     expect(screen.getByText(/adv1/i)).toBeInTheDocument();
     expect(screen.getByText(/jury1/i)).toBeInTheDocument();
+
+    expect(screen.queryByRole('button', { name: /publish/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /validate/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /edit/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /assign/i })).not.toBeInTheDocument();
   });
 });

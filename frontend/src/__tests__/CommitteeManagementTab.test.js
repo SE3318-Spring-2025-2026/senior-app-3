@@ -73,6 +73,24 @@ describe('CommitteeManagementTab', () => {
     expect(committeeService.addJuryMembers).not.toHaveBeenCalled();
   });
 
+  it('disables publish when validation returns invalid', async () => {
+    committeeService.validateCommitteeSetup.mockResolvedValue({
+      valid: false,
+      missingRequirements: ['At least one advisor', 'At least one jury member'],
+    });
+
+    render(<CommitteeManagementTab />);
+
+    await screen.findAllByText('Alpha Committee');
+
+    fireEvent.click(screen.getByRole('button', { name: /validate committee/i }));
+
+    expect(await screen.findByText(/Validation: Invalid/i)).toBeInTheDocument();
+    expect(screen.getByText(/At least one advisor/i)).toBeInTheDocument();
+
+    expect(screen.getByRole('button', { name: /publish committee/i })).toBeDisabled();
+  });
+
   it('validates and publishes a committee when confirmed', async () => {
     jest.spyOn(window, 'confirm').mockReturnValue(true);
 
