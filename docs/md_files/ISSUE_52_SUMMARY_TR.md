@@ -104,8 +104,8 @@ rejected ──────→ (geçiş yok, terminal state)
 
 | Endpoint | PATCH /status | Role Gerekli |
 |----------|---|---|
-| Aktif Hat | ✓ | coordinator, committee_member, professor, admin |
-| İnaktif Hat | ✓ | coordinator, committee_member, professor, admin |
+| Aktif Hat | ✓ | coordinator, professor, admin |
+| İnaktif Hat | ✓ | coordinator, professor, admin |
 | Rejected Hat | ✗ | N/A (terminal state) |
 
 ## 📊 Audit Log Örneği
