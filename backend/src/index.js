@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const authRoutes = require('./routes/auth');
 const onboardingRoutes = require('./routes/onboarding');
 const groupRoutes = require('./routes/groups');
+const advisorRequestRoutes = require('./routes/advisorRequests');
 const scheduleWindowRoutes = require('./routes/scheduleWindow');
 const auditLogRoutes = require('./routes/auditLogs');
 const { errorHandler } = require('./middleware/auth');
@@ -46,13 +47,16 @@ const connectDB = async () => {
   }
 };
 
-// Connect to database
-connectDB();
+// Connect to database only if not in test
+if (process.env.NODE_ENV !== 'test') {
+  connectDB();
+}
 
 // Routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/onboarding', onboardingRoutes);
 app.use('/api/v1/groups', groupRoutes);
+app.use('/api/v1/advisor-requests', advisorRequestRoutes);
 app.use('/api/v1/schedule-window', scheduleWindowRoutes);
 app.use('/api/v1/audit-logs', auditLogRoutes);
 
@@ -67,7 +71,7 @@ app.use((req, res) => {
 // Global error handler
 app.use(errorHandler);
 
-// Start server only if not in test environment or if NODE_ENV is not 'test'
+// Start server only if not in test environment
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);

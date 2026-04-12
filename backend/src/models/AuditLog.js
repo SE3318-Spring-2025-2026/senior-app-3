@@ -57,8 +57,18 @@ const auditLogSchema = new mongoose.Schema(
         'jira_integration_setup',
         'status_transition',
         'sync_error',
+        // Advisor association events (Issue #75; snake_case, per issue spec)
+        'advisor_request_submitted',
+        'advisor_approved',
+        'advisor_rejected',
+        'advisor_released',
+        'advisor_transferred',
+        'group_disbanded',
         // Test sentinel (used in existing test suite)
         'TEST_ACTION',
+        // Advisor request notifications (Issue #61)
+        'ADVISOR_REQUEST_NOTIFICATION_FAILED',
+        'advisor_request_created',
       ],
     },
     actorId: {

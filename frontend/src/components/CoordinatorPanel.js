@@ -6,9 +6,11 @@ import {
   deactivateScheduleWindow,
   getAllGroups,
   coordinatorOverride,
+  transferAdvisor,
   getGroupStatus,
   transitionGroupStatus,
 } from '../api/groupService';
+import useAuthStore from '../store/authStore';
 
 const OPERATION_TYPES = [
   { value: 'group_creation', label: 'Group Creation' },
@@ -34,8 +36,10 @@ const GROUP_STATUSES = [
 const CoordinatorPanel = () => {
   const navigate = useNavigate();
 
+  const user = useAuthStore((state) => state.user);
+
   // Tab management
-  const [activeTab, setActiveTab] = useState('groups'); // groups | overrides | schedule | health
+  const [activeTab, setActiveTab] = useState('groups'); // groups | overrides | transfer | schedule | health
 
   // Groups data
   const [groups, setGroups] = useState([]);
@@ -60,6 +64,16 @@ const CoordinatorPanel = () => {
   const [overrideError, setOverrideError] = useState(null);
   const [overrideSuccess, setOverrideSuccess] = useState(null);
   const [overrideSubmitting, setOverrideSubmitting] = useState(false);
+
+  // Advisor transfer form state
+  const [transferForm, setTransferForm] = useState({
+    groupId: '',
+    newProfessorId: '',
+    reason: '',
+  });
+  const [transferError, setTransferError] = useState(null);
+  const [transferSuccess, setTransferSuccess] = useState(null);
+  const [transferSubmitting, setTransferSubmitting] = useState(false);
 
   // Schedule window form state
   const [scheduleForm, setScheduleForm] = useState({
@@ -193,10 +207,57 @@ const CoordinatorPanel = () => {
 
     setScheduleSubmitting(true);
     try {
+      /**
+       * =====================================================================
+       * FIX #5a: EXPLICIT UTC CONVERSION IN DATETIME SUBMISSION (ISSUE #70 - HIGH)
+       * =====================================================================
+       * PROBLEM: datetime-local input returns the coordinator's local time without
+       * timezone information. If coordinator is in UTC+8 and enters "9:00 AM", the
+       * browser returns "2024-01-15T09:00:00" (no timezone). When sent to backend
+       * and stored as UTC, it becomes 2024-01-15T09:00:00Z. Students in UTC-8
+       * see this as opening 17 hours earlier than intended (2024-01-15T01:00:00 UTC-8).
+       *
+       * WHAT CHANGED: Added explicit offset calculation to convert local time to UTC
+       * OLD CODE:
+       *   await createScheduleWindow(
+       *     scheduleForm.operationType,
+       *     new Date(scheduleForm.startsAt).toISOString(),
+       *     new Date(scheduleForm.endsAt).toISOString(),
+       *     scheduleForm.label
+       *   );
+       *
+       * NEW CODE: Calculate the browser's timezone offset and adjust both times
+       * to UTC before submission. This ensures the backend receives truly UTC times
+       * that represent the intended schedule window regardless of coordinator timezone.
+       *
+       * HOW IT WORKS:
+       * 1. Parse datetime-local values as local times
+       * 2. Get browser's UTC offset in milliseconds (negative for west, positive for east)
+       * 3. Subtract offset to convert from local to UTC
+       *    Example: Coordinator in UTC+8 at 09:00 local
+       *      - offset = -8 * 60 * 60 * 1000 = -28,800,000 ms
+       *      - UTC time = 09:00 - 8 hours = 01:00 UTC ✓
+       * 4. Submit UTC time to backend for consistent storage
+       *
+       * IMPACT: Schedule windows now open/close at the same absolute time
+       * regardless of coordinator's timezone. All students see consistent windows.
+       * =====================================================================
+       */
+      const startLocal = new Date(scheduleForm.startsAt);
+      const endLocal = new Date(scheduleForm.endsAt);
+      
+      // Get the browser's timezone offset in milliseconds
+      // getTimezoneOffset() returns minutes (negative for UTC+, positive for UTC-)
+      const timezoneOffsetMs = startLocal.getTimezoneOffset() * 60 * 1000;
+      
+      // Convert from local time to UTC by subtracting the offset
+      const startUTC = new Date(startLocal.getTime() - timezoneOffsetMs).toISOString();
+      const endUTC = new Date(endLocal.getTime() - timezoneOffsetMs).toISOString();
+      
       await createScheduleWindow(
         scheduleForm.operationType,
-        new Date(scheduleForm.startsAt).toISOString(),
-        new Date(scheduleForm.endsAt).toISOString(),
+        startUTC,
+        endUTC,
         scheduleForm.label
       );
       setScheduleSuccess(`✓ Schedule window created.`);
@@ -217,6 +278,61 @@ const CoordinatorPanel = () => {
       await loadWindows();
     } catch (err) {
       setScheduleError('Failed to deactivate window.');
+    }
+  };
+
+  const handleTransferFormChange = (e) => {
+    const { name, value } = e.target;
+    setTransferForm((prev) => ({ ...prev, [name]: value }));
+    setTransferError(null);
+  };
+
+  const handleTransferSubmit = async (e) => {
+    e.preventDefault();
+    setTransferError(null);
+    setTransferSuccess(null);
+
+    if (!transferForm.groupId) {
+      setTransferError('Please select a group.');
+      return;
+    }
+
+    if (!transferForm.newProfessorId.trim()) {
+      setTransferError('New professor ID is required.');
+      return;
+    }
+
+    if (!user?.userId) {
+      setTransferError('Coordinator session is missing.');
+      return;
+    }
+
+    setTransferSubmitting(true);
+    try {
+      const result = await transferAdvisor(transferForm.groupId, {
+        newProfessorId: transferForm.newProfessorId.trim(),
+        reason: transferForm.reason.trim() || undefined,
+      });
+      setTransferSuccess(
+        `✓ Group ${result.groupId} transferred to ${result.professorId} (${result.status}).`
+      );
+      setTransferForm({ groupId: '', newProfessorId: '', reason: '' });
+      await loadGroups();
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status === 422) {
+        setTransferError('Advisor association schedule is closed.');
+      } else if (status === 409) {
+        setTransferError(err.response?.data?.message || 'Target professor has a conflicting assignment.');
+      } else if (status === 403) {
+        setTransferError('Only coordinators can perform advisor transfer.');
+      } else if (status === 404) {
+        setTransferError(err.response?.data?.message || 'Group or professor not found.');
+      } else {
+        setTransferError(err.response?.data?.message || 'Failed to transfer advisor.');
+      }
+    } finally {
+      setTransferSubmitting(false);
     }
   };
 
@@ -273,6 +389,9 @@ const CoordinatorPanel = () => {
           </button>
           <button style={tabButtonStyle(activeTab === 'overrides')} onClick={() => setActiveTab('overrides')}>
             Overrides
+          </button>
+          <button style={tabButtonStyle(activeTab === 'transfer')} onClick={() => setActiveTab('transfer')}>
+            Advisor Transfer
           </button>
           <button style={tabButtonStyle(activeTab === 'schedule')} onClick={() => setActiveTab('schedule')}>
             Schedule Windows
@@ -361,6 +480,86 @@ const CoordinatorPanel = () => {
                 </table>
               </div>
             )}
+          </section>
+        )}
+
+        {/* ──── TRANSFER TAB ──── */}
+        {activeTab === 'transfer' && (
+          <section style={{ background: 'white', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+            <h2 style={{ marginTop: 0, fontSize: '18px' }}>Coordinator Transfer (3.6)</h2>
+            <p style={{ color: '#666', fontSize: '14px', marginTop: 0 }}>
+              Reassign a group to a new advisor. This bypasses the standard advisee request flow.
+            </p>
+
+            <form onSubmit={handleTransferSubmit}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                <div>
+                  <label htmlFor="tr-groupId" style={labelStyle}>Group</label>
+                  <select
+                    id="tr-groupId"
+                    name="groupId"
+                    value={transferForm.groupId}
+                    onChange={handleTransferFormChange}
+                    style={inputStyle}
+                    required
+                  >
+                    <option value="">-- Choose a group --</option>
+                    {groups.map((g) => (
+                      <option key={g.groupId} value={g.groupId}>
+                        {g.groupName} ({g.groupId}) {g.advisorId ? `- current: ${g.advisorId}` : '- no advisor'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="tr-newProfessorId" style={labelStyle}>New Professor ID</label>
+                  <input
+                    id="tr-newProfessorId"
+                    name="newProfessorId"
+                    type="text"
+                    value={transferForm.newProfessorId}
+                    onChange={handleTransferFormChange}
+                    placeholder="usr_prof_xxx"
+                    style={inputStyle}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '16px' }}>
+                <label htmlFor="tr-reason" style={labelStyle}>Reason (optional)</label>
+                <textarea
+                  id="tr-reason"
+                  name="reason"
+                  value={transferForm.reason}
+                  onChange={handleTransferFormChange}
+                  placeholder="Reason for transfer (audit trail)"
+                  rows="3"
+                  style={{ ...inputStyle, fontFamily: 'inherit' }}
+                />
+              </div>
+
+              {transferError && <p style={{ color: '#d73a49', fontSize: '14px', marginBottom: '12px' }}>{transferError}</p>}
+              {transferSuccess && <p style={{ color: '#22863a', fontSize: '14px', marginBottom: '12px' }}>{transferSuccess}</p>}
+
+              <button
+                type="submit"
+                disabled={transferSubmitting}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: transferSubmitting ? '#ccc' : '#0366d6',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: transferSubmitting ? 'not-allowed' : 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                }}
+              >
+                {transferSubmitting ? 'Transferring…' : 'Transfer Advisor'}
+              </button>
+            </form>
           </section>
         )}
 
@@ -521,7 +720,12 @@ const CoordinatorPanel = () => {
               </div>
 
               <div>
-                <label htmlFor="sw-startsAt" style={labelStyle}>Open At</label>
+                <label htmlFor="sw-startsAt" style={labelStyle}>
+                  {/* FIX #5b: UTC TIMEZONE INDICATOR IN UI (ISSUE #70 - HIGH) */}
+                  {/* Shows user that times are automatically converted to UTC. This helps */}
+                  {/* coordinators understand that local time is being translated to UTC. */}
+                  Open At (your local time → UTC)
+                </label>
                 <input
                   id="sw-startsAt"
                   name="startsAt"
@@ -530,11 +734,17 @@ const CoordinatorPanel = () => {
                   onChange={handleScheduleFormChange}
                   style={inputStyle}
                   required
+                  title="Enter time in your local timezone; it will be converted to UTC for storage"
                 />
               </div>
 
               <div>
-                <label htmlFor="sw-endsAt" style={labelStyle}>Close At</label>
+                <label htmlFor="sw-endsAt" style={labelStyle}>
+                  {/* FIX #5b: UTC TIMEZONE INDICATOR IN UI (ISSUE #70 - HIGH) */}
+                  {/* Shows user that times are automatically converted to UTC. This helps */}
+                  {/* coordinators understand that local time is being translated to UTC. */}
+                  Close At (your local time → UTC)
+                </label>
                 <input
                   id="sw-endsAt"
                   name="endsAt"
@@ -543,6 +753,7 @@ const CoordinatorPanel = () => {
                   onChange={handleScheduleFormChange}
                   style={inputStyle}
                   required
+                  title="Enter time in your local timezone; it will be converted to UTC for storage"
                 />
               </div>
             </div>

@@ -9,22 +9,29 @@ import JiraSetupForm from './JiraSetupForm';
 import GroupMemberList from './GroupMemberList';
 import AddMemberForm from './AddMemberForm';
 import { submitMembershipDecision, getMyPendingInvitation } from '../api/groupService';
+import { releaseAdvisor } from '../api/advisorService';
 import './GroupDashboard.css';
 
 /**
  * Group Dashboard Component
- * Displays group information, members, integration status, and pending approvals
+ * Senior Architecture: Handles polling, manual refresh, and integration states.
  */
 const GroupDashboard = () => {
   const { group_id: groupId } = useParams();
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
   const pollingIntervalRef = useRef(null);
+  
   const [manualRefresh, setManualRefresh] = useState(false);
   const [invitationInfo, setInvitationInfo] = useState(null);
   const [decisionLoading, setDecisionLoading] = useState(false);
   const [decisionMsg, setDecisionMsg] = useState('');
-
+  
+  // Release Advisor Modal & UI State
+  const [releaseModalOpen, setReleaseModalOpen] = useState(false);
+  const [releaseReason, setReleaseReason] = useState('');
+  const [releaseLoading, setReleaseLoading] = useState(false);
+  const [releaseError, setReleaseError] = useState('');
 
   const {
     groupData,
@@ -40,65 +47,67 @@ const GroupDashboard = () => {
     stopPolling,
   } = useGroupStore();
 
- 
+  // Basic validation
   useEffect(() => {
-    if (!groupId) {
-      navigate('/');
-    }
+    if (!groupId) navigate('/');
   }, [groupId, navigate]);
 
-
+  // Status Polling Logic
   useEffect(() => {
     if (groupId) {
       pollingIntervalRef.current = startPolling(groupId, 30000);
     }
-
     return () => {
-      if (pollingIntervalRef.current) {
-        stopPolling(pollingIntervalRef.current);
-      }
+      if (pollingIntervalRef.current) stopPolling(pollingIntervalRef.current);
     };
   }, [groupId, startPolling, stopPolling]);
 
- 
+  // Fetch invitation context
   useEffect(() => {
     if (!groupId || !user) return;
-
-    getMyPendingInvitation()
-      .then((inv) => {
-        if (inv && inv.group_id === groupId) {
-          setInvitationInfo(inv);
-        }
-      })
-      .catch(() => {});
+    getMyPendingInvitation().then((inv) => {
+      if (inv && inv.group_id === groupId) {
+        setInvitationInfo(inv);
+      }
+    }).catch(() => { });
   }, [groupId, user]);
 
   const handleDecision = async (decision) => {
     setDecisionLoading(true);
     setDecisionMsg('');
-
     try {
       await submitMembershipDecision(groupId, decision, user.userId);
       setInvitationInfo(null);
-      setDecisionMsg(
-        decision === 'accepted'
-          ? 'You have joined the group!'
-          : 'Invitation declined.'
-      );
-
-      if (decision === 'accepted') {
-        fetchGroupDashboard(groupId);
-      }
+      setDecisionMsg(decision === 'accepted' ? 'You have joined the group!' : 'Invitation declined.');
+      if (decision === 'accepted') fetchGroupDashboard(groupId);
     } catch (err) {
-      setDecisionMsg(
-        err.response?.data?.message || 'Could not process your decision.'
-      );
+      setDecisionMsg(err.response?.data?.message || 'Could not process your decision.');
     } finally {
       setDecisionLoading(false);
     }
   };
 
-  
+  const handleReleaseAdvisor = async () => {
+    if (!groupData?.advisorId) return;
+    setReleaseLoading(true);
+    setReleaseError('');
+    try {
+      // Transactional release with reason support
+      await releaseAdvisor(groupId, releaseReason);
+      setReleaseModalOpen(false);
+      setReleaseReason('');
+      await fetchGroupDashboard(groupId);
+    } catch (err) {
+      const status = err.response?.status;
+      if (status === 403) setReleaseError('You are not authorized to release this advisor.');
+      else if (status === 409) setReleaseError('Group does not currently have an assigned advisor.');
+      else if (status === 422) setReleaseError('The advisor association schedule is currently closed.');
+      else setReleaseError(err.response?.data?.message || 'Failed to release advisor.');
+    } finally {
+      setReleaseLoading(false);
+    }
+  };
+
   const handleRefresh = async () => {
     setManualRefresh(true);
     try {
@@ -108,20 +117,10 @@ const GroupDashboard = () => {
     }
   };
 
-
   const isCoordinator = user?.role === 'coordinator' || user?.role === 'admin';
-
-  
   const isLeader = groupData?.leaderId === user?.userId;
 
- 
-  const handleCoordinatorPanel = () => {
-    navigate(`/groups/${groupId}/coordinator`);
-  };
-
-  if (!groupId) {
-    return <div className="page error">Invalid group ID</div>;
-  }
+  if (!groupId) return <div className="page error">Invalid group ID</div>;
 
   return (
     <div className="group-dashboard">
@@ -136,7 +135,6 @@ const GroupDashboard = () => {
               </span>
             )}
           </h1>
-
           {lastUpdated && (
             <p className="last-updated">
               Last updated: {new Date(lastUpdated).toLocaleTimeString()}
@@ -145,187 +143,164 @@ const GroupDashboard = () => {
         </div>
 
         <div className="dashboard-actions">
-          <button
-            className="refresh-button"
-            onClick={handleRefresh}
-            disabled={manualRefresh || isLoading}
-            title="Refresh dashboard data"
-          >
+          <button className="refresh-button" onClick={handleRefresh} disabled={manualRefresh || isLoading}>
             {manualRefresh ? 'Refreshing...' : 'Refresh'}
           </button>
-
+          
           <Link to={`/groups/${groupId}/advisor`}>
-            <button
-              type="button"
-              className="coordinator-panel-btn"
-              title={isLeader ? "Open advisor association panel (Edit mode)" : "View current group advisor information (Read-only)"}
-            >
+            <button className="coordinator-panel-btn">
               {isLeader ? "Advisor Panel" : "View Advisor"}
             </button>
           </Link>
 
           {isCoordinator && (
-            <button
-              className="coordinator-panel-btn"
-              onClick={handleCoordinatorPanel}
-              title="Open coordinator panel"
-            >
+            <button className="coordinator-panel-btn" onClick={() => navigate(`/groups/${groupId}/coordinator`)}>
               Coordinator Panel
             </button>
           )}
         </div>
       </div>
 
-      {/* Error Display */}
-      {error && (
-        <div className="error-container">
-          <div className="error-title">Error</div>
-          <p className="error-message">{error}</p>
-        </div>
-      )}
-
-      {/* Loading State */}
-      {isLoading && !groupData && (
-        <div className="loading">Loading group dashboard...</div>
-      )}
-
-      {/* Invitation Banner — visible to invited users who haven't responded yet */}
+      {/* Invitation Banner */}
       {invitationInfo && (
         <div className="invitation-banner">
-          <p>
-            You have been invited to join{' '}
-            <strong>{groupData?.groupName || invitationInfo.group_name}</strong>.
-          </p>
-
+          <p>You have been invited to join <strong>{groupData?.groupName || invitationInfo.group_name}</strong>.</p>
           <div className="invitation-actions">
-            <button
-              className="accept-btn"
-              onClick={() => handleDecision('accepted')}
-              disabled={decisionLoading}
-            >
+            <button className="accept-btn" onClick={() => handleDecision('accepted')} disabled={decisionLoading}>
               {decisionLoading ? 'Processing…' : 'Accept'}
             </button>
-
-            <button
-              className="reject-btn"
-              onClick={() => handleDecision('rejected')}
-              disabled={decisionLoading}
-            >
+            <button className="reject-btn" onClick={() => handleDecision('rejected')} disabled={decisionLoading}>
               Decline
             </button>
           </div>
-
           {decisionMsg && <p className="decision-msg">{decisionMsg}</p>}
         </div>
       )}
 
-      {!invitationInfo && decisionMsg && (
-        <div className="invitation-banner resolved">
-          <p>{decisionMsg}</p>
-        </div>
-      )}
-
-      {/* Main Content */}
+      {/* Main Content Grid */}
       {groupData && (
         <>
-          {/* Status Cards Grid */}
           <div className="dashboard-grid">
-            <div>
-              <GitHubStatusCard data={github} isLoading={isLoading} />
-            </div>
+            <GitHubStatusCard data={github} isLoading={isLoading} />
+            <JiraStatusCard data={jira} isLoading={isLoading} />
 
-            <div>
-              <JiraStatusCard data={jira} isLoading={isLoading} />
-            </div>
-
+            {/* Rich Advisor Status Card (Merged from main) */}
             <div className="status-card">
               <div className="card-header">
                 <h3 className="card-title">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M8 1a7 7 0 100 14A7 7 0 008 1zM0 8a8 8 0 1116 0A8 8 0 010 8zm9-3a1 1 0 11-2 0 1 1 0 012 0zM6.5 6h3v5.5h-1V7h-2V6z" />
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style={{marginRight: '8px'}}>
+                    <path d="M8 8a3 3 0 100-6 3 3 0 000 6zm2 1H6a4 4 0 00-4 4v1h12v-1a4 4 0 00-4-4z" />
                   </svg>
-                  Pending Approvals
+                  Advisor
                 </h3>
-
-                <span
-                  className={`approval-badge ${
-                    pendingApprovalsCount === 0 ? 'zero' : ''
-                  }`}
-                >
-                  {pendingApprovalsCount}
-                </span>
+                {groupData.advisorId ? (
+                  <span className="status-badge active">Assigned</span>
+                ) : groupData.advisorRequest?.status === 'pending' ? (
+                  <span className="status-badge pending">Pending</span>
+                ) : (
+                  <span className="status-badge none">Not Assigned</span>
+                )}
               </div>
-
               <div className="card-content">
-                <div className="info-row">
-                  <span className="info-label">Members Awaiting Response:</span>
-                  <span className="info-value">{pendingApprovalsCount}</span>
-                </div>
-
-                {pendingApprovalsCount > 0 && (
-                  <p className="card-hint">
-                    {pendingApprovalsCount} student
-                    {pendingApprovalsCount !== 1 ? 's' : ''}{' '}
-                    {pendingApprovalsCount !== 1 ? 'have' : 'has'} not yet responded.
-                  </p>
+                {groupData.advisorId ? (
+                  <div className="info-row assigned-advisor-row">
+                    <div className="advisor-info">
+                      <span className="info-label">Assigned:</span>
+                      <span className="info-value">{groupData.advisorName || 'Faculty Advisor'}</span>
+                    </div>
+                    {isLeader && (
+                      <button className="release-advisor-btn-outline" onClick={() => setReleaseModalOpen(true)}>
+                        Release
+                      </button>
+                    )}
+                  </div>
+                ) : groupData.advisorRequest?.status === 'pending' ? (
+                  <div className="advisor-empty-state">
+                    <p className="card-hint">Request pending for <strong>{groupData.advisorRequest.professorName || 'Professor'}</strong></p>
+                    {groupData.advisorRequest.notificationTriggered === false && (
+                      <span className="small-text-warning"> (Delivery pending)</span>
+                    )}
+                  </div>
+                ) : (
+                  <div className="advisor-empty-state">
+                    <p className="card-hint">No advisor assigned yet.</p>
+                    {isLeader && groupData.status === 'active' && (
+                      <button className="request-advisor-btn" onClick={() => navigate(`/groups/${groupId}/advisor-request`)}>
+                        Request Advisor
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
+
+            {/* Pending Approvals Card */}
+            <div className="status-card">
+              <div className="card-header">
+                <h3 className="card-title">Pending Approvals</h3>
+                <span className={`approval-badge ${pendingApprovalsCount === 0 ? 'zero' : ''}`}>
+                  {pendingApprovalsCount}
+                </span>
+              </div>
+              <div className="card-content">
+                <div className="info-row">
+                  <span className="info-label">Awaiting Response:</span>
+                  <span className="info-value">{pendingApprovalsCount} members</span>
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* Members Section */}
-          <GroupMemberList
-            members={members}
-            isLoading={isLoading}
-            groupLeaderId={groupData?.leaderId}
-          />
+          <GroupMemberList members={members} isLoading={isLoading} groupLeaderId={groupData?.leaderId} />
 
-          {/* GitHub Integration Setup — Team Leader only */}
+          {/* Integration & Management Section */}
           {isLeader && (
-            <div className="integration-section">
-              <h2 className="integration-title">GitHub Integration Setup</h2>
-              <GitHubSetupForm
-                groupId={groupId}
-                onSuccess={() => {
-                  fetchGroupDashboard(groupId);
-                }}
-                onError={(error) => {
-                  console.error('GitHub setup error:', error);
-                }}
-                isLeader={isLeader}
-              />
+            <div className="management-sections">
+              <div className="integration-section">
+                <h2 className="integration-title">GitHub Setup</h2>
+                <GitHubSetupForm groupId={groupId} onSuccess={() => fetchGroupDashboard(groupId)} isLeader={isLeader} />
+              </div>
+              <div className="integration-section">
+                <h2 className="integration-title">JIRA Setup</h2>
+                <JiraSetupForm groupId={groupId} onSuccess={() => fetchGroupDashboard(groupId)} isLeader={isLeader} />
+              </div>
+              <AddMemberForm groupId={groupId} onMemberAdded={() => fetchGroupDashboard(groupId)} />
             </div>
           )}
 
-          {/* JIRA Integration Setup — Team Leader only (Process 2.7) */}
-          {isLeader && (
-            <div className="integration-section">
-              <h2 className="integration-title">JIRA Integration Setup</h2>
-              <JiraSetupForm
-                groupId={groupId}
-                onSuccess={() => fetchGroupDashboard(groupId)}
-                onError={(error) => console.error('JIRA setup error:', error)}
-                isLeader={isLeader}
-              />
-            </div>
-          )}
-
-          {/* Add Member — Team Leader only */}
-          {isLeader && (
-            <AddMemberForm
-              groupId={groupId}
-              onMemberAdded={() => fetchGroupDashboard(groupId)}
-            />
-          )}
-
-          {/* Group Information Footer */}
+          {/* Footer */}
           <div className="group-info-footer">
-            Group ID: {groupData?.groupId} &nbsp;·&nbsp; Created:{' '}
-            {groupData?.createdAt
-              ? new Date(groupData.createdAt).toLocaleDateString()
-              : 'N/A'}
-            &nbsp;·&nbsp; Status: {groupData?.status || 'Unknown'}
+            Group ID: {groupData.groupId} · Status: {groupData.status}
           </div>
+
+          {/* Release Advisor Confirmation Modal (Fix from main) */}
+          {releaseModalOpen && (
+            <div className="modal-overlay">
+              <div className="modal-content release-modal">
+                <h2>Release Advisor</h2>
+                <p>Are you sure you want to release <strong>Dr. {groupData.advisorName}</strong>?</p>
+                <div className="form-group">
+                  <label htmlFor="releaseReason">Reason (optional):</label>
+                  <textarea
+                    id="releaseReason"
+                    value={releaseReason}
+                    onChange={(e) => setReleaseReason(e.target.value)}
+                    placeholder="Provide a reason..."
+                    rows="3"
+                  />
+                </div>
+                {releaseError && <div className="modal-error">{releaseError}</div>}
+                <div className="modal-actions">
+                  <button className="cancel-btn" onClick={() => { setReleaseModalOpen(false); setReleaseError(''); }} disabled={releaseLoading}>
+                    Cancel
+                  </button>
+                  <button className="confirm-release-btn" onClick={handleReleaseAdvisor} disabled={releaseLoading}>
+                    {releaseLoading ? 'Releasing...' : 'Confirm Release'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

@@ -1,6 +1,5 @@
 const ScheduleWindow = require('../models/ScheduleWindow');
-
-const VALID_OPERATION_TYPES = new Set(['group_creation', 'member_addition']);
+const { VALID_OPERATION_TYPES } = require('../utils/operationTypes');
 
 /**
  * GET /schedule-window/active?operationType=group_creation
@@ -11,10 +10,10 @@ const getActiveWindow = async (req, res) => {
   try {
     const { operationType } = req.query;
 
-    if (!operationType || !VALID_OPERATION_TYPES.has(operationType)) {
+    if (!operationType || !VALID_OPERATION_TYPES.includes(operationType)) {
       return res.status(400).json({
         code: 'INVALID_INPUT',
-        message: "operationType query param must be 'group_creation' or 'member_addition'.",
+        message: `operationType query param must be one of: ${VALID_OPERATION_TYPES.join(', ')}.`,
       });
     }
 
@@ -56,10 +55,10 @@ const listWindows = async (req, res) => {
     const { operationType } = req.query;
     const filter = {};
     if (operationType) {
-      if (!VALID_OPERATION_TYPES.has(operationType)) {
+      if (!VALID_OPERATION_TYPES.includes(operationType)) {
         return res.status(400).json({
           code: 'INVALID_INPUT',
-          message: "operationType must be 'group_creation' or 'member_addition'.",
+          message: `operationType must be one of: ${VALID_OPERATION_TYPES.join(', ')}.`,
         });
       }
       filter.operationType = operationType;
@@ -96,10 +95,10 @@ const createWindow = async (req, res) => {
   try {
     const { operationType, startsAt, endsAt, label } = req.body;
 
-    if (!operationType || !VALID_OPERATION_TYPES.has(operationType)) {
+    if (!operationType || !VALID_OPERATION_TYPES.includes(operationType)) {
       return res.status(400).json({
         code: 'INVALID_INPUT',
-        message: "operationType must be 'group_creation' or 'member_addition'.",
+        message: `operationType must be one of: ${VALID_OPERATION_TYPES.join(', ')}.`,
       });
     }
 
@@ -113,8 +112,11 @@ const createWindow = async (req, res) => {
 
     const start = new Date(startsAt);
     const end = new Date(endsAt);
+    // Explicitly normalize to ISO/UTC so stored instants are not tied to server-local parsing quirks
+    const utcStart = new Date(start.toISOString());
+    const utcEnd = new Date(end.toISOString());
 
-    if (end <= start) {
+    if (utcEnd <= utcStart) {
       return res.status(400).json({ code: 'INVALID_INPUT', message: 'endsAt must be after startsAt.' });
     }
 
@@ -123,16 +125,16 @@ const createWindow = async (req, res) => {
       {
         operationType,
         isActive: true,
-        startsAt: { $lt: end },
-        endsAt: { $gt: start },
+        startsAt: { $lt: utcEnd },
+        endsAt: { $gt: utcStart },
       },
       { $set: { isActive: false } }
     );
 
     const window = await ScheduleWindow.create({
       operationType,
-      startsAt: start,
-      endsAt: end,
+      startsAt: utcStart,
+      endsAt: utcEnd,
       isActive: true,
       createdBy: req.user.userId,
       label: label || '',

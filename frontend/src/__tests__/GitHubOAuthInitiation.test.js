@@ -161,7 +161,10 @@ describe('GitHub OAuth Initiation', () => {
       await user.click(button);
 
       await waitFor(() => {
-        expect(window.location.href).toBe('');
+        // On error, should show error message and NOT redirect
+        expect(screen.getByTestId('error-message')).toHaveTextContent('Invalid request');
+        // window.location.href should not have been set
+        expect(window.location.href).not.toMatch(/github\.com\/oauth/);
       });
     });
 
