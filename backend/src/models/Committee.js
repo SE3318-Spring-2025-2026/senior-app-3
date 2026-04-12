@@ -17,12 +17,14 @@ const committeeSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      unique: true,
+      maxlength: [100, 'committeeName cannot exceed 100 characters.'],
+      // NOTE: uniqueness is enforced via case-insensitive collation index below
     },
     description: {
       type: String,
       default: null,
       trim: true,
+      maxlength: [500, 'description cannot exceed 500 characters.'],
     },
     coordinatorId: {
       type: String,
@@ -54,6 +56,11 @@ const committeeSchema = new mongoose.Schema(
 
 committeeSchema.index({ coordinatorId: 1 });
 committeeSchema.index({ status: 1 });
+// Case-insensitive unique index for committeeName (strength: 2 → case + accent insensitive)
+committeeSchema.index(
+  { committeeName: 1 },
+  { unique: true, collation: { locale: 'en', strength: 2 } }
+);
 
 const Committee = mongoose.model('Committee', committeeSchema);
 

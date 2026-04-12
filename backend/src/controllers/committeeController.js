@@ -35,6 +35,20 @@ const createCommittee = async (req, res) => {
       });
     }
 
+    if (committeeName.trim().length > 100) {
+      return res.status(400).json({
+        code: 'VALIDATION_ERROR',
+        message: 'committeeName cannot exceed 100 characters.',
+      });
+    }
+
+    if (description && description.trim().length > 500) {
+      return res.status(400).json({
+        code: 'VALIDATION_ERROR',
+        message: 'description cannot exceed 500 characters.',
+      });
+    }
+
     if (!coordinatorId || !coordinatorId.trim()) {
       return res.status(400).json({
         code: 'MISSING_FIELDS',
@@ -50,9 +64,11 @@ const createCommittee = async (req, res) => {
       });
     }
 
-    // ── 3. Duplicate name check (D3 query) ──────────────────────────────────
+    // ── 3. Duplicate name check (D3 query, case-insensitive) ────────────────
+    // Escape special regex characters from user input before building the pattern
+    const escapedName = committeeName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const existing = await Committee.findOne({
-      committeeName: committeeName.trim(),
+      committeeName: { $regex: new RegExp(`^${escapedName}$`, 'i') },
     });
 
     if (existing) {
@@ -112,6 +128,7 @@ const createCommittee = async (req, res) => {
     console.error('Create committee error:', error);
 
     // Handle Mongoose unique index violation (race condition safety net)
+    // Covers both plain unique index violations and collation-based unique violations
     if (error.code === 11000 && error.keyPattern?.committeeName) {
       return res.status(409).json({
         code: 'DUPLICATE_COMMITTEE_NAME',

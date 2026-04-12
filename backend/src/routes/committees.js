@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
+const { committeeLimiter } = require('../middleware/committeeLimiter');
 const {
   createCommittee,
   listCommittees,
@@ -9,10 +10,12 @@ const {
 
 // POST /api/v1/committees
 // Process 4.1: Coordinator creates a committee draft → forwarded to 4.2 (f01, f02)
+// Rate limited: max 10 requests per coordinator per 15-minute window
 router.post(
   '/',
   authMiddleware,
   roleMiddleware(['coordinator']),
+  committeeLimiter,
   createCommittee
 );
 

@@ -195,12 +195,12 @@ const CommitteeCreationForm = () => {
                 if (error) setError(null);
               }}
               disabled={isSubmitting}
-              maxLength={120}
+              maxLength={100}
               autoFocus
               required
             />
             <p className="committee-form__hint">
-              Must be unique across all committees. Max 120 characters.
+              Must be unique across all committees. Max 100 characters.
             </p>
           </div>
 
