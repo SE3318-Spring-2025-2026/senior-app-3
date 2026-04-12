@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
+const { committeeLimiter } = require('../middleware/committeeLimiter');
 const {
   createCommittee,
   listCommittees,
@@ -9,17 +10,14 @@ const {
   addJuryMembers,
 } = require('../controllers/committeeController');
 
-// POST /api/v1/committees
-// Process 4.1: Coordinator creates a committee draft → forwarded to 4.2 (f01, f02)
-router.post(
-  '/',
-  authMiddleware,
-  roleMiddleware(['coordinator']),
-  createCommittee
-);
+const {
+  publishCommittee,
+} = require('../controllers/committees');
 
-// GET /api/v1/committees
-// List all committees (Coordinator / Admin)
+/**
+ * GET /api/v1/committees
+ * Process 4.4: List all committees (Coordinator / Admin visibility)
+ */
 router.get(
   '/',
   authMiddleware,
@@ -27,8 +25,23 @@ router.get(
   listCommittees
 );
 
-// GET /api/v1/committees/:committeeId
-// Retrieve a single committee record from D3
+/**
+ * POST /api/v1/committees
+ * Process 4.1: Coordinator creates a committee draft (f01, f02)
+ * Security: Rate limited to prevent resource exhaustion
+ */
+router.post(
+  '/',
+  authMiddleware,
+  roleMiddleware(['coordinator']),
+  committeeLimiter,
+  createCommittee
+);
+
+/**
+ * GET /api/v1/committees/:committeeId
+ * Process 4.4: Retrieve a single committee record from D3
+ */
 router.get(
   '/:committeeId',
   authMiddleware,
@@ -53,6 +66,17 @@ router.post(
   authMiddleware,
   roleMiddleware(['coordinator']),
   addJuryMembers
+);
+
+/**
+ * POST /api/v1/committees/:committeeId/publish
+ * Process 4.5: Finalize and publish the committee (f10)
+ */
+router.post(
+  '/:committeeId/publish',
+  authMiddleware,
+  roleMiddleware(['coordinator']),
+  publishCommittee
 );
 
 module.exports = router;

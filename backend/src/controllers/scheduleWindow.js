@@ -1,20 +1,19 @@
 const ScheduleWindow = require('../models/ScheduleWindow');
-
-const VALID_OPERATION_TYPES = new Set(['group_creation', 'member_addition', 'advisor_association']);
+const { VALID_OPERATION_TYPES } = require('../utils/operationTypes');
 
 /**
  * GET /schedule-window/active?operationType=group_creation
  * Returns the currently active schedule window for the given operation type.
- * Used by the frontend to show open/closed status on creation/member-add pages.
  */
 const getActiveWindow = async (req, res) => {
   try {
     const { operationType } = req.query;
 
-    if (!operationType || !VALID_OPERATION_TYPES.has(operationType)) {
+    // Use centralized validation from Main
+    if (!operationType || !VALID_OPERATION_TYPES.includes(operationType)) {
       return res.status(400).json({
         code: 'INVALID_INPUT',
-        message: "operationType query param must be 'group_creation', 'member_addition', or 'advisor_association'.",
+        message: `operationType query param must be one of: ${VALID_OPERATION_TYPES.join(', ')}.`,
       });
     }
 
@@ -48,18 +47,18 @@ const getActiveWindow = async (req, res) => {
 
 /**
  * GET /schedule-window
- * Returns all schedule windows (active and inactive) for coordinator panel display.
- * Optional query param: ?operationType=group_creation|member_addition
+ * Returns all schedule windows for coordinator panel display.
  */
 const listWindows = async (req, res) => {
   try {
     const { operationType } = req.query;
     const filter = {};
+    
     if (operationType) {
-      if (!VALID_OPERATION_TYPES.has(operationType)) {
+      if (!VALID_OPERATION_TYPES.includes(operationType)) {
         return res.status(400).json({
           code: 'INVALID_INPUT',
-          message: "operationType must be 'group_creation', 'member_addition', or 'advisor_association'.",
+          message: `operationType must be one of: ${VALID_OPERATION_TYPES.join(', ')}.`,
         });
       }
       filter.operationType = operationType;
@@ -87,19 +86,16 @@ const listWindows = async (req, res) => {
 
 /**
  * POST /schedule-window
- * Coordinator/admin creates a new schedule window for a specific operation type.
- * Body: { operationType, startsAt, endsAt, label? }
- *
- * Deactivates any existing windows of the same operationType that overlap with the new one.
+ * Creates a new window and deactivates overlapping ones.
  */
 const createWindow = async (req, res) => {
   try {
     const { operationType, startsAt, endsAt, label } = req.body;
 
-    if (!operationType || !VALID_OPERATION_TYPES.has(operationType)) {
+    if (!operationType || !VALID_OPERATION_TYPES.includes(operationType)) {
       return res.status(400).json({
         code: 'INVALID_INPUT',
-        message: "operationType must be 'group_creation', 'member_addition', or 'advisor_association'.",
+        message: `operationType must be one of: ${VALID_OPERATION_TYPES.join(', ')}.`,
       });
     }
 
@@ -113,26 +109,30 @@ const createWindow = async (req, res) => {
 
     const start = new Date(startsAt);
     const end = new Date(endsAt);
+    
+    // Normalize to ISO/UTC to prevent timezone-related bypasses
+    const utcStart = new Date(start.toISOString());
+    const utcEnd = new Date(end.toISOString());
 
-    if (end <= start) {
+    if (utcEnd <= utcStart) {
       return res.status(400).json({ code: 'INVALID_INPUT', message: 'endsAt must be after startsAt.' });
     }
 
-    // Deactivate overlapping windows of the same operationType
+    // Deactivate overlapping windows (Concurrency fix from Main)
     await ScheduleWindow.updateMany(
       {
         operationType,
         isActive: true,
-        startsAt: { $lt: end },
-        endsAt: { $gt: start },
+        startsAt: { $lt: utcEnd },
+        endsAt: { $gt: utcStart },
       },
       { $set: { isActive: false } }
     );
 
     const window = await ScheduleWindow.create({
       operationType,
-      startsAt: start,
-      endsAt: end,
+      startsAt: utcStart,
+      endsAt: utcEnd,
       isActive: true,
       createdBy: req.user.userId,
       label: label || '',
@@ -155,7 +155,6 @@ const createWindow = async (req, res) => {
 
 /**
  * DELETE /schedule-window/:windowId
- * Coordinator/admin deactivates a schedule window.
  */
 const deactivateWindow = async (req, res) => {
   try {

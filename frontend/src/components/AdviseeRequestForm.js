@@ -1,11 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import useAuthStore from '../store/authStore';
+import { getGroup } from '../api/groupService';
 import { getProfessors, submitAdvisorRequest, checkAdvisorWindow } from '../api/advisorService';
 import './AdviseeRequestForm.css';
 
+/**
+ * Team leader submits a request for a faculty advisor
+ */
 const AdviseeRequestForm = () => {
   const { group_id: groupId } = useParams();
   const navigate = useNavigate();
+  const user = useAuthStore((state) => state.user);
 
   const [professors, setProfessors] = useState([]);
   const [selectedProfessor, setSelectedProfessor] = useState('');
@@ -17,16 +23,29 @@ const AdviseeRequestForm = () => {
   const [windowInfo, setWindowInfo] = useState({ open: null });
 
   useEffect(() => {
+    if (!groupId || !user?.userId) return;
+
     const fetchData = async () => {
       setIsLoading(true);
+      setError(null);
       try {
+        // 1. Security Check: Verify group membership and leader status
+        const group = await getGroup(groupId);
+        if (group.leaderId !== user.userId) {
+          // Redirect if not the leader
+          navigate(`/groups/${groupId}`, { replace: true });
+          return;
+        }
+
+        // 2. Fetch required data in parallel
         const [profList, winStatus] = await Promise.all([
           getProfessors(),
-          checkAdvisorWindow()
+          checkAdvisorWindow(),
         ]);
+        
         setProfessors(profList);
         setWindowInfo(winStatus);
-        
+
         if (!winStatus.open) {
           setError('The advisor association window is currently closed.');
         }
@@ -39,7 +58,7 @@ const AdviseeRequestForm = () => {
     };
 
     fetchData();
-  }, [groupId]);
+  }, [groupId, user?.userId, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -49,15 +68,32 @@ const AdviseeRequestForm = () => {
     setError(null);
 
     try {
-      await submitAdvisorRequest(groupId, selectedProfessor, message);
+      await submitAdvisorRequest({
+        groupId,
+        professorId: selectedProfessor,
+        message: message.trim() || undefined
+      });
+      
       setSuccess(true);
+      
+      // Redirect after success
       setTimeout(() => {
         navigate(`/groups/${groupId}`);
       }, 3000);
+      
     } catch (err) {
       console.error('Submission failed:', err);
-      const msg = err.response?.data?.message || 'Failed to submit request.';
-      setError(msg);
+
+      const status = err.response?.status;
+      if (status === 403) {
+        setError('You must be the team leader to perform this action.');
+      } else if (status === 422) {
+        setError('The advisor request window is currently closed.');
+      } else if (status === 409) {
+        setError('Your group already has a pending request or an assigned advisor.');
+      } else {
+        setError(err.response?.data?.message || 'Failed to submit the request.');
+      }
     } finally {
       setIsSubmitting(false);
     }

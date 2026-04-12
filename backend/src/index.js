@@ -2,30 +2,32 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
+
+// Route Imports
 const authRoutes = require('./routes/auth');
 const onboardingRoutes = require('./routes/onboarding');
 const groupRoutes = require('./routes/groups');
+const advisorRequestRoutes = require('./routes/advisorRequests'); // Main'den gelen
+const committeeRoutes = require('./routes/committees');           // 78 branch'inden gelen
 const scheduleWindowRoutes = require('./routes/scheduleWindow');
 const auditLogRoutes = require('./routes/auditLogs');
-const advisorRequestRoutes = require('./routes/advisorRequests');
-const committeeRoutes = require('./routes/committees');
 const { errorHandler } = require('./middleware/auth');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
+// --- Middleware ---
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Request logging middleware
+// Request logging
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
   next();
 });
 
-// Health check endpoint
+// Health check
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
@@ -33,7 +35,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Database connection
+// --- Database Connection ---
 const connectDB = async () => {
   try {
     const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/senior-app';
@@ -48,17 +50,18 @@ const connectDB = async () => {
   }
 };
 
-// Connect to database
-connectDB();
+if (process.env.NODE_ENV !== 'test') {
+  connectDB();
+}
 
-// Routes
+// --- API Routes (v1) ---
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/onboarding', onboardingRoutes);
 app.use('/api/v1/groups', groupRoutes);
-app.use('/api/v1/schedule-window', scheduleWindowRoutes);
-app.use('/api/v1/audit-logs', auditLogRoutes);
 app.use('/api/v1/advisor-requests', advisorRequestRoutes);
 app.use('/api/v1/committees', committeeRoutes);
+app.use('/api/v1/schedule-window', scheduleWindowRoutes);
+app.use('/api/v1/audit-logs', auditLogRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -71,7 +74,7 @@ app.use((req, res) => {
 // Global error handler
 app.use(errorHandler);
 
-// Start server only if not in test environment or if NODE_ENV is not 'test'
+// Server start
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);

@@ -1084,7 +1084,7 @@ const listProfessors = async (req, res) => {
     })
       .select('userId email firstName lastName')
       .sort({ lastName: 1, firstName: 1 })
-      .exec();
+      .lean();
 
     return res.status(200).json({
       professors: professors.map(p => ({
@@ -1092,6 +1092,7 @@ const listProfessors = async (req, res) => {
         email: p.email,
         firstName: p.firstName,
         lastName: p.lastName,
+        name: `${p.firstName || ''} ${p.lastName || ''}`.trim() || p.email,
       })),
       total: professors.length,
     });
