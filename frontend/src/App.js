@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import useAuthStore from './store/authStore';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -14,31 +14,21 @@ import AdminProfessorCreation from './components/AdminProfessorCreation';
 import GitHubCallbackHandler from './components/GitHubCallbackHandler';
 import GroupDashboard from './components/GroupDashboard';
 import GroupCreationPage from './components/GroupCreationPage';
+import AdviseeRequestForm from './components/AdviseeRequestForm';
 import CoordinatorPanel from './components/CoordinatorPanel';
 import ProfessorInbox from './components/ProfessorInbox';
 import Dashboard from './components/Dashboard';
 import Sidebar from './components/layout/Sidebar';
 import './App.css';
 import './components/layout/Sidebar.css';
+import AdvisorAssociationPanel from './components/AdvisorAssociationPanel';
 
-/**
- * Placeholder components for routes not yet implemented
- */
 const Profile = () => <div className="page">Profile - Coming Soon</div>;
 const Unauthorized = () => <div className="page error">Unauthorized Access</div>;
 const NotFound = () => <div className="page error">Page Not Found</div>;
 
-/**
- * Main App component with routing
- */
 function App() {
-  const { isSessionValid, isAuthenticated } = useAuthStore();
-
-  // Initialize auth on app load (restore from localStorage)
-  useEffect(() => {
-    // Session validation and token refresh logic can be added here
-    console.log('App initialized. Session valid:', isSessionValid());
-  }, [isSessionValid]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { isAuthenticated } = useAuthStore();
 
   return (
     <Router>
@@ -48,7 +38,6 @@ function App() {
         </div>
         <div className="app-layout-content" style={{ marginLeft: isAuthenticated ? '250px' : '0' }}>
           <Routes>
-            {/* Public Routes */}
             <Route path="/" element={<Navigate to="/auth/method-selection" replace />} />
             <Route path="/auth/method-selection" element={<AuthMethodSelection />} />
             <Route path="/auth/login" element={<LoginForm />} />
@@ -58,17 +47,15 @@ function App() {
             <Route path="/auth/github/callback" element={<GitHubCallbackHandler />} />
             <Route path="/onboarding" element={<OnboardingStepper />} />
 
-            {/* Professor Routes */}
             <Route
               path="/professor/setup"
               element={<ProtectedRoute component={ProfessorOnboardModal} />}
             />
             <Route
               path="/professor/inbox"
-              element={<ProtectedRoute component={ProfessorInbox} requiredRoles={['professor', 'advisor']} />}
+              element={<ProtectedRoute component={ProfessorInbox} requiredRoles={['professor']} />}
             />
 
-            {/* Admin Routes */}
             <Route
               path="/admin/password-reset"
               element={<ProtectedRoute component={AdminPasswordReset} requiredRoles={['admin']} />}
@@ -78,13 +65,11 @@ function App() {
               element={<ProtectedRoute component={AdminProfessorCreation} requiredRoles={['admin']} />}
             />
 
-            {/* Coordinator Routes */}
             <Route
               path="/coordinator"
               element={<ProtectedRoute component={CoordinatorPanel} requiredRoles={['coordinator', 'admin']} />}
             />
 
-            {/* Protected Routes */}
             <Route
               path="/dashboard"
               element={<ProtectedRoute component={Dashboard} />}
@@ -94,8 +79,16 @@ function App() {
               element={<ProtectedRoute component={GroupCreationPage} requiredRoles={['student']} />}
             />
             <Route
+              path="/groups/:group_id/advisor-request"
+              element={<ProtectedRoute component={AdviseeRequestForm} requiredRoles={['student']} />}
+            />
+            <Route
               path="/groups/:group_id"
               element={<ProtectedRoute component={GroupDashboard} />}
+            />
+            <Route
+              path="/groups/:group_id/advisor"
+              element={<ProtectedRoute component={AdvisorAssociationPanel} requiredRoles={['student']} />}
             />
             <Route
               path="/groups/:group_id/coordinator"
@@ -106,7 +99,6 @@ function App() {
               element={<ProtectedRoute component={Profile} />}
             />
 
-            {/* Error Routes */}
             <Route path="/unauthorized" element={<Unauthorized />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
@@ -117,4 +109,3 @@ function App() {
 }
 
 export default App;
-

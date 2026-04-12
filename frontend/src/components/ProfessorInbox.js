@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './ProfessorInbox.css';
 import { useAuthStore } from '../store/authStore';
-import advisorRequestService from '../api/advisorRequestService';
+import { getMyAdvisorRequests, decideOnAdvisorRequest } from '../api/groupService';
 
 const ProfessorInbox = () => {
   const { user } = useAuthStore();
@@ -21,7 +21,7 @@ const ProfessorInbox = () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await advisorRequestService.getMyRequests();
+      const data = await getMyAdvisorRequests();
       setRequests(data);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load requests');
@@ -44,11 +44,7 @@ const ProfessorInbox = () => {
     );
 
     try {
-      await advisorRequestService.decideOnRequest(
-        request.requestId,
-        'approve',
-        null
-      );
+      await decideOnAdvisorRequest(request.requestId, 'approve', null);
       setExpandedId(null);
     } catch (err) {
       console.error('Approve error:', err);
@@ -92,11 +88,7 @@ const ProfessorInbox = () => {
     );
 
     try {
-      await advisorRequestService.decideOnRequest(
-        request.requestId,
-        'reject',
-        reason
-      );
+      await decideOnAdvisorRequest(request.requestId, 'reject', reason);
       setExpandedId(null);
       setRejectReason({});
     } catch (err) {

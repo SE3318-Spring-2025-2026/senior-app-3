@@ -5,60 +5,58 @@ const advisorRequestSchema = new mongoose.Schema(
   {
     requestId: {
       type: String,
-      default: () => `areq_${uuidv4().split('-')[0]}`,
+      default: () => `arq_${uuidv4().split('-')[0]}`,
       unique: true,
       required: true,
     },
     groupId: {
       type: String,
       required: true,
+      index: true,
     },
     professorId: {
       type: String,
       required: true,
+      index: true,
     },
     requesterId: {
       type: String,
       required: true,
     },
-    message: {
-      type: String,
-      default: null,
-    },
     status: {
       type: String,
-      enum: ['pending', 'approved', 'rejected'],
+      enum: ['pending', 'approved', 'rejected', 'cancelled'],
       default: 'pending',
     },
-    decision: {
+    message: {
       type: String,
-      enum: ['approve', 'reject', null],
-      default: null,
+      maxlength: 1000,
     },
     reason: {
       type: String,
-      default: null,
-    },
-    decisionBy: {
-      type: String,
-      default: null,
-    },
-    processedAt: {
-      type: Date,
       default: null,
     },
     notificationTriggered: {
       type: Boolean,
       default: false,
     },
+    processedAt: {
+      type: Date,
+      default: null,
+    },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    collection: 'advisorrequests',
+  }
 );
 
-advisorRequestSchema.index({ requestId: 1 }, { unique: true });
-advisorRequestSchema.index({ professorId: 1, status: 1 });
-advisorRequestSchema.index({ groupId: 1 });
+advisorRequestSchema.index(
+  { groupId: 1, professorId: 1, status: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: 'pending' },
+  }
+);
 
-const AdvisorRequest = mongoose.model('AdvisorRequest', advisorRequestSchema);
-
-module.exports = AdvisorRequest;
+module.exports = mongoose.model('AdvisorRequest', advisorRequestSchema);

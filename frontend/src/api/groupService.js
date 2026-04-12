@@ -152,6 +152,19 @@ export const getGroup = async (groupId) => {
 };
 
 /**
+ * Submit an advisor request (Process 3.2) — team leader only; requires advisor_association schedule window.
+ */
+export const createAdvisorRequest = async ({ groupId, professorId, requesterId, message }) => {
+  const response = await apiClient.post('/advisor-requests', {
+    groupId,
+    professorId,
+    requesterId,
+    ...(message != null && message !== '' ? { message } : {}),
+  });
+  return response.data;
+};
+
+/**
  * Get group members
  * @param {string} groupId - The group ID
  * @returns {Promise} List of group members
@@ -274,6 +287,20 @@ export const coordinatorOverride = async (groupId, payload) => {
 };
 
 /**
+ * Coordinator transfer: reassign group advisor to another professor
+ * @param {string} groupId
+ * @param {{newProfessorId: string, reason?: string}} payload
+ * @returns {Promise<{groupId: string, professorId: string, status: string, updatedAt: string}>}
+ */
+export const transferAdvisor = async (groupId, { newProfessorId, reason }) => {
+  const response = await apiClient.post(`/groups/${groupId}/advisor/transfer`, {
+    newProfessorId,
+    reason: reason || undefined,
+  });
+  return response.data;
+};
+
+/**
  * Get group status
  * @param {string} groupId - The group ID
  * @returns {Promise<{groupId, status, lastTransitionAt, lastTransitionBy}>}
@@ -351,4 +378,17 @@ export const configureJira = async (groupId, { host, email, api_token, project_k
     console.error('Error configuring JIRA:', error);
     throw error;
   }
+};
+
+export const getMyAdvisorRequests = async () => {
+  const response = await apiClient.get('/advisor-requests/mine');
+  return response.data.requests || [];
+};
+
+export const decideOnAdvisorRequest = async (requestId, decision, reason) => {
+  const response = await apiClient.patch(`/advisor-requests/${requestId}`, {
+    decision,
+    reason: reason ?? undefined,
+  });
+  return response.data;
 };
