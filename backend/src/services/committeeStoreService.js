@@ -75,7 +75,7 @@ const assignAdvisorsToCommittee = async (committeeId, advisorIds) => {
   if (invalidUserIds.length > 0) {
     const error = new Error(`Invalid advisor IDs: ${invalidUserIds.join(', ')} (must be active professors)`);
     error.code = 'INVALID_ADVISOR_IDS';
-    error.status = 409;
+    error.status = 400;
     throw error;
   }
 
@@ -91,7 +91,7 @@ const assignAdvisorsToCommittee = async (committeeId, advisorIds) => {
   if (invalidIds.length > 0) {
     const error = new Error(`Invalid advisor IDs: ${invalidIds.join(', ')}`);
     error.code = 'INVALID_ADVISOR_IDS';
-    error.status = 409;
+    error.status = 400;
     throw error;
   }
 
@@ -99,6 +99,7 @@ const assignAdvisorsToCommittee = async (committeeId, advisorIds) => {
   const conflictingCommittees = await Committee.find({
     advisorIds: { $in: uniqueAdvisorIds },
     committeeId: { $ne: committeeId },
+    status: { $in: ['draft', 'validated', 'published'] },
   }).select('committeeId committeeName advisorIds').lean();
 
   if (conflictingCommittees.length > 0) {

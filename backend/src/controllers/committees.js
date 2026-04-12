@@ -138,7 +138,13 @@ const assignAdvisorsToCommittee = async (req, res) => {
         message: error.message,
       });
     }
-    if (error.code === 'INVALID_ADVISOR_IDS' || error.code === 'ADVISOR_CONFLICT') {
+    if (error.code === 'INVALID_ADVISOR_IDS') {
+      return res.status(400).json({
+        code: error.code,
+        message: error.message,
+      });
+    }
+    if (error.code === 'ADVISOR_CONFLICT') {
       return res.status(409).json({
         code: error.code,
         message: error.message,
