@@ -7,7 +7,7 @@
  * OpenAPI UserAccount fields (docs/apispecs2.1.yaml, line 48+):
  *   - userId: String (system-generated unique identifier, e.g., "usr_8f3d2a")
  *   - email: String, email format (required, unique, lowercase)
- *   - role: String, enum [student, professor, admin, committee_member] (default: student)
+ *   - role: String, enum [student, professor, admin, coordinator, system] (default: student)
  *   - githubUsername: String (optional, linked by process 1.3)
  *   - emailVerified: Boolean (default: false)
  *   - accountStatus: String, enum [pending, active, suspended] (default: pending)

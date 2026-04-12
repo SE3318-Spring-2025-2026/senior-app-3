@@ -1,257 +1,223 @@
 const Committee = require('../models/Committee');
-const SprintRecord = require('../models/SprintRecord');
-const Group = require('../models/Group');
 const { createAuditLog } = require('./auditService');
 
+/**
+ * Custom error class for committee service operations
+ */
 class CommitteeServiceError extends Error {
-  constructor(message, status = 500) {
+  constructor(message, status = 500, code = 'COMMITTEE_ERROR') {
     super(message);
     this.name = 'CommitteeServiceError';
     this.status = status;
+    this.code = code;
   }
 }
 
-/**
- * Create committee draft
- */
-const createCommitteeDraft = async (committeeName, coordinatorId, options = {}) => {
-  const existingCommittee = await Committee.findOne({ committeeName });
-  if (existingCommittee) {
-    throw new CommitteeServiceError(
-      `Committee with name "${committeeName}" already exists`,
-      409
-    );
-  }
-
-  const committeeId = `COMM_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-  const committee = new Committee({
-    committeeId,
-    committeeName,
-    createdBy: coordinatorId,
-    status: 'draft',
-    description: options.description || '',
-    advisorIds: options.advisorIds || [],
-    juryIds: options.juryIds || [],
-  });
-
-  await committee.save();
-
-  await createAuditLog({
-    event: 'COMMITTEE_CREATED',
-    userId: coordinatorId,
-    entityType: 'Committee',
-    entityId: committeeId,
-    changes: { status: 'draft', committeeName },
-  });
-
-  return committee;
-};
-
-/**
- * Validate committee setup
- */
-const validateCommittee = async (committeeId) => {
-  const committee = await Committee.findOne({ committeeId });
-  if (!committee) {
-    throw new CommitteeServiceError('Committee not found', 404);
-  }
-
-  if (committee.status === 'published') {
-    throw new CommitteeServiceError('Cannot validate a published committee', 409);
-  }
-
-  const errors = [];
-  if (committee.advisorIds.length === 0) {
-    errors.push('At least one advisor must be assigned');
-  }
-  if (committee.juryIds.length === 0) {
-    errors.push('At least one jury member must be assigned');
-  }
-
-  if (errors.length > 0) {
-    throw new CommitteeServiceError(`Validation failed: ${errors.join('; ')}`, 400);
-  }
-
-  committee.status = 'validated';
-  committee.validatedAt = new Date();
-  committee.validatedBy = committee.createdBy;
-  await committee.save();
-
-  await createAuditLog({
-    event: 'COMMITTEE_VALIDATED',
-    userId: committee.createdBy,
-    entityType: 'Committee',
-    entityId: committeeId,
-    changes: { status: 'validated' },
-  });
-
-  return committee;
-};
-
-/**
- * Issue #86: Update D6 sprint records on committee publish (Flow f13: 4.5 → D6)
- * Atomic operation: all sprint records updated together or none
- */
-const updateSprintRecordsOnPublish = async (committeeId, session = null) => {
-  console.log(`[D6 Update f13] Starting sprint record update for committee ${committeeId}`);
-
-  const committee = await Committee.findOne({ committeeId }).session(session);
-  if (!committee) {
-    throw new CommitteeServiceError('Committee not found', 404);
-  }
-
-  // Find all groups and their sprint records
-  const groups = await Group.find().session(session);
-  const updatedRecords = [];
-
-  for (const group of groups) {
-    const sprintRecords = await SprintRecord.find({
-      groupId: group.groupId,
-    }).session(session);
-
-    for (const sprintRecord of sprintRecords) {
-      if (!sprintRecord.committeeId) {
-        sprintRecord.committeeId = committeeId;
-        sprintRecord.committeeAssignedAt = new Date();
-        await sprintRecord.save({ session });
-        updatedRecords.push(sprintRecord.sprintRecordId);
-        console.log(`[D6 Update f13] Updated sprint record ${sprintRecord.sprintRecordId} with committee ${committeeId}`);
-      }
-    }
-  }
-
-  await createAuditLog({
-    event: 'SPRINT_RECORDS_UPDATED',
-    userId: committee.publishedBy,
-    entityType: 'Committee',
-    entityId: committeeId,
-    changes: { committeeAssignedAt: new Date(), recordsUpdated: updatedRecords.length },
-  }, session);
-
-  return { updatedCount: updatedRecords.length, recordIds: updatedRecords };
-};
-
-/**
- * Publish committee with atomic D6 updates
- */
-const publishCommittee = async (committeeId, publishedBy) => {
-  const session = await Committee.startSession();
-  session.startTransaction();
-
+const createCommitteeDraft = async (data) => {
   try {
-    const committee = await Committee.findOne({ committeeId }).session(session);
-    if (!committee) {
-      throw new CommitteeServiceError('Committee not found', 404);
-    }
+    const { committeeName, description, coordinatorId } = data;
 
-    if (committee.status !== 'validated') {
+    const existingCommittee = await Committee.findOne({ committeeName });
+    if (existingCommittee) {
       throw new CommitteeServiceError(
-        'Committee must be validated before publishing',
-        409
+        `Committee with name "${committeeName}" already exists`,
+        409,
+        'DUPLICATE_COMMITTEE_NAME'
       );
     }
 
-    committee.status = 'published';
-    committee.publishedAt = new Date();
-    committee.publishedBy = publishedBy;
-    await committee.save({ session });
+    const committee = new Committee({
+      committeeName,
+      description: description || null,
+      createdBy: coordinatorId,
+      status: 'draft',
+      advisorIds: [],
+      juryIds: [],
+    });
 
-    // Issue #86: Atomically update D6 sprint records (Flow f13)
-    await updateSprintRecordsOnPublish(committeeId, session);
+    await committee.save();
 
     await createAuditLog({
-      event: 'COMMITTEE_PUBLISHED',
-      userId: publishedBy,
-      entityType: 'Committee',
-      entityId: committeeId,
-      changes: { status: 'published', publishedAt: committee.publishedAt },
-    }, session);
-
-    await session.commitTransaction();
-    session.endSession();
+      action: 'COMMITTEE_CREATED',
+      actorId: coordinatorId,
+      payload: {
+        committeeId: committee.committeeId,
+        committeeName: committee.committeeName,
+        status: 'draft',
+      },
+    });
 
     return committee;
-  } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
-    throw error;
+  } catch (err) {
+    if (err instanceof CommitteeServiceError) {
+      throw err;
+    }
+    throw new CommitteeServiceError(
+      `Failed to create committee draft: ${err.message}`,
+      500,
+      'DRAFT_CREATION_ERROR'
+    );
   }
 };
 
-/**
- * Get committee
- */
+const validateCommittee = async (committeeId, coordinatorId) => {
+  try {
+    const committee = await Committee.findOne({ committeeId });
+
+    if (!committee) {
+      throw new CommitteeServiceError(
+        `Committee ${committeeId} not found`,
+        404,
+        'COMMITTEE_NOT_FOUND'
+      );
+    }
+
+    if (committee.status === 'published') {
+      throw new CommitteeServiceError(
+        'Cannot validate an already published committee',
+        409,
+        'COMMITTEE_ALREADY_PUBLISHED'
+      );
+    }
+
+    committee.status = 'validated';
+    committee.validatedAt = new Date();
+    committee.validatedBy = coordinatorId;
+    await committee.save();
+
+    await createAuditLog({
+      action: 'COMMITTEE_VALIDATED',
+      actorId: coordinatorId,
+      payload: {
+        committeeId: committee.committeeId,
+        committeeName: committee.committeeName,
+        advisorCount: committee.advisorIds.length,
+        juryCount: committee.juryIds.length,
+      },
+    });
+
+    return committee;
+  } catch (err) {
+    if (err instanceof CommitteeServiceError) {
+      throw err;
+    }
+    throw new CommitteeServiceError(
+      `Failed to validate committee: ${err.message}`,
+      500,
+      'VALIDATION_ERROR'
+    );
+  }
+};
+
 const getCommittee = async (committeeId) => {
-  const committee = await Committee.findOne({ committeeId });
-  if (!committee) {
-    throw new CommitteeServiceError('Committee not found', 404);
+  try {
+    return await Committee.findOne({ committeeId });
+  } catch (err) {
+    throw new CommitteeServiceError(
+      `Failed to retrieve committee: ${err.message}`,
+      500,
+      'RETRIEVE_ERROR'
+    );
   }
-  return committee;
 };
 
-/**
- * Assign advisors
- */
-const assignAdvisors = async (committeeId, advisorIds) => {
-  const committee = await Committee.findOne({ committeeId });
-  if (!committee) {
-    throw new CommitteeServiceError('Committee not found', 404);
+const assignAdvisors = async (committeeId, advisorIds, coordinatorId) => {
+  try {
+    const committee = await Committee.findOne({ committeeId });
+
+    if (!committee) {
+      throw new CommitteeServiceError(
+        `Committee ${committeeId} not found`,
+        404,
+        'COMMITTEE_NOT_FOUND'
+      );
+    }
+
+    if (committee.status === 'published') {
+      throw new CommitteeServiceError(
+        'Cannot modify a published committee',
+        409,
+        'COMMITTEE_ALREADY_PUBLISHED'
+      );
+    }
+
+    committee.advisorIds = [...new Set(advisorIds || [])];
+    await committee.save();
+
+    await createAuditLog({
+      action: 'COMMITTEE_ADVISORS_ASSIGNED',
+      actorId: coordinatorId,
+      payload: {
+        committeeId: committee.committeeId,
+        advisorCount: committee.advisorIds.length,
+        advisorIds: committee.advisorIds,
+      },
+    });
+
+    return committee;
+  } catch (err) {
+    if (err instanceof CommitteeServiceError) {
+      throw err;
+    }
+    throw new CommitteeServiceError(
+      `Failed to assign advisors: ${err.message}`,
+      500,
+      'ASSIGN_ADVISORS_ERROR'
+    );
   }
-
-  if (committee.status === 'published') {
-    throw new CommitteeServiceError('Cannot modify a published committee', 409);
-  }
-
-  const uniqueAdvisors = [...new Set([...committee.advisorIds, ...advisorIds])];
-  committee.advisorIds = uniqueAdvisors;
-  await committee.save();
-
-  await createAuditLog({
-    event: 'COMMITTEE_ADVISORS_ASSIGNED',
-    userId: committee.createdBy,
-    entityType: 'Committee',
-    entityId: committeeId,
-    changes: { advisorIds: uniqueAdvisors },
-  });
-
-  return committee;
 };
 
-/**
- * Assign jury members
- */
-const assignJury = async (committeeId, juryIds) => {
-  const committee = await Committee.findOne({ committeeId });
-  if (!committee) {
-    throw new CommitteeServiceError('Committee not found', 404);
+const assignJury = async (committeeId, juryIds, coordinatorId) => {
+  try {
+    const committee = await Committee.findOne({ committeeId });
+
+    if (!committee) {
+      throw new CommitteeServiceError(
+        `Committee ${committeeId} not found`,
+        404,
+        'COMMITTEE_NOT_FOUND'
+      );
+    }
+
+    if (committee.status === 'published') {
+      throw new CommitteeServiceError(
+        'Cannot modify a published committee',
+        409,
+        'COMMITTEE_ALREADY_PUBLISHED'
+      );
+    }
+
+    committee.juryIds = [...new Set(juryIds || [])];
+    await committee.save();
+
+    await createAuditLog({
+      action: 'COMMITTEE_JURY_ASSIGNED',
+      actorId: coordinatorId,
+      payload: {
+        committeeId: committee.committeeId,
+        juryCount: committee.juryIds.length,
+        juryIds: committee.juryIds,
+      },
+    });
+
+    return committee;
+  } catch (err) {
+    if (err instanceof CommitteeServiceError) {
+      throw err;
+    }
+    throw new CommitteeServiceError(
+      `Failed to assign jury: ${err.message}`,
+      500,
+      'ASSIGN_JURY_ERROR'
+    );
   }
-
-  if (committee.status === 'published') {
-    throw new CommitteeServiceError('Cannot modify a published committee', 409);
-  }
-
-  const uniqueJury = [...new Set([...committee.juryIds, ...juryIds])];
-  committee.juryIds = uniqueJury;
-  await committee.save();
-
-  await createAuditLog({
-    event: 'COMMITTEE_JURY_ASSIGNED',
-    userId: committee.createdBy,
-    entityType: 'Committee',
-    entityId: committeeId,
-    changes: { juryIds: uniqueJury },
-  });
-
-  return committee;
 };
 
 module.exports = {
+  CommitteeServiceError,
   createCommitteeDraft,
   validateCommittee,
-  publishCommittee,
   getCommittee,
   assignAdvisors,
   assignJury,
-  updateSprintRecordsOnPublish,
-  CommitteeServiceError,
 };

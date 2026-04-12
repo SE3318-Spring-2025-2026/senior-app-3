@@ -134,7 +134,7 @@ senior-app-3/
 - **Session Persistence**: Login persists across browser refresh
 - **Password Security**: Bcrypt hashing, strength validation
 - **Account Locking**: 5 failed attempts = 30 min lockout
-- **Role-Based Access**: Support for student, professor, admin, committee_member
+- **Role-Based Access**: Support for student, professor, admin, coordinator
 - **Field Validation**: Email format, password strength, form validation
 
 ### 🔲 Coming Soon

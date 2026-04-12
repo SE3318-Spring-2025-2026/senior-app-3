@@ -17,7 +17,7 @@ Wire JWT auth middleware onto all Process 6 routes with role-based access contro
 - [ ] All `/api/reviews/*` routes require JWT (401 if missing/invalid)
 - [ ] `POST /api/reviews/assign` restricted to `coordinator` role — return 403 for others
 - [ ] `GET /api/reviews/status` restricted to `coordinator` role
-- [ ] `/api/deliverables/:deliverableId/comments/*` routes require JWT — accessible by `committee_member`, `coordinator`, and `student` (students can only reply, not initiate comments)
+- [ ] `/api/deliverables/:deliverableId/comments/*` routes require JWT — accessible by `professor` (reviewer), `coordinator`, and `student` (students can only reply, not initiate comments)
 - [ ] `req.user = { userId, role, groupId }` available in all review controllers
 
 ### Files
@@ -149,7 +149,7 @@ Implement Process 6.2 comment endpoints: committee members add comments (general
 
 ### Acceptance Criteria
 - [ ] `POST /api/deliverables/:deliverableId/comments` — add a comment:
-  - Requires JWT (`committee_member` or `coordinator` role — students cannot initiate comments, return 403)
+  - Requires JWT (`professor` or `coordinator` role — students cannot initiate comments, return 403)
   - Deliverable must exist and have an active review (`status: 'under_review'`) — return 404/400 if not
   - Request body:
     ```json
@@ -216,7 +216,7 @@ Implement the remaining comment interaction endpoints from the API spec: editing
 - [ ] `POST /api/deliverables/:deliverableId/comments/:commentId/reply` — group replies to clarification:
   - Requires JWT (`student` role — this is how students respond to clarification requests)
   - Comment must exist and belong to this deliverable — return 404 otherwise
-  - `coordinator` and `committee_member` can also reply
+  - `coordinator` and `professor` can also reply
   - Request body: `{ "content": "Here is our clarification..." }` (required, 1–2000 chars)
   - Appends to `comment.replies[]` with `{ replyId, authorId, content, createdAt }`
   - Return 201 with the updated comment (including new reply)

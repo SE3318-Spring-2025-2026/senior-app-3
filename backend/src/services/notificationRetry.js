@@ -1,86 +1,183 @@
+/**
+ * Notification retry service — exponential backoff for Notification Service calls.
+ * Used by committee notifications and dispatchCommitteePublishNotification.
+ */
+
 const SyncErrorLog = require('../models/SyncErrorLog');
 
 /**
- * Determine if error is transient (retryable)
+ * Determines if an error is transient (should retry) or permanent (should fail fast).
+ *
+ * Transient errors: 5xx, 429 (rate limit), network timeouts
+ * Permanent errors: 4xx (except 429), invalid input, bad configuration
+ *
+ * @param {Error|object} error - The error to classify
+ * @returns {boolean} true if transient (retry), false if permanent (fail fast)
  */
 const isTransientError = (error) => {
-  if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND' || error.code === 'ETIMEDOUT') {
+  if (!error) return false;
+
+  if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === 'ENOTFOUND') {
     return true;
   }
 
   if (error.response) {
     const status = error.response.status;
-    if (status >= 500) return true;
-    if (status === 429) return true;
+    if (status >= 500) {
+      return true;
+    }
+    if (status === 429) {
+      return true;
+    }
     return false;
   }
 
-  return true;
+  if (error.message?.includes('timeout')) {
+    return true;
+  }
+
+  return false;
+};
+
+const isDispatchSuccess = (result) => result && result.success === true;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const formatLastErrorForDb = (error, extra = {}) => {
+  const payload = {
+    ...extra,
+    message: error?.message || String(error),
+    code: error?.code || undefined,
+  };
+  try {
+    return JSON.stringify(payload);
+  } catch {
+    return String(error?.message || error);
+  }
+};
+
+const createNotificationSyncErrorLog = async (error, attempts, context) => {
+  const groupId = context.groupId || 'SYSTEM';
+  const actorId = context.actorId != null ? String(context.actorId) : 'unknown';
+  const committeeId = context.committeeId || 'unknown';
+
+  await SyncErrorLog.create({
+    service: 'notification',
+    groupId,
+    actorId,
+    attempts,
+    lastError: formatLastErrorForDb(error, { committeeId }),
+  });
+};
+
+const logPermanentError = async (error, attempt, context) => {
+  try {
+    await createNotificationSyncErrorLog(error, attempt, context);
+  } catch (logErr) {
+    console.error('[Notification] Failed to log permanent error:', logErr.message);
+  }
+};
+
+const logExhaustedRetries = async (error, maxRetries, context) => {
+  try {
+    await createNotificationSyncErrorLog(error, maxRetries, context);
+  } catch (logErr) {
+    console.error('[Notification] Failed to log max retries error:', logErr.message);
+  }
 };
 
 /**
- * Retry with exponential backoff
+ * Retries a notification dispatch function with exponential backoff.
+ *
+ * @param {Function} dispatchFn - Async function to call (must return {success, notificationId, error})
+ * @param {object} options
+ * @param {object} options.context - Error context {groupId, committeeId, actorId}
+ * @param {number} [options.maxRetries=3] - Max retry attempts
+ * @param {number[]} [options.backoffMs=[100,200,400]] - Delay between attempts
+ * @param {number} [options.maxAttempts] - Alias for maxRetries (backwards compatibility)
+ * @returns {Promise<object>} { success: boolean, notificationId: string|null, error: object|null }
  */
 const retryNotificationWithBackoff = async (dispatchFn, options = {}) => {
-  const maxRetries = options.maxRetries || 3;
-  const backoffMs = options.backoffMs || [100, 200, 400];
-  const timeout = options.timeout || 5000;
+  const {
+    maxRetries = 3,
+    backoffMs = [100, 200, 400],
+    context = {},
+    maxAttempts,
+  } = options;
+
+  const limit = maxAttempts ?? maxRetries;
 
   let lastError = null;
 
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
+  for (let attempt = 0; attempt < limit; attempt += 1) {
     try {
-      const result = await Promise.race([
-        dispatchFn(),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Notification timeout')), timeout)
-        ),
-      ]);
+      console.log(
+        `[Notification] Dispatch attempt ${attempt + 1}/${limit} for committeeId: ${context.committeeId}`
+      );
 
-      console.log(`[Notification] Dispatch succeeded on attempt ${attempt + 1}`);
-      return {
-        success: true,
-        notificationId: result.notificationId,
-        attempt: attempt + 1,
-      };
-    } catch (error) {
-      lastError = error;
-      console.log(`[Notification] Attempt ${attempt + 1} failed: ${error.message}`);
+      const result = await dispatchFn();
 
-      if (!isTransientError(error)) {
-        console.log('[Notification] Non-transient error, failing immediately');
-        break;
+      if (isDispatchSuccess(result)) {
+        console.log(`[Notification] SUCCESS on attempt ${attempt + 1}: ${result.notificationId}`);
+        return {
+          success: true,
+          notificationId: result.notificationId,
+          result,
+          error: null,
+          attempt: attempt + 1,
+        };
       }
 
-      if (attempt < maxRetries - 1) {
-        const waitMs = backoffMs[attempt] || 400;
-        console.log(`[Notification] Waiting ${waitMs}ms before retry...`);
-        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      lastError = result?.error || new Error('Dispatch returned failure');
+      console.log(`[Notification] Dispatch returned failure: ${lastError.message}`);
+
+      if (!isTransientError(lastError)) {
+        console.log(`[Notification] Permanent error (no retry): ${lastError.message}`);
+        await logPermanentError(lastError, attempt + 1, context);
+        return {
+          success: false,
+          notificationId: null,
+          result: null,
+          error: lastError,
+          attempt: attempt + 1,
+        };
       }
+    } catch (err) {
+      lastError = err;
+      console.log(`[Notification] Exception caught: ${err.message}`);
+
+      if (!isTransientError(err)) {
+        console.log(`[Notification] Permanent exception (no retry): ${err.message}`);
+        await logPermanentError(err, attempt + 1, context);
+        return {
+          success: false,
+          notificationId: null,
+          result: null,
+          error: err,
+          attempt: attempt + 1,
+        };
+      }
+    }
+
+    if (attempt < limit - 1) {
+      const delayMs = backoffMs[attempt] ?? backoffMs[backoffMs.length - 1];
+      console.log(`[Notification] Transient error, retrying after ${delayMs}ms...`);
+      await sleep(delayMs);
     }
   }
 
-  console.error(`[Notification] All ${maxRetries} attempts failed:`, lastError?.message);
+  console.log(
+    `[Notification] All ${limit} attempts exhausted for committeeId: ${context.committeeId}`
+  );
 
-  try {
-    await SyncErrorLog.create({
-      errorType: 'NOTIFICATION_DISPATCH_FAILED',
-      errorMessage: lastError?.message || 'Unknown error',
-      sourceSystem: 'CommitteeNotificationService',
-      targetSystem: 'NotificationService',
-      attempts: maxRetries,
-      lastError: lastError?.response?.data || lastError?.message,
-      timestamp: new Date(),
-    });
-  } catch (logError) {
-    console.error('[Notification] Failed to create error log:', logError.message);
-  }
+  await logExhaustedRetries(lastError, limit, context);
 
   return {
     success: false,
     notificationId: null,
-    error: lastError?.message,
-    attempt: maxRetries,
+    result: null,
+    error: lastError || new Error('Max retries exhausted'),
+    attempt: limit,
   };
 };
 
