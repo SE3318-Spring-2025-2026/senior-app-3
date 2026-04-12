@@ -8,6 +8,7 @@ import JiraStatusCard from './JiraStatusCard';
 import JiraSetupForm from './JiraSetupForm';
 import GroupMemberList from './GroupMemberList';
 import AddMemberForm from './AddMemberForm';
+import DeliverableSubmissionForm from './DeliverableSubmissionForm';
 import { submitMembershipDecision, getMyPendingInvitation } from '../api/groupService';
 import { releaseAdvisor } from '../api/advisorService';
 import './GroupDashboard.css';
@@ -92,7 +93,6 @@ const GroupDashboard = () => {
     setReleaseLoading(true);
     setReleaseError('');
     try {
-      // Transactional release from main with reason support
       await releaseAdvisor(groupId, releaseReason);
       setReleaseModalOpen(false);
       setReleaseReason('');
@@ -189,7 +189,7 @@ const GroupDashboard = () => {
             <GitHubStatusCard data={github} isLoading={isLoading} />
             <JiraStatusCard data={jira} isLoading={isLoading} />
 
-            {/* Advisor Status Card - Merged UI and Logic */}
+            {/* Advisor Status Card */}
             <div className="status-card">
               <div className="card-header">
                 <h3 className="card-title">
@@ -272,6 +272,16 @@ const GroupDashboard = () => {
               <AddMemberForm groupId={groupId} onMemberAdded={() => fetchGroupDashboard(groupId)} />
             </div>
           )}
+
+          {/* Deliverable Submission */}
+          <DeliverableSubmissionForm
+            groupId={groupId}
+            isLeader={isLeader}
+            userId={user?.userId}
+            members={members}
+            committeeStatus={groupData?.committee?.status || groupData?.committeeStatus}
+            onSuccess={() => fetchGroupDashboard(groupId)}
+          />
 
           {/* Footer */}
           <div className="group-info-footer">
