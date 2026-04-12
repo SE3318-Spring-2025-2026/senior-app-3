@@ -152,6 +152,19 @@ export const getGroup = async (groupId) => {
 };
 
 /**
+ * Submit an advisor request (Process 3.2) — team leader only; requires advisor_association schedule window.
+ */
+export const createAdvisorRequest = async ({ groupId, professorId, requesterId, message }) => {
+  const response = await apiClient.post('/advisor-requests', {
+    groupId,
+    professorId,
+    requesterId,
+    ...(message != null && message !== '' ? { message } : {}),
+  });
+  return response.data;
+};
+
+/**
  * Get group members
  * @param {string} groupId - The group ID
  * @returns {Promise} List of group members
@@ -229,16 +242,18 @@ export const getPendingApprovals = async (groupId) => {
  */
 export const getGroupDashboardData = async (groupId) => {
   try {
-    const [groupData, approvalsData] = await Promise.all([
+    const [groupData, approvalsData, githubData, jiraData] = await Promise.all([
       getGroup(groupId),
       apiClient.get(`/groups/${groupId}/approvals`).then((r) => r.data).catch(() => ({ approvals: [] })),
+      getGitHubStatus(groupId).catch(() => ({ connected: false, repo_url: null, last_synced: null })),
+      getJiraStatus(groupId).catch(() => ({ connected: false, project_key: null, board_url: null })),
     ]);
 
     return {
       group: groupData,
       members: groupData.members || [],
-      github: { connected: false, repo_url: null, last_synced: null },
-      jira: { connected: false, project_key: null, board_url: null },
+      github: githubData,
+      jira: jiraData,
       approvals: approvalsData,
     };
   } catch (error) {
@@ -268,6 +283,20 @@ export const getAllGroups = async () => {
  */
 export const coordinatorOverride = async (groupId, payload) => {
   const response = await apiClient.patch(`/groups/${groupId}/override`, payload);
+  return response.data;
+};
+
+/**
+ * Coordinator transfer: reassign group advisor to another professor
+ * @param {string} groupId
+ * @param {{newProfessorId: string, reason?: string}} payload
+ * @returns {Promise<{groupId: string, professorId: string, status: string, updatedAt: string}>}
+ */
+export const transferAdvisor = async (groupId, { newProfessorId, reason }) => {
+  const response = await apiClient.post(`/groups/${groupId}/advisor/transfer`, {
+    newProfessorId,
+    reason: reason || undefined,
+  });
   return response.data;
 };
 
@@ -324,4 +353,37 @@ export const configureGitHub = async (groupId, { pat, org_name, repo_name, visib
     console.error('Error configuring GitHub:', error);
     throw error;
   }
+};
+
+/**
+ * Configure JIRA integration for a group (Process 2.7)
+ * @param {string} groupId - The group ID
+ * @param {object} payload
+ * @param {string} payload.host       - JIRA instance base URL
+ * @param {string} payload.email      - JIRA account email
+ * @param {string} payload.api_token  - JIRA API token
+ * @param {string} payload.project_key - JIRA project key
+ * @returns {Promise<{project_id, project_key, binding, board_url}>}
+ */
+export const configureJira = async (groupId, { host, email, api_token, project_key }) => {
+  try {
+    const response = await apiClient.post(`/groups/${groupId}/jira`, {
+      host,
+      email,
+      api_token,
+      project_key,
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error configuring JIRA:', error);
+    throw error;
+  }
+};
+
+/**
+ * Coordinator/system: run post-deadline advisor sanitization (Process 3.7)
+ */
+export const advisorSanitization = async () => {
+  const response = await apiClient.post('/groups/advisor-sanitization');
+  return response.data;
 };

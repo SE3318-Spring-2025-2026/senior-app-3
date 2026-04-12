@@ -290,32 +290,45 @@ const getGithub = async (req, res) => {
 /**
  * POST /groups/:groupId/jira
  *
- * Process 2.7 — Validate JIRA credentials + project key and store config in D2.
+ * Process 2.7 — Validate JIRA credentials + project key and store binding in D2.
+ * JIRA usage is strictly scoped to story point retrieval only.
  *
  * DFD flows:
- *   f13 — Team Leader → 2.7 (submit JIRA credentials)
- *   f14 — 2.7 → JIRA API (validate credentials + project)
- *   f15 — JIRA API → 2.7 (confirm binding)
- *   f25 — 2.7 → D2 (store validated JIRA config)
+ *   f13 — Team Leader → 2.7 (submit host, email, api_token, project_key)
+ *   f14 — 2.7 → JIRA API (validate credentials, fetch project binding)
+ *   f15 — JIRA API → 2.7 (binding confirmation: project_id, board_url)
+ *   f25 — 2.7 → D2 (store binding confirmation)
+ *
+ * Request body:
+ *   host        (required) — JIRA instance base URL
+ *   email       (required) — JIRA account email
+ *   api_token   (required) — JIRA API token
+ *   project_key (required) — JIRA project key
+ *
+ * Response (201 Created):
+ *   project_id  — JIRA project ID
+ *   project_key — confirmed project key
+ *   binding     — 'confirmed'
+ *   board_url   — URL to the JIRA board
  *
  * Error codes:
- *   422 INVALID_JIRA_CREDENTIALS — JIRA rejects username/token (401/403)
+ *   422 INVALID_JIRA_CREDENTIALS — JIRA rejects email/token (401/403)
  *   422 INVALID_PROJECT_KEY      — project key not found in JIRA (404)
  *   503 JIRA_API_UNAVAILABLE     — 3 consecutive timeouts/5xx errors
  */
 const configureJira = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { jira_url, jira_username, jira_token, project_key } = req.body;
+    const { host, email, api_token, project_key } = req.body;
 
-    if (!jira_url || typeof jira_url !== 'string' || !jira_url.trim()) {
-      return res.status(400).json({ code: 'MISSING_JIRA_URL', message: 'jira_url is required' });
+    if (!host || typeof host !== 'string' || !host.trim()) {
+      return res.status(400).json({ code: 'MISSING_HOST', message: 'host is required' });
     }
-    if (!jira_username || typeof jira_username !== 'string' || !jira_username.trim()) {
-      return res.status(400).json({ code: 'MISSING_JIRA_USERNAME', message: 'jira_username is required' });
+    if (!email || typeof email !== 'string' || !email.trim()) {
+      return res.status(400).json({ code: 'MISSING_EMAIL', message: 'email is required' });
     }
-    if (!jira_token || typeof jira_token !== 'string' || !jira_token.trim()) {
-      return res.status(400).json({ code: 'MISSING_JIRA_TOKEN', message: 'jira_token is required' });
+    if (!api_token || typeof api_token !== 'string' || !api_token.trim()) {
+      return res.status(400).json({ code: 'MISSING_API_TOKEN', message: 'api_token is required' });
     }
     if (!project_key || typeof project_key !== 'string' || !project_key.trim()) {
       return res.status(400).json({ code: 'MISSING_PROJECT_KEY', message: 'project_key is required' });
@@ -330,10 +343,10 @@ const configureJira = async (req, res) => {
       return res.status(403).json({ code: 'FORBIDDEN', message: 'Only the group leader can configure JIRA' });
     }
 
-    const baseUrl = jira_url.trim().replace(/\/$/, '');
-    const auth = Buffer.from(`${jira_username.trim()}:${jira_token.trim()}`).toString('base64');
+    const baseUrl = host.trim().replace(/\/$/, '');
+    const auth = Buffer.from(`${email.trim()}:${api_token.trim()}`).toString('base64');
 
-    // f14: validate credentials against JIRA API
+    // f14: validate credentials against JIRA API (with retry)
     try {
       await withRetry(() =>
         axios.get(`${baseUrl}/rest/api/3/myself`, {
@@ -344,9 +357,12 @@ const configureJira = async (req, res) => {
     } catch (err) {
       const status = err.response?.status;
       if (status === 401 || status === 403) {
-        return res.status(422).json({ code: 'INVALID_JIRA_CREDENTIALS', message: 'JIRA credentials are invalid' });
+        return res.status(422).json({
+          code: 'INVALID_JIRA_CREDENTIALS',
+          message: 'JIRA credentials are invalid or have insufficient permissions',
+        });
       }
-      const jiraSyncErr1 = await SyncErrorLog.create({
+      const syncErr = await SyncErrorLog.create({
         service: 'jira',
         groupId,
         actorId: req.user.userId,
@@ -358,12 +374,7 @@ const configureJira = async (req, res) => {
           action: 'sync_error',
           actorId: req.user.userId,
           groupId,
-          payload: {
-            api_type: 'jira',
-            retry_count: MAX_RETRY_ATTEMPTS,
-            last_error: err.message,
-            sync_error_id: jiraSyncErr1.errorId,
-          },
+          payload: { api_type: 'jira', retry_count: MAX_RETRY_ATTEMPTS, last_error: err.message, sync_error_id: syncErr.errorId },
           ipAddress: req.ip,
           userAgent: req.headers['user-agent'],
         });
@@ -373,7 +384,7 @@ const configureJira = async (req, res) => {
       return res.status(503).json({ code: 'JIRA_API_UNAVAILABLE', message: 'JIRA API unavailable after maximum retry attempts' });
     }
 
-    // f15: validate project key
+    // f15: fetch project binding confirmation from JIRA API (with retry)
     let projectData;
     try {
       const projResponse = await withRetry(() =>
@@ -388,7 +399,7 @@ const configureJira = async (req, res) => {
       if (status === 404) {
         return res.status(422).json({ code: 'INVALID_PROJECT_KEY', message: 'JIRA project key not found' });
       }
-      const jiraSyncErr2 = await SyncErrorLog.create({
+      const syncErr2 = await SyncErrorLog.create({
         service: 'jira',
         groupId,
         actorId: req.user.userId,
@@ -400,12 +411,7 @@ const configureJira = async (req, res) => {
           action: 'sync_error',
           actorId: req.user.userId,
           groupId,
-          payload: {
-            api_type: 'jira',
-            retry_count: MAX_RETRY_ATTEMPTS,
-            last_error: err.message,
-            sync_error_id: jiraSyncErr2.errorId,
-          },
+          payload: { api_type: 'jira', retry_count: MAX_RETRY_ATTEMPTS, last_error: err.message, sync_error_id: syncErr2.errorId },
           ipAddress: req.ip,
           userAgent: req.headers['user-agent'],
         });
@@ -415,16 +421,22 @@ const configureJira = async (req, res) => {
       return res.status(503).json({ code: 'JIRA_API_UNAVAILABLE', message: 'JIRA API unavailable after maximum retry attempts' });
     }
 
-    // f25: store config in D2
+    const boardUrl = `${baseUrl}/jira/software/projects/${project_key.trim()}/boards`;
+
+    // f25: store binding confirmation in D2
+    // jiraStoryPointOnly: true — JIRA is strictly scoped to story point retrieval
     group.jiraUrl = baseUrl;
-    group.jiraUsername = jira_username.trim();
-    group.jiraToken = jira_token.trim();
+    group.jiraUsername = email.trim();
+    group.jiraToken = api_token.trim();
     group.projectKey = project_key.trim();
+    group.jiraProjectId = String(projectData.id);
     group.jiraProject = projectData.name || project_key.trim();
-    group.jiraBoardUrl = `${baseUrl}/jira/software/projects/${project_key.trim()}/boards`;
+    group.jiraBoardUrl = boardUrl;
+    group.jiraLastSynced = new Date();
+    group.jiraStoryPointOnly = true;
     await group.save();
 
-    // Audit log: jira_integration_setup (non-fatal)
+    // Audit log (non-fatal)
     try {
       await createAuditLog({
         action: 'jira_integration_setup',
@@ -432,10 +444,11 @@ const configureJira = async (req, res) => {
         targetId: groupId,
         groupId,
         payload: {
-          status: 'success',
-          jira_url: baseUrl,
+          binding: 'confirmed',
           project_key: project_key.trim(),
-          jira_board_url: group.jiraBoardUrl,
+          project_id: group.jiraProjectId,
+          board_url: boardUrl,
+          story_point_only: true,
         },
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
@@ -445,11 +458,10 @@ const configureJira = async (req, res) => {
     }
 
     return res.status(201).json({
-      jira_url: group.jiraUrl,
-      jira_project: group.jiraProject,
-      jira_project_key: group.projectKey,
-      jira_board_url: group.jiraBoardUrl,
-      validated: true,
+      project_id: group.jiraProjectId,
+      project_key: group.projectKey,
+      binding: 'confirmed',
+      board_url: group.jiraBoardUrl,
     });
   } catch (err) {
     console.error('configureJira error:', err);
@@ -460,7 +472,15 @@ const configureJira = async (req, res) => {
 /**
  * GET /groups/:groupId/jira
  *
- * Returns the stored JIRA config for the group (token excluded).
+ * Returns the stored JIRA integration state for the group (token excluded).
+ *
+ * DFD flow: f25 (2.7 → Student) — confirmation status check
+ *
+ * Response:
+ *   connected    — true when project binding is complete
+ *   project_key  — JIRA project key (only if connected)
+ *   board_url    — JIRA board URL (only if connected)
+ *   last_sync_error — most recent sync failure, if any
  */
 const getJira = async (req, res) => {
   try {
@@ -471,19 +491,16 @@ const getJira = async (req, res) => {
       return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
     }
 
+    const isConnected = !!(group.jiraUrl && group.projectKey && group.jiraBoardUrl);
+
     const lastSyncError = await SyncErrorLog.findOne(
       { groupId, service: 'jira' },
       null,
       { sort: { createdAt: -1, _id: -1 } }
     );
 
-    return res.status(200).json({
-      group_id: groupId,
-      jira_url: group.jiraUrl,
-      jira_project: group.jiraProject,
-      jira_project_key: group.projectKey,
-      jira_board_url: group.jiraBoardUrl,
-      validated: !!group.jiraUrl,
+    const response = {
+      connected: isConnected,
       last_sync_error: lastSyncError
         ? {
             error_id: lastSyncError.errorId,
@@ -492,7 +509,14 @@ const getJira = async (req, res) => {
             timestamp: lastSyncError.createdAt,
           }
         : null,
-    });
+    };
+
+    if (isConnected) {
+      response.project_key = group.projectKey;
+      response.board_url = group.jiraBoardUrl;
+    }
+
+    return res.status(200).json(response);
   } catch (err) {
     console.error('getJira error:', err);
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });

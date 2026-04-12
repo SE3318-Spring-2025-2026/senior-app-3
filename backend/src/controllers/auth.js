@@ -1073,6 +1073,38 @@ const adminCreateProfessor = async (req, res) => {
   }
 };
 
+/**
+ * List all professors (authenticated users only)
+ */
+const listProfessors = async (req, res) => {
+  try {
+    const professors = await User.find({ 
+      role: 'professor',
+      accountStatus: 'active' 
+    })
+      .select('userId email firstName lastName')
+      .sort({ lastName: 1, firstName: 1 })
+      .lean();
+
+    return res.status(200).json({
+      professors: professors.map(p => ({
+        userId: p.userId,
+        email: p.email,
+        firstName: p.firstName,
+        lastName: p.lastName,
+        name: `${p.firstName || ''} ${p.lastName || ''}`.trim() || p.email,
+      })),
+      total: professors.length,
+    });
+  } catch (error) {
+    console.error('List professors error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Failed to fetch professors list',
+    });
+  }
+};
+
 module.exports = {
   loginWithPassword,
   registerStudent,
@@ -1088,4 +1120,5 @@ module.exports = {
   adminInitiatePasswordReset,
   getAdminUsersList,
   adminCreateProfessor,
+  listProfessors,
 };

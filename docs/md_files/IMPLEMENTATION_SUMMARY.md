@@ -21,7 +21,7 @@
 All 7 required OpenAPI UserAccount fields are present and correctly configured:
 - ✅ `userId` - String, unique, auto-generated (e.g., `usr_8f3d2a`)
 - ✅ `email` - String, required, unique, lowercase, trimmed
-- ✅ `role` - String enum [student, professor, admin, committee_member]
+- ✅ `role` - String enum [student, professor, admin, coordinator, system]
 - ✅ `githubUsername` - String, optional, unique (sparse), lowercase, trimmed
 - ✅ `emailVerified` - Boolean, default false
 - ✅ `accountStatus` - String enum [pending, active, suspended]
@@ -178,7 +178,7 @@ npm run migrate:reset   # Reset all migrations (destructive)
 REQUIRED OPENAPI FIELDS:
 ✓ userId        - Unique, auto-generated, indexed
 ✓ email         - Unique, required, indexed
-✓ role          - Enum [student, professor, admin, committee_member]
+✓ role          - Enum [student, professor, admin, coordinator, system]
 ✓ githubUsername - Optional, unique (sparse), allow multiple nulls
 ✓ emailVerified - Boolean, default false
 ✓ accountStatus - Enum [pending, active, suspended]

@@ -19,7 +19,7 @@ The following fields are **required** to match the OpenAPI specification:
 |-------|------|----------|--------|---------|---------|-------------|
 | **userId** | String | ✓ | ✓ | ✓ | `usr_${uuid}` | System-generated unique identifier (e.g., `usr_8f3d2a`) |
 | **email** | String | ✓ | ✓ | ✓ | — | User's email address; lowercased and trimmed; must be valid email format |
-| **role** | String | ✓ | ✗ | ✗ | `student` | User's role; must be one of: `student`, `professor`, `admin`, `committee_member` |
+| **role** | String | ✓ | ✗ | ✗ | `student` | User's role; must be one of: `student`, `professor`, `admin`, `coordinator`, `system` |
 | **githubUsername** | String | ✗ | ✓ (sparse) | ✓ | `null` | Linked GitHub username; linked during process 1.3 (OAuth completion); unique for non-null values |
 | **emailVerified** | Boolean | ✓ | ✗ | ✗ | `false` | Has user's email been verified via verification token? |
 | **accountStatus** | String | ✓ | ✗ | ✗ | `pending` | Account status; must be one of: `pending`, `active`, `suspended` |
@@ -44,7 +44,7 @@ The following fields are **required** to match the OpenAPI specification:
 
 #### role
 - **Type:** String (enum)
-- **Valid Values:** `student`, `professor`, `admin`, `committee_member`
+- **Valid Values:** `student`, `professor`, `admin`, `coordinator`, `system`
 - **Default:** `student`
 - **Required:** Yes
 - **NULL:** Not allowed
@@ -193,7 +193,7 @@ userId: {
 |-------|--------------|----------|-----------|-------|
 | userId | String | String | string | UUID-based |
 | email | String | String | string | Valid email format |
-| role | String | String (enum) | string | Enum: student, professor, admin, committee_member |
+| role | String | String (enum) | string | Enum: student, professor, admin, coordinator, system |
 | githubUsername | String | String | string or null | Optional; lowercased; trimmed |
 | githubId | String | String | string or null | Optional; OAuth identifier |
 | emailVerified | Boolean | Boolean | boolean | Default false |
@@ -365,7 +365,7 @@ UserAccount:
       example: "alice@university.edu"
     role:
       type: string
-      enum: [student, professor, admin, committee_member]
+      enum: [student, professor, admin, coordinator, system]
     githubUsername:
       type: string
       description: Linked GitHub username
