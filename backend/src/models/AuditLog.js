@@ -80,6 +80,7 @@ const auditLogSchema = new mongoose.Schema(
         'COMMITTEE_VALIDATION_FAILED',
         'COMMITTEE_UPDATED',
         'COMMITTEE_PUBLISHED',
+        'GROUPS_LINKED_TO_COMMITTEE',
         'SPRINT_COMMITTEE_ASSIGNED',
         'DELIVERABLE_LINKED_TO_SPRINT',
         'JURY_ASSIGNED',
