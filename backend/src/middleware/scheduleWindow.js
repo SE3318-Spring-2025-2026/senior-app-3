@@ -4,8 +4,6 @@ const { VALID_OPERATION_TYPES } = OPERATION_TYPES;
 
 /**
  * @param {string} operationType — Must be one of `VALID_OPERATION_TYPES`
- *   (`GROUP_CREATION`, `MEMBER_ADDITION`, `ADVISOR_ASSOCIATION`, `ADVISOR_DECISION`,
- *   `ADVISOR_RELEASE`, `ADVISOR_TRANSFER`, `ADVISOR_SANITIZATION` in `operationTypes.js`).
  */
 const assertRegisteredScheduleOperationType = (operationType) =>
   VALID_OPERATION_TYPES.includes(operationType);
@@ -13,22 +11,10 @@ const assertRegisteredScheduleOperationType = (operationType) =>
 /**
  * checkScheduleWindow(operationType, options)
  *
- * Issue #61 Resolution: Schedule Window Enforcement Middleware
- * * This middleware addresses PR Review Issue #7: Hardcoded Message in Reusable Middleware
- * * Purpose:
- * Enforce time-based access control. Out-of-window responses:
- * - group_creation / member_addition: 403 + { code, reason } (legacy, tests/clients)
- * - advisor_association (Issue #70): 422 + { code, message }
- * * Applied To:
- * - POST /groups → checkScheduleWindow('group_creation')
- * - POST /groups/:groupId/members → checkScheduleWindow('member_addition')
- * - POST /advisor-requests → checkScheduleWindow('advisor_association')
- * - PATCH /advisor-requests/{requestId} → checkScheduleWindow('advisor_association')
- * - DELETE /groups/:groupId/advisor → checkScheduleWindow('advisor_association')
- * - POST /groups/:groupId/advisor/transfer → checkScheduleWindow('advisor_association')
- * * NOT applied to:
- * - PATCH /groups/:groupId/override (coordinator bypass)
- * - POST /groups/advisor-sanitization (deadline-based, not schedule window)
+ * Issue #61 & #70 Resolution: Schedule Window Enforcement Middleware
+ * * Purpose: Enforce time-based access control. 
+ * - group_creation / member_addition: 403 (Forbidden)
+ * - advisor_association (Issue #70): 422 (Unprocessable Entity)
  */
 const checkScheduleWindow = (operationType, options = {}) => async (req, res, next) => {
   try {
@@ -45,12 +31,11 @@ const checkScheduleWindow = (operationType, options = {}) => async (req, res, ne
       isActive: true,
       startsAt: { $lte: now },
       endsAt: { $gte: now },
-    });
+    }).lean();
 
     if (!activeWindow) {
       /**
-       * Issue #61 Fix #7: Dynamic error message based on operationType
-       * * Solution: Map operationType to descriptive error message
+       * Issue #61 Fix #7: Dynamic error message mapping
        */
       const messageMap = {
         group_creation: 'Group creation schedule is closed',
@@ -60,11 +45,11 @@ const checkScheduleWindow = (operationType, options = {}) => async (req, res, ne
       
       const mappedMessage = messageMap[operationType] || 'Operation is not available at this time';
       
-      // Feature branch options overrides main branch defaults if provided
+      // Feature branch options override defaults
       const statusCode = options.statusCode || (operationType === 'advisor_association' ? 422 : 403);
       const message = options.message || mappedMessage;
       
-      // Main branch issue #61 requested WINDOW_CLOSED code specifically for advisor_association
+      // Use specific code for advisor operations to distinguish from standard window issues
       const code = operationType === 'advisor_association' ? 'WINDOW_CLOSED' : 'OUTSIDE_SCHEDULE_WINDOW';
 
       return res.status(statusCode).json({
@@ -81,33 +66,24 @@ const checkScheduleWindow = (operationType, options = {}) => async (req, res, ne
 };
 
 /**
- * Advisor / Issue #75 flows return 422 when no active window covers "now"
- * (contract tests expect 422 for out-of-window advisor operations).
- *
- * @param {string} operationType — One of ADVISOR_ASSOCIATION, ADVISOR_DECISION,
- *   ADVISOR_RELEASE, ADVISOR_TRANSFER, or ADVISOR_SANITIZATION.
+ * checkAdvisorOperationWindow()
+ * Specialized middleware for advisor/association flows (Issue #70 & #75).
+ * Always returns 422 per OpenAPI spec requirements for schedule violations.
  */
-const checkAdvisorOperationWindow = (operationType) => async (req, res, next) => {
+const checkAdvisorOperationWindow = (operationType = 'advisor_association') => async (req, res, next) => {
   try {
-    if (!assertRegisteredScheduleOperationType(operationType)) {
-      return res.status(500).json({
-        code: 'SERVER_ERROR',
-        message: 'Invalid schedule operation type configured in route.',
-      });
-    }
-
     const now = new Date();
     const activeWindow = await ScheduleWindow.findOne({
       operationType,
       isActive: true,
       startsAt: { $lte: now },
       endsAt: { $gte: now },
-    });
+    }).lean();
 
     if (!activeWindow) {
       return res.status(422).json({
-        code: 'OUTSIDE_SCHEDULE_WINDOW',
-        message: 'Operation not available outside the configured schedule window',
+        code: 'SCHEDULE_WINDOW_CLOSED',
+        message: `${operationType.replace('_', ' ')} schedule is closed`,
       });
     }
 
@@ -118,9 +94,17 @@ const checkAdvisorOperationWindow = (operationType) => async (req, res, next) =>
   }
 };
 
-module.exports = {
-  checkScheduleWindow,
+/**
+ * =====================================================================
+ * FIX #2: MODULE EXPORT ORDER (ISSUE #70 - CRITICAL)
+ * =====================================================================
+ * PROBLEM: Temporal Dead Zone (TDZ) error if exported before declaration.
+ * SOLUTION: Move module.exports to the END of the file.
+ * =====================================================================
+ */
+module.exports = { 
+  checkScheduleWindow, 
   checkAdvisorOperationWindow,
   assertRegisteredScheduleOperationType,
-  OPERATION_TYPES,
+  OPERATION_TYPES 
 };

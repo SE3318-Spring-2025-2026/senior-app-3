@@ -20,10 +20,7 @@ const memberSchema = new mongoose.Schema(
 
 /**
  * Advisor Request Sub-schema (Process 3.2)
- * * FIX #3: UNIQUE INDEX CORRECTION
- * DEFICIENCY: unique: true on embedded subdocument field is meaningless.
- * PROBLEM: Mongoose does not create global uniqueness for fields within embedded documents.
- * SOLUTION: Removed unique: true here. Uniqueness is enforced by sparse unique index on parent schema.
+ * FIX #3: Uniqueness is enforced by sparse unique index on parent schema.
  */
 const advisorRequestSchema = new mongoose.Schema(
   {
@@ -71,9 +68,7 @@ const groupSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
-    // FIX #2: DISBAND STATE CONSOLIDATION
-    // SOLUTION: Added 'disbanded' to advisorStatus for specific lifecycle tracking.
-    // Group overall status remains 'archived' when disbanded.
+    // FIX #2: Added 'disbanded' to advisorStatus for lifecycle tracking.
     advisorStatus: {
       type: String,
       enum: ['pending', 'assigned', 'released', 'transferred', 'disbanded', null],
@@ -123,30 +118,22 @@ const groupSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// --- Core Indexes ---
+// --- Indexes ---
 groupSchema.index({ leaderId: 1 });
 groupSchema.index({ status: 1 });
 groupSchema.index({ advisorId: 1 });
 groupSchema.index({ advisorStatus: 1 });
 groupSchema.index({ groupId: 1 }, { unique: true });
 
-/**
- * FIX #3 ADDITION: Enforce global uniqueness on advisor request ID.
- * Sparse index allows groups without an active advisor request to exist.
- */
+// FIX #3: Enforce global uniqueness on advisor request ID via parent index
 groupSchema.index({ 'advisorRequest.requestId': 1 }, { unique: true, sparse: true });
 
-/**
- * FIX #5: INDEX DRIFT RESOLUTION
- * Matches migration 006. Single source of truth for multi-field advisor queries.
- */
+// FIX #5: Index Drift Resolution (Optimization for multi-field queries)
 groupSchema.index({ advisorId: 1, advisorStatus: 1 });
 
-// Optimization for advisor request tracking
+// Optimization for advisor request tracking & sanitization scans
 groupSchema.index({ 'advisorRequest.professorId': 1 });
 groupSchema.index({ 'advisorRequest.status': 1 });
-
-// feature/67: Optimized for scanning unassigned groups during sanitization
 groupSchema.index({ status: 1, advisorId: 1 });
 
 const Group = mongoose.model('Group', groupSchema);

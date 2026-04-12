@@ -5,10 +5,15 @@ const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const { checkAdvisorOperationWindow } = require('../middleware/scheduleWindow');
 const OPERATION_TYPES = require('../utils/operationTypes');
+
+// Controllers
 const { listProfessorPendingRequests } = require('../controllers/advisorRequests');
 const { submitAdvisorRequest, processAdvisorRequest } = require('../controllers/advisorAssociation');
 
-// GET /api/v1/advisor-requests/pending — List pending requests (Professor only)
+/**
+ * GET /api/v1/advisor-requests/pending
+ * Process 3.4: List professor's pending advisee requests
+ */
 router.get(
   '/pending',
   authMiddleware,
@@ -16,7 +21,11 @@ router.get(
   listProfessorPendingRequests
 );
 
-// POST /api/v1/advisor-requests — Submit a request (Student leader only)
+/**
+ * POST /api/v1/advisor-requests
+ * Process 3.1 + 3.2: Student leader submits an advisee request
+ * Schedule: Subject to advisor_association window enforcement (422 if outside)
+ */
 router.post(
   '/',
   authMiddleware,
@@ -25,7 +34,11 @@ router.post(
   submitAdvisorRequest
 );
 
-// PATCH /api/v1/advisor-requests/:requestId — Approve/Reject (Professor only)
+/**
+ * PATCH /api/v1/advisor-requests/:requestId
+ * Process 3.4 + 3.5: Professor approves or rejects an advisee request
+ * Schedule: Subject to advisor_decision window enforcement (422 if outside)
+ */
 router.patch(
   '/:requestId',
   authMiddleware,

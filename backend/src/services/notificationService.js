@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { retryNotificationWithBackoff } = require('./notificationRetry');
 const { NOTIFICATION_TYPES } = require('../utils/operationTypes');
 
 const NOTIFICATION_SERVICE_URL =
@@ -6,7 +7,7 @@ const NOTIFICATION_SERVICE_URL =
 
 /**
  * FIX #5: STANDARDIZED NOTIFICATION PAYLOAD CONTRACTS
- * All notification dispatchers now follow consistent contract:
+ * All notification dispatchers follow a consistent contract:
  * - type: notification type identifier
  * - recipient/recipients: at root level
  * - payload: object with snake_case fields only
@@ -99,7 +100,8 @@ const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipie
 
 /**
  * Dispatch an ADVISEE_REQUEST notification to a professor.
- * Called by Process 3.2 (Team Leader submits advisor request).
+ * Called by Process 3.3 (DFD flow f05).
+ * Uses Fix #5 Payload + Issue #62 Retry Logic.
  */
 const dispatchAdvisorRequestNotification = async ({
   groupId,
@@ -108,21 +110,27 @@ const dispatchAdvisorRequestNotification = async ({
   requesterId,
   message,
 }) => {
-  const response = await axios.post(
-    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-    {
-      type: 'advisee_request',
-      recipient: professorId,
-      payload: {
-        group_id: groupId,
-        group_name: groupName,
-        requester_id: requesterId,
-        message: message || `Your group "${groupName}" is requesting advisor assignment`,
+  const dispatchFn = async () => {
+    const response = await axios.post(
+      `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+      {
+        type: 'advisee_request',
+        recipient: professorId,
+        payload: {
+          group_id: groupId,
+          group_name: groupName,
+          requester_id: requesterId,
+          message: message || `Your group "${groupName}" is requesting advisor assignment`,
+        },
       },
-    },
-    { timeout: 5000 }
-  );
-  return response.data;
+      { timeout: 5000 }
+    );
+    return response.data;
+  };
+
+  return retryNotificationWithBackoff(dispatchFn, {
+    context: { groupId, professorId, operation: 'advisee_request' },
+  });
 };
 
 /**
@@ -192,67 +200,40 @@ const dispatchAdvisorStatusNotification = async ({
 
 /**
  * Dispatch a GROUP_DISBAND notification to group members.
- * Called by Process 3.7 (Advisor Sanitization).
+ * Called by Process 3.7 (Advisor Sanitization / DFD flow f14).
  */
 const dispatchDisbandNotification = async ({ groupId, groupName, recipients, reason }) => {
-  const response = await axios.post(
-    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-    {
-      type: 'group_disband',
-      recipients,
-      payload: {
-        group_id: groupId,
-        group_name: groupName,
-        reason,
-        message: `Your group "${groupName}" has been disbanded due to: ${reason}`,
+  const dispatchFn = async () => {
+    const response = await axios.post(
+      `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+      {
+        type: 'group_disband',
+        recipients,
+        payload: {
+          group_id: groupId,
+          group_name: groupName,
+          reason,
+          message: `Your group "${groupName}" has been disbanded due to: ${reason}`,
+        },
       },
-    },
-    { timeout: 5000 }
-  );
-  return response.data;
+      { timeout: 5000 }
+    );
+    return response.data;
+  };
+
+  return retryNotificationWithBackoff(dispatchFn, {
+    context: { groupId, operation: 'group_disband' },
+  });
 };
 
 /**
  * Issue #62 Fix #3 (CRITICAL): Transient Error Detection
- * Determines if an error is transient (safe to retry) or permanent.
  */
 const isTransientError = (error) => {
   if (!error.response) return true;
   const status = error.response.status;
   if (status >= 400 && status < 500) return false;
   return true;
-};
-
-/**
- * Dispatch an ADVISEE_REQUEST notification with smart retry logic.
- * Called by Process 3.2 with automatic retry on transient failures.
- */
-const dispatchAdvisorRequestWithRetry = async ({ groupId, requesterId, message }) => {
-  let lastError = null;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const response = await axios.post(
-        `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-        {
-          type: 'advisee_request',
-          payload: {
-            group_id: groupId,
-            requester_id: requesterId,
-            message: message || null,
-          },
-        },
-        { timeout: 5000 }
-      );
-      return { ok: true, notificationId: response.data.notification_id || response.data.id, attempts: attempt };
-    } catch (err) {
-      lastError = err.message;
-      if (!isTransientError(err)) {
-        return { ok: false, attempts: attempt, lastError: `Permanent error: ${lastError}` };
-      }
-      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
-    }
-  }
-  return { ok: false, attempts: 3, lastError: `All retries failed: ${lastError}` };
 };
 
 module.exports = {
@@ -264,6 +245,5 @@ module.exports = {
   dispatchRejectionNotification,
   dispatchAdvisorStatusNotification,
   dispatchDisbandNotification,
-  dispatchAdvisorRequestWithRetry,
   isTransientError,
 };

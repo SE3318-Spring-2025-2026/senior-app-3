@@ -71,7 +71,7 @@ app.use((req, res) => {
 // Global error handler
 app.use(errorHandler);
 
-// Start server only if not in test environment or if NODE_ENV is not 'test'
+// Start server only if not in test environment
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);

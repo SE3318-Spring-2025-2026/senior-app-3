@@ -3,6 +3,8 @@ const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const { checkScheduleWindow, checkAdvisorOperationWindow } = require('../middleware/scheduleWindow');
 const OPERATION_TYPES = require('../utils/operationTypes');
+
+// Controllers
 const {
   forwardApprovalResults,
   createGroup,
@@ -12,56 +14,69 @@ const {
   decideMemberRequest,
   coordinatorOverride,
 } = require('../controllers/groups');
-const { releaseAdvisor, transferAdvisor } = require('../controllers/advisorAssociation');
-const { addMember, getMembers, dispatchNotification, membershipDecision, getMyPendingInvitation, getApprovals } = require('../controllers/groupMembers');
+
+const { 
+  addMember, 
+  getMembers, 
+  dispatchNotification, 
+  membershipDecision, 
+  getMyPendingInvitation, 
+  getApprovals 
+} = require('../controllers/groupMembers');
+
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
+const { releaseAdvisor, transferAdvisor } = require('../controllers/advisorAssociation');
 const { decideAdvisorRequest } = require('../controllers/advisorDecision');
 const { advisorSanitization } = require('../controllers/sanitizationController');
 
-// POST /api/v1/groups — Process 2.1 + 2.2: create, validate, persist, forward to 2.5
+// --- Group Lifecycle (Process 2.1 - 2.2) ---
+
+// POST /api/v1/groups — Create group record in D2
 router.post('/', authMiddleware, roleMiddleware(['student']), createGroup);
 
-// GET /api/v1/groups/pending-invitation — return current user's pending invitation with group info
+// GET /api/v1/groups/pending-invitation — User's pending group invites
 router.get('/pending-invitation', authMiddleware, getMyPendingInvitation);
 
-// GET /api/v1/groups — List all groups (coordinator only) for group management dashboard
+// GET /api/v1/groups — Coordinator dashboard list
 router.get('/', authMiddleware, roleMiddleware(['coordinator']), getAllGroups);
 
-// POST /api/v1/groups/advisor-sanitization — Issue #75 (must be registered before /:groupId routes)
+// POST /api/v1/groups/advisor-sanitization — Process 3.7: Disband unassigned groups
+// Note: Registered before /:groupId to prevent route collision
 router.post(
   '/advisor-sanitization',
   authMiddleware,
-  roleMiddleware(['coordinator', 'system']),
+  roleMiddleware(['coordinator', 'system', 'admin']),
   advisorSanitization
 );
 
-// GET /api/v1/groups/:groupId — Process 2.2: retrieve validated group record from D2
+// GET /api/v1/groups/:groupId — Retrieve validated group record
 router.get('/:groupId', authMiddleware, getGroup);
 
-// POST /api/v1/groups/:groupId/members — Process 2.3: leader invites a student (f05, f19)
+// --- Membership Management (Process 2.3 - 2.5) ---
+
+// POST /api/v1/groups/:groupId/members — Invite a student
 router.post('/:groupId/members', authMiddleware, checkScheduleWindow(OPERATION_TYPES.MEMBER_ADDITION), addMember);
 
-// GET /api/v1/groups/:groupId/members — return current member list from D2
+// GET /api/v1/groups/:groupId/members — List current members
 router.get('/:groupId/members', authMiddleware, getMembers);
 
-// POST /api/v1/groups/:groupId/member-requests — Student requests to join group
+// POST /api/v1/groups/:groupId/member-requests — Student self-request to join
 router.post('/:groupId/member-requests', authMiddleware, roleMiddleware(['student']), createMemberRequest);
 
-// PATCH /api/v1/groups/:groupId/member-requests/:requestId — Leader approves/rejects member request
+// PATCH /api/v1/groups/:groupId/member-requests/:requestId — Leader decision
 router.patch('/:groupId/member-requests/:requestId', authMiddleware, decideMemberRequest);
 
-// POST /api/v1/groups/:groupId/notifications — Process 2.3: dispatch invitation notification (f06)
+// POST /api/v1/groups/:groupId/notifications — Dispatch invitation (f06)
 router.post('/:groupId/notifications', authMiddleware, dispatchNotification);
 
-// POST /api/v1/groups/:groupId/membership-decisions — Process 2.4: student accepts/rejects (f07, f08)
+// POST /api/v1/groups/:groupId/membership-decisions — Accept/Reject invite
 router.post('/:groupId/membership-decisions', authMiddleware, membershipDecision);
 
-// GET /api/v1/groups/:groupId/approvals — Process 2.4: list all invitation decisions with overall_status
+// GET /api/v1/groups/:groupId/approvals — List decision status
 router.get('/:groupId/approvals', authMiddleware, getApprovals);
 
-// POST /api/v1/groups/:groupId/approval-results
-// Flow f09: process 2.4 → 2.5 — forward collected approval results to the queue
+// POST /api/v1/groups/:groupId/approval-results — Forward results to Process 2.5 queue
 router.post(
   '/:groupId/approval-results',
   authMiddleware,
@@ -69,20 +84,13 @@ router.post(
   forwardApprovalResults
 );
 
-// POST /api/v1/groups/:groupId/github — Process 2.6: validate PAT + org, store config (f10-f12, f24)
+// --- Integrations & Overrides (Process 2.6 - 2.8) ---
+
 router.post('/:groupId/github', authMiddleware, configureGithub);
-
-// GET /api/v1/groups/:groupId/github — return stored GitHub config
 router.get('/:groupId/github', authMiddleware, getGithub);
-
-// POST /api/v1/groups/:groupId/jira — Process 2.7: validate credentials + project key (f13-f15, f25)
 router.post('/:groupId/jira', authMiddleware, configureJira);
-
-// GET /api/v1/groups/:groupId/jira — return stored JIRA config
 router.get('/:groupId/jira', authMiddleware, getJira);
 
-// PATCH /api/v1/groups/:groupId/override
-// Process 2.8: Coordinator override — add/remove member, bypassing standard flow
 router.patch(
   '/:groupId/override',
   authMiddleware,
@@ -90,15 +98,9 @@ router.patch(
   coordinatorOverride
 );
 
-// GET /api/v1/groups/:groupId/status — Issue #52: Retrieve current group status
-router.get(
-  '/:groupId/status',
-  authMiddleware,
-  getStatus
-);
+// --- Status Management (Issue #52) ---
 
-// PATCH /api/v1/groups/:groupId/status — Issue #52: Transition group to new status
-// Allowed transitions: pending_validation→active/rejected, active→inactive/rejected, inactive→active/rejected
+router.get('/:groupId/status', authMiddleware, getStatus);
 router.patch(
   '/:groupId/status',
   authMiddleware,
@@ -106,24 +108,42 @@ router.patch(
   transitionStatus
 );
 
-// DELETE /api/v1/groups/:groupId/advisor — Issue #75 release advisor
+// --- Advisor Association Workflow (Process 3.0 — Level 2.3 / Issue #75) ---
+
+/**
+ * DELETE /api/v1/groups/:groupId/advisor — Process 3.5: Release current advisor
+ * Schedule: Subject to advisor_release window enforcement (422 if outside)
+ */
 router.delete(
   '/:groupId/advisor',
   authMiddleware,
+  roleMiddleware(['student', 'coordinator']),
   checkAdvisorOperationWindow(OPERATION_TYPES.ADVISOR_RELEASE),
   releaseAdvisor
 );
 
-// POST /api/v1/groups/:groupId/advisor/transfer — Issue #75 transfer advisor (coordinator)
+/**
+ * POST /api/v1/groups/:groupId/advisor/transfer — Process 3.6: Coordinator transfer
+ * Schedule: Subject to advisor_transfer window enforcement (422 if outside)
+ * * =====================================================================
+ * FIX #3b: REMOVE 'ADMIN' FROM COORDINATOR-ONLY ROUTE (ISSUE #70 - HIGH)
+ * =====================================================================
+ * Process 3.6 is explicitly defined as COORDINATOR-ONLY per DFD.
+ * Admin users are restricted to system operations, not domain logic.
+ * =====================================================================
+ */
 router.post(
   '/:groupId/advisor/transfer',
   authMiddleware,
-  roleMiddleware(['coordinator']),
+  roleMiddleware(['coordinator']), 
   checkAdvisorOperationWindow(OPERATION_TYPES.ADVISOR_TRANSFER),
   transferAdvisor
 );
 
-// PATCH /api/v1/advisor-requests/:requestId — Process 3.4+3.5: Professor approves/rejects request
+/**
+ * PATCH /api/v1/groups/advisor-requests/:requestId — Process 3.4: Professor decision
+ * (Note: Moved here from root for group context consistency)
+ */
 router.patch(
   '/advisor-requests/:requestId',
   authMiddleware,
