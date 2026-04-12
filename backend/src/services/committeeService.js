@@ -172,8 +172,8 @@ const publishCommittee = async (committeeId, publishedBy) => {
 
   const notificationResult = await sendCommitteeNotification(
     committee,
-    groupMemberIds,
-    publishedBy
+    publishedBy,
+    groupMemberIds
   );
 
   return {
