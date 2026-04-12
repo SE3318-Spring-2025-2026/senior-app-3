@@ -102,7 +102,7 @@ router.patch(
 router.post(
   '/:groupId/advisor/transfer',
   authMiddleware,
-  roleMiddleware(['coordinator']),
+  roleMiddleware(['coordinator', 'admin']),
   coordinatorTransferAdvisor
 );
 

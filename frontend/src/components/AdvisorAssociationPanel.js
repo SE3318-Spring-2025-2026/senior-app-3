@@ -12,7 +12,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import './AdvisorAssociationPanel.css';
-import advisorAssociationService from '../../api/advisorAssociationService';
+import advisorAssociationService from '../api/advisorAssociationService';
 
 const AdvisorAssociationPanel = ({ user }) => {
   // State management

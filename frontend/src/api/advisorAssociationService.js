@@ -78,7 +78,7 @@ export const transferAdvisor = async (groupId, newProfessorId, reason = '') => {
     } else if (errorCode === 'INVALID_ADVISOR') {
       throw new Error('Invalid advisor selected');
     } else if (errorCode === 'FORBIDDEN') {
-      throw new Error('Only coordinators can transfer advisors');
+      throw new Error('Only coordinators or admins can transfer advisors');
     } else if (errorCode === 'CONFLICT') {
       throw new Error('This advisor is already assigned to this group');
     } else {

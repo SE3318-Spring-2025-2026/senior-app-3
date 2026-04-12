@@ -12,7 +12,7 @@ const Group = require('../src/models/Group');
 const User = require('../src/models/User');
 const ScheduleWindow = require('../src/models/ScheduleWindow');
 const AuditLog = require('../src/models/AuditLog');
-const { generateToken } = require('../src/utils/jwt');
+const { generateAccessToken } = require('../src/utils/jwt');
 
 describe('Issue #66 — Advisor Association (Process 3.6 & 3.7)', () => {
   let coordinator;
@@ -93,23 +93,16 @@ describe('Issue #66 — Advisor Association (Process 3.6 & 3.7)', () => {
     // Create schedule window (open)
     const now = new Date();
     await ScheduleWindow.create({
-      operation_type: 'advisor_association',
-      open_at: new Date(now.getTime() - 3600000), // 1 hour ago
-      close_at: new Date(now.getTime() + 3600000), // 1 hour from now
+      operationType: 'advisor_association',
+      startsAt: new Date(now.getTime() - 3600000), // 1 hour ago
+      endsAt: new Date(now.getTime() + 3600000), // 1 hour from now
+      createdBy: coordinator.userId,
     });
 
     // Generate tokens
-    coordinatorToken = generateToken({
-      userId: coordinator.userId,
-      email: coordinator.email,
-      role: coordinator.role,
-    });
+    coordinatorToken = generateAccessToken(coordinator.userId, coordinator.role);
 
-    professorToken = generateToken({
-      userId: professor1.userId,
-      email: professor1.email,
-      role: professor1.role,
-    });
+    professorToken = generateAccessToken(professor1.userId, professor1.role);
   });
 
   // ✅ Test Group 1: Transfer Advisor (Process 3.6)
@@ -138,10 +131,10 @@ describe('Issue #66 — Advisor Association (Process 3.6 & 3.7)', () => {
     test('should reject transfer when schedule window is closed', async () => {
       // Close schedule window
       await ScheduleWindow.updateOne(
-        { operation_type: 'advisor_association' },
+        { operationType: 'advisor_association' },
         {
-          open_at: new Date(Date.now() - 7200000), // 2 hours ago
-          close_at: new Date(Date.now() - 3600000), // 1 hour ago (now closed)
+          startsAt: new Date(Date.now() - 7200000), // 2 hours ago
+          endsAt: new Date(Date.now() - 3600000), // 1 hour ago (now closed)
         }
       );
 
@@ -215,8 +208,7 @@ describe('Issue #66 — Advisor Association (Process 3.6 & 3.7)', () => {
         .expect(200);
 
       const auditLog = await AuditLog.findOne({
-        entityType: 'Group',
-        entityId: group1.groupId,
+        groupId: group1.groupId,
         action: 'advisor_transfer',
       });
 
@@ -286,7 +278,6 @@ describe('Issue #66 — Advisor Association (Process 3.6 & 3.7)', () => {
         .expect(200);
 
       const auditLog = await AuditLog.findOne({
-        entityType: 'System',
         action: 'sanitization_run',
       });
 
@@ -345,11 +336,7 @@ describe('Issue #66 — Advisor Association (Process 3.6 & 3.7)', () => {
         accountStatus: 'active',
       });
 
-      const adminToken = generateToken({
-        userId: admin.userId,
-        email: admin.email,
-        role: admin.role,
-      });
+      const adminToken = generateAccessToken(admin.userId, admin.role);
 
       const response = await request(app)
         .post('/api/v1/groups/advisor-sanitization')
@@ -358,6 +345,29 @@ describe('Issue #66 — Advisor Association (Process 3.6 & 3.7)', () => {
         .expect(200);
 
       expect(response.body.success).toBe(true);
+    });
+
+    test('should allow admin to transfer advisor', async () => {
+      const admin = await User.create({
+        email: 'admin-transfer@test.edu',
+        hashedPassword: 'hashed',
+        role: 'admin',
+        accountStatus: 'active',
+      });
+
+      const adminToken = generateAccessToken(admin.userId, admin.role);
+
+      const response = await request(app)
+        .post(`/api/v1/groups/${group1.groupId}/advisor/transfer`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          newProfessorId: professor1.userId,
+          reason: 'Admin reassignment',
+        })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.group.advisorStatus).toBe('transferred');
     });
   });
 });

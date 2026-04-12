@@ -57,6 +57,10 @@ const auditLogSchema = new mongoose.Schema(
         'jira_integration_setup',
         'status_transition',
         'sync_error',
+        // Advisor association (Issue #66 / Process 3.6–3.7)
+        'advisor_transfer',
+        'advisor_disband',
+        'sanitization_run',
         // Test sentinel (used in existing test suite)
         'TEST_ACTION',
       ],
