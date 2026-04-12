@@ -1,37 +1,71 @@
 const mongoose = require('mongoose');
-const { v4: uuidv4 } = require('uuid');
 
 /**
- * Committee Schema (D2 Data Store)
+ * Committee Schema (D3 Data Store)
  * 
- * Represents a committee that evaluates student deliverables.
- * Part of Process 4.5 (Deliverable Submission) and Process 8.1 (Jury Assignment).
+ * Represents a committee configuration for evaluating group projects.
+ * Part of Process 4.0 (Committee Assignment) workflow.
+ * 
+ * Flows:
+ * - f09: 4.5 → Notification Service (committee publish notifications)
+ * - Related to f13: D3 Committee → D6 SprintRecord (sprint assignment)
  */
 const committeeSchema = new mongoose.Schema(
   {
     committeeId: {
       type: String,
-      default: () => `com_${uuidv4().split('-')[0]}`,
+      required: true,
       unique: true,
-      required: true,
       index: true,
+      default: () => `COM-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
     },
-    name: {
+    committeeName: {
       type: String,
       required: true,
-      trim: true,
-    },
-    status: {
-      type: String,
-      enum: ['draft', 'published', 'archived'],
-      default: 'draft',
+      unique: true,
       index: true,
+      minlength: 3,
+      maxlength: 100,
     },
     description: {
       type: String,
+      maxlength: 500,
       default: null,
     },
+    advisorIds: {
+      type: [String],
+      default: [],
+      index: true,
+    },
+    juryIds: {
+      type: [String],
+      default: [],
+      index: true,
+    },
+    status: {
+      type: String,
+      enum: ['draft', 'validated', 'published'],
+      default: 'draft',
+      index: true,
+    },
     createdBy: {
+      type: String, // coordinatorId
+      required: true,
+      index: true,
+    },
+    publishedAt: {
+      type: Date,
+      default: null,
+    },
+    publishedBy: {
+      type: String, // coordinatorId who published
+      default: null,
+    },
+    validatedAt: {
+      type: Date,
+      default: null,
+    },
+    validatedBy: {
       type: String,
       default: null,
     },
@@ -42,7 +76,8 @@ const committeeSchema = new mongoose.Schema(
   }
 );
 
-// Index for status and committeeId
-committeeSchema.index({ status: 1 });
+// Compound indexes for common queries
+committeeSchema.index({ createdBy: 1, status: 1 });
+committeeSchema.index({ status: 1, publishedAt: -1 });
 
 module.exports = mongoose.model('Committee', committeeSchema);
