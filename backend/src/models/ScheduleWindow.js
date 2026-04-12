@@ -19,7 +19,7 @@ const scheduleWindowSchema = new mongoose.Schema(
     },
     operationType: {
       type: String,
-      enum: ['group_creation', 'member_addition'],
+      enum: ['group_creation', 'member_addition', 'deliverable_submission'],
       required: true,
     },
     startsAt: { type: Date, required: true },

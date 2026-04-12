@@ -59,19 +59,19 @@ const submitDeliverableHandler = async (req, res) => {
 
     // Check schedule window for deliverable submission
     const scheduleWindow = await ScheduleWindow.findOne({
-      operation_type: 'deliverable_submission',
-      status: 'active',
+      operationType: 'deliverable_submission',
+      isActive: true,
     });
 
     if (scheduleWindow) {
       const now = new Date();
-      if (now < scheduleWindow.start_time || now > scheduleWindow.end_time) {
-        return res.status(422).json({
+      if (now < scheduleWindow.startsAt || now > scheduleWindow.endsAt) {
+        return res.status(403).json({
           code: 'OUTSIDE_SCHEDULE_WINDOW',
           message: 'Deliverable submission is outside the allowed time window',
           window: {
-            start: scheduleWindow.start_time,
-            end: scheduleWindow.end_time,
+            start: scheduleWindow.startsAt,
+            end: scheduleWindow.endsAt,
           },
         });
       }

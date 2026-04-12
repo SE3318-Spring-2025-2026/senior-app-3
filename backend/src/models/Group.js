@@ -42,6 +42,10 @@ const groupSchema = new mongoose.Schema(
       enum: ['pending_validation', 'active', 'inactive', 'archived'],
       default: 'pending_validation',
     },
+    committeeId: {
+      type: String,
+      default: null,
+    },
     members: [memberSchema],
     githubOrg: {
       type: String,

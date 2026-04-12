@@ -92,6 +92,7 @@ router.patch(
 router.post(
   '/:groupId/deliverables',
   authMiddleware,
+  roleMiddleware(['student', 'leader']),
   checkScheduleWindow('deliverable_submission'),
   submitDeliverableHandler
 );

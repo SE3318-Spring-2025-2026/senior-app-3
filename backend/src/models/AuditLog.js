@@ -57,6 +57,7 @@ const auditLogSchema = new mongoose.Schema(
         'jira_integration_setup',
         'status_transition',
         'sync_error',
+        'DELIVERABLE_SUBMITTED',
         // Test sentinel (used in existing test suite)
         'TEST_ACTION',
       ],

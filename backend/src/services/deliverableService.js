@@ -35,22 +35,26 @@ const validateCommitteeAssignment = async (groupId) => {
       );
     }
 
-    // Check if group has committeeId field set (for future committee linking)
-    // For now, verify committee exists and is published via query
-    // This assumes Committee will be linked to Group or Groups will have committeeId
-    // Query all published committees and check if group is eligible
-    const publishedCommittees = await Committee.find({ status: 'published' });
-    
-    if (!publishedCommittees || publishedCommittees.length === 0) {
+    if (!group.committeeId) {
       throw new DeliverableServiceError(
-        'No published committee found for deliverable submission',
+        `Group ${groupId} is not assigned to any committee`,
+        400,
+        'GROUP_NOT_LINKED_TO_COMMITTEE'
+      );
+    }
+
+    const committee = await Committee.findOne({ 
+      committeeId: group.committeeId,
+      status: 'published'
+    });
+    
+    if (!committee) {
+      throw new DeliverableServiceError(
+        `No published committee found for committee ID: ${group.committeeId}`,
         400,
         'COMMITTEE_NOT_PUBLISHED'
       );
     }
-
-    // For now, use first published committee; in production, would link Group to Committee
-    const committee = publishedCommittees[0];
 
     return committee;
   } catch (err) {
@@ -216,63 +220,64 @@ const linkD4ToD6 = async (data, session = null) => {
  */
 const submitDeliverable = async (data) => {
   const session = await Deliverable.startSession();
-  session.startTransaction();
+  let result;
 
   try {
-    const { groupId, committeeId, sprintId, studentId, type, storageRef, coordinatorId } = data;
+    await session.withTransaction(async () => {
+      const { groupId, committeeId, sprintId, studentId, type, storageRef, coordinatorId } = data;
 
-    // Step 1: Store deliverable in D4
-    const deliverable = await storeDeliverableInD4(
-      { committeeId, groupId, studentId, type, storageRef },
-      session
-    );
+      // Step 1: Store deliverable in D4
+      const deliverable = await storeDeliverableInD4(
+        { committeeId, groupId, studentId, type, storageRef },
+        session
+      );
 
-    // Step 2: Create or update sprint record in D6
-    const sprintRecord = await createOrUpdateSprintRecord(
-      { groupId, sprintId, committeeId },
-      session
-    );
+      // Step 2: Create or update sprint record in D6
+      const sprintRecord = await createOrUpdateSprintRecord(
+        { groupId, sprintId, committeeId },
+        session
+      );
 
-    // Step 3: Establish D4-to-D6 cross-reference
-    await linkD4ToD6(
-      {
+      // Step 3: Establish D4-to-D6 cross-reference
+      await linkD4ToD6(
+        {
+          deliverableId: deliverable.deliverableId,
+          sprintId: sprintRecord.sprintId,
+          groupId,
+          type,
+          submittedAt: deliverable.submittedAt,
+        },
+        session
+      );
+
+      // Step 4: Create audit log
+      await createAuditLog(
+        {
+          action: 'DELIVERABLE_SUBMITTED',
+          actorId: coordinatorId || studentId,
+          groupId,
+          payload: {
+            deliverableId: deliverable.deliverableId,
+            committeeId,
+            type,
+            sprintId,
+          },
+        },
+        session
+      );
+
+      result = {
         deliverableId: deliverable.deliverableId,
-        sprintId: sprintRecord.sprintId,
+        committeeId,
         groupId,
         type,
         submittedAt: deliverable.submittedAt,
-      },
-      session
-    );
+        storageRef,
+      };
+    });
 
-    // Step 4: Create audit log
-    await createAuditLog(
-      {
-        action: 'DELIVERABLE_SUBMITTED',
-        actorId: coordinatorId || studentId,
-        groupId,
-        payload: {
-          deliverableId: deliverable.deliverableId,
-          committeeId,
-          type,
-          sprintId,
-        },
-      },
-      session
-    );
-
-    await session.commitTransaction();
-
-    return {
-      deliverableId: deliverable.deliverableId,
-      committeeId,
-      groupId,
-      type,
-      submittedAt: deliverable.submittedAt,
-      storageRef,
-    };
+    return result;
   } catch (err) {
-    await session.abortTransaction();
     if (err instanceof DeliverableServiceError) {
       throw err;
     }
