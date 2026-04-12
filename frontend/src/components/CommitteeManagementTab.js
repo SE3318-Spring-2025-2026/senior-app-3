@@ -5,7 +5,7 @@ import {
   listCommittees,
   listCommitteeCandidates,
   assignCommitteeAdvisors,
-  addCommitteeJuryMembers,
+  addJuryMembers,
   validateCommitteeSetup,
   publishCommittee,
 } from '../api/committeeService';
@@ -143,6 +143,10 @@ const CommitteeManagementTab = () => {
 
   const handleAssignAdvisors = async () => {
     if (!selectedCommittee) return;
+    if (!advisorSelection.length) {
+      setAssignError('Please select at least one advisor.');
+      return;
+    }
     setAssignError('');
     setPublishError('');
     setSubmitting(true);
@@ -160,12 +164,16 @@ const CommitteeManagementTab = () => {
 
   const handleAssignJuryMembers = async () => {
     if (!selectedCommittee) return;
+    if (!jurySelection.length) {
+      setAssignError('Please select at least one jury member.');
+      return;
+    }
     setAssignError('');
     setPublishError('');
     setSubmitting(true);
 
     try {
-      await addCommitteeJuryMembers(selectedCommittee.committeeId, jurySelection);
+      await addJuryMembers(selectedCommittee.committeeId, jurySelection);
       setInfoMessage('Jury assignments updated. Please validate before publishing.');
       await refreshCommittees(selectedCommittee.committeeId);
     } catch (err) {
@@ -421,6 +429,10 @@ const CommitteeManagementTab = () => {
               </button>
             </div>
           </div>
+
+          {assignError && (
+            <div style={{ color: '#d73a49', marginBottom: '16px' }}>{assignError}</div>
+          )}
 
           <div style={{ display: 'grid', gap: '12px', marginBottom: '16px' }}>
             <h3 style={{ marginBottom: '12px' }}>Validation</h3>

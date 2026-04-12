@@ -120,8 +120,8 @@ const DeliverableSubmissionForm = ({
         ...prev,
         [result.type]: result,
       }));
-      setSuccessMsg('Deliverable submitted successfully.');
       resetForm();
+      setSuccessMsg('Deliverable submitted successfully.');
       if (onSuccess) onSuccess();
     } catch (error) {
       const status = error.response?.status;
