@@ -941,7 +941,7 @@ describe('Group CRUD, Member Management & Override Endpoints — Issue #55', () 
             },
           ],
         },
-        { userId: 'usr_committee', role: 'committee_member' }
+        { userId: 'usr_committee', role: 'professor' }
       );
       const res = makeRes();
 
@@ -963,7 +963,7 @@ describe('Group CRUD, Member Management & Override Endpoints — Issue #55', () 
           notification_id: 'notif_001',
           results: [],
         },
-        { userId: 'usr_committee', role: 'committee_member' }
+        { userId: 'usr_committee', role: 'professor' }
       );
       const res = makeRes();
 
@@ -988,7 +988,7 @@ describe('Group CRUD, Member Management & Override Endpoints — Issue #55', () 
             },
           ],
         },
-        { userId: 'usr_committee', role: 'committee_member' }
+        { userId: 'usr_committee', role: 'professor' }
       );
       const res = makeRes();
 
@@ -1015,7 +1015,7 @@ describe('Group CRUD, Member Management & Override Endpoints — Issue #55', () 
             },
           ],
         },
-        { userId: 'usr_committee', role: 'committee_member' }
+        { userId: 'usr_committee', role: 'professor' }
       );
       const res1 = makeRes();
 
@@ -1034,7 +1034,7 @@ describe('Group CRUD, Member Management & Override Endpoints — Issue #55', () 
             },
           ],
         },
-        { userId: 'usr_committee', role: 'committee_member' }
+        { userId: 'usr_committee', role: 'professor' }
       );
       const res2 = makeRes();
 
@@ -1061,7 +1061,7 @@ describe('Group CRUD, Member Management & Override Endpoints — Issue #55', () 
             },
           ],
         },
-        { userId: 'usr_committee', role: 'committee_member' }
+        { userId: 'usr_committee', role: 'professor' }
       );
       const res = makeRes();
 

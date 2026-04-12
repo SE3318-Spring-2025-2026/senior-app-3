@@ -279,7 +279,7 @@ const templates = {
         <p>Your <strong>admin</strong> account is now active. You have full access to the system.</p>
       `),
     }),
-    committee_member: () => ({
+    coordinator: () => ({
       subject: 'Your coordinator account is ready',
       text: 'Your coordinator account has been activated. You can now manage student onboarding. Welcome!',
       html: baseHtml('Your account is ready', `
@@ -401,7 +401,7 @@ const sendPasswordResetEmail = async (email, token, userId) => {
  * Send account-ready notification with role-specific content (flows f23/f24).
  *
  * @param {string} email    - Recipient email address
- * @param {string} role     - User role (student | professor | admin | committee_member)
+ * @param {string} role     - User role (student | professor | admin | coordinator)
  * @param {string} [userId] - User ID for delivery audit log
  * @returns {{ messageId, recipient, status, attempts }}
  */

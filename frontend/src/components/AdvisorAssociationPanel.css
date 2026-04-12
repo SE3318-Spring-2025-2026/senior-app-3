@@ -1,0 +1,505 @@
+/**
+ * Advisor Association Panel Styles
+ * 
+ * Styling for Issue #66 component following project design conventions.
+ * Color system: Gradient (#667eea → #764ba2), status badges, smooth transitions
+ */
+
+.advisor-association-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 40px 24px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.advisor-association-error {
+  padding: 24px;
+  background-color: #fee2e2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #991b1b;
+  margin-bottom: 24px;
+}
+
+/* ═══════════════════════════════════════════ Header ═══════════════════════════════════════════ */
+
+.panel-header {
+  margin-bottom: 32px;
+  text-align: left;
+}
+
+.panel-header h1 {
+  font-size: 32px;
+  font-weight: 700;
+  color: #1a1a2e;
+  margin: 0 0 8px 0;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.panel-header .subtitle {
+  font-size: 16px;
+  color: #6b7280;
+  margin: 0;
+  font-weight: 400;
+}
+
+/* ═══════════════════════════════════════════ Alerts ═══════════════════════════════════════════ */
+
+.alert {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  border-radius: 8px;
+  font-weight: 500;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.alert-error {
+  background-color: #fee2e2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+
+.alert-success {
+  background-color: #dcfce7;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+}
+
+.alert-icon {
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════ Section Styling ═══════════════════════════════════════════ */
+
+.section {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 28px;
+  margin-bottom: 28px;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.08);
+}
+
+.section-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #1a1a2e;
+  margin: 0 0 8px 0;
+}
+
+.section-description {
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0 0 20px 0;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: #9ca3af;
+  font-size: 16px;
+}
+
+/* ═══════════════════════════════════════════ Groups Table ═══════════════════════════════════════════ */
+
+.groups-table-wrapper {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+}
+
+.groups-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.groups-table thead {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+}
+
+.groups-table th {
+  padding: 16px 20px;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.groups-table tbody tr {
+  border-bottom: 1px solid #f3f4f6;
+  transition: background-color 0.2s ease;
+}
+
+.groups-table tbody tr:hover {
+  background-color: #f9f9ff;
+}
+
+.groups-table td {
+  padding: 16px 20px;
+  vertical-align: middle;
+}
+
+.group-name-cell {
+  font-weight: 600;
+  color: #1a1a2e;
+}
+
+.group-id {
+  display: block;
+  font-size: 12px;
+  color: #9ca3af;
+  font-weight: 400;
+  margin-top: 4px;
+}
+
+.advisor-cell {
+  color: #4b5563;
+  font-weight: 500;
+}
+
+.actions-cell {
+  text-align: right;
+}
+
+.btn-transfer {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
+}
+
+.btn-transfer:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+}
+
+.btn-transfer:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ═══════════════════════════════════════════ Badges ═══════════════════════════════════════════ */
+
+.badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.badge-success {
+  background-color: #dcfce7;
+  color: #166534;
+}
+
+.badge-info {
+  background-color: #dbeafe;
+  color: #0c4a6e;
+}
+
+.badge-warning {
+  background-color: #fef9c3;
+  color: #854d0e;
+}
+
+.badge-danger {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.badge-default {
+  background-color: #f1f5f9;
+  color: #64748b;
+}
+
+/* ═══════════════════════════════════════════ Forms ═══════════════════════════════════════════ */
+
+.transfer-section {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.05), rgba(118, 75, 162, 0.05));
+  border: 2px solid #e5e7eb;
+}
+
+.transfer-form {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  margin-top: 16px;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: #1a1a2e;
+  font-size: 14px;
+}
+
+.form-control {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.form-control:read-only {
+  background-color: #f9fafb;
+  color: #6b7280;
+  cursor: not-allowed;
+}
+
+.form-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+  justify-content: flex-end;
+}
+
+/* ═══════════════════════════════════════════ Buttons ═══════════════════════════════════════════ */
+
+.btn {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.btn-secondary {
+  background-color: #e5e7eb;
+  color: #374151;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: #d1d5db;
+}
+
+.btn-danger {
+  background-color: #ef4444;
+  color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: #dc2626;
+}
+
+.btn-sanitize {
+  background: linear-gradient(135deg, #ec4899, #d946ef);
+  color: white;
+  padding: 14px 28px;
+  font-size: 15px;
+  box-shadow: 0 2px 4px rgba(236, 72, 153, 0.2);
+  width: 100%;
+}
+
+.btn-sanitize:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(236, 72, 153, 0.3);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ═══════════════════════════════════════════ Sanitization Section ═══════════════════════════════════════════ */
+
+.sanitization-section {
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.05), rgba(217, 70, 239, 0.05));
+  border: 2px solid #fce7f3;
+}
+
+.sanitization-box {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  margin-top: 16px;
+  border-left: 4px solid #ec4899;
+}
+
+.warning-text {
+  margin: 0 0 16px 0;
+  padding: 12px;
+  background-color: #fef9c3;
+  border-radius: 6px;
+  color: #854d0e;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.confirm-box {
+  background-color: #fef9c3;
+  border: 1px solid #eab308;
+  border-radius: 6px;
+  padding: 16px;
+  margin-top: 12px;
+}
+
+.confirm-box p {
+  margin: 0 0 16px 0;
+  color: #854d0e;
+  font-weight: 500;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-start;
+}
+
+/* ═══════════════════════════════════════════ Loading ═══════════════════════════════════════════ */
+
+.loading-spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 100px 20px;
+  color: #6b7280;
+  font-size: 16px;
+}
+
+.loading-spinner::before {
+  content: '';
+  width: 40px;
+  height: 40px;
+  margin-right: 16px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #667eea;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ═══════════════════════════════════════════ Responsive ═══════════════════════════════════════════ */
+
+@media (max-width: 768px) {
+  .advisor-association-container {
+    padding: 24px 16px;
+  }
+
+  .panel-header h1 {
+    font-size: 24px;
+  }
+
+  .section {
+    padding: 20px;
+  }
+
+  .groups-table {
+    font-size: 13px;
+  }
+
+  .groups-table th,
+  .groups-table td {
+    padding: 12px 12px;
+  }
+
+  .form-actions {
+    flex-direction: column;
+  }
+
+  .form-actions .btn {
+    width: 100%;
+  }
+
+  .confirm-actions {
+    flex-direction: column;
+  }
+
+  .confirm-actions .btn {
+    width: 100%;
+  }
+
+  .groups-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .group-name-cell {
+    min-width: 150px;
+  }
+}
+
+@media (max-width: 480px) {
+  .panel-header h1 {
+    font-size: 20px;
+  }
+
+  .section {
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+
+  .groups-table th,
+  .groups-table td {
+    padding: 10px 8px;
+  }
+
+  .btn-transfer {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+}
