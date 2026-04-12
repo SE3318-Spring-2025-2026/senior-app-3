@@ -29,6 +29,7 @@ const {
 
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
+const { submitDeliverableHandler } = require('../controllers/deliverables');
 const { releaseAdvisor } = require('../controllers/advisorAssociation');
 const { advisorSanitization } = require('../controllers/sanitizationController');
 
@@ -116,6 +117,16 @@ router.patch(
   authMiddleware,
   roleMiddleware(['coordinator', 'professor', 'admin']),
   transitionStatus
+);
+
+// POST /api/v1/groups/:groupId/deliverables — Process 4.5: Submit deliverable (f11, f12, f13, f14)
+// Validates committee assignment, stores in D4, updates D6, establishes cross-reference
+router.post(
+  '/:groupId/deliverables',
+  authMiddleware,
+  roleMiddleware(['student', 'leader']),
+  checkScheduleWindow(OPERATION_TYPES.DELIVERABLE_SUBMISSION),
+  submitDeliverableHandler
 );
 
 /**

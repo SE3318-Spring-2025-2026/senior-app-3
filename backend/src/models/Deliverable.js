@@ -1,82 +1,80 @@
 const mongoose = require('mongoose');
-const { v4: uuidv4 } = require('uuid');
 
 /**
- * Deliverable — D4 data store for student deliverable submissions.
- *
- * Stores submitted deliverables (documents or links) for each group across
- * the project phases (proposal, statement of work, demonstration).
- *
- * Linked to:
- *   - Committee (D3): which committee this submission is for
- *   - Group (D2): which group submitted
- *   - SprintRecord (D6): cross-referenced for contribution tracking
- *
- * Flow f12: Process 4.5 (Deliverable Submission) → D4 write
- * Flow f14: D4 (Deliverable) → D6 (cross-reference ingestion)
+ * Deliverable Schema (D4 Data Store)
+ * 
+ * Represents student project deliverables submitted during committee evaluation.
+ * Part of Process 4.5 (Deliverable Submission) workflow.
+ * 
+ * Flows:
+ * - f12: 4.5 → D4 (deliverable submission)
+ * - f14: D4 → D6 (cross-reference to sprint records)
  */
 const deliverableSchema = new mongoose.Schema(
   {
     deliverableId: {
       type: String,
-      default: () => `dlv_${uuidv4().split('-')[0]}`,
-      unique: true,
       required: true,
+      unique: true,
+      index: true,
+      default: () => `DEL-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
     },
     committeeId: {
       type: String,
       required: true,
-      indexed: true,
+      index: true,
     },
     groupId: {
       type: String,
       required: true,
-      indexed: true,
+      index: true,
     },
     studentId: {
       type: String,
       required: true,
-      indexed: true,
     },
     type: {
       type: String,
-      enum: ['proposal', 'statement_of_work', 'demonstration'],
+      enum: ['proposal', 'statement-of-work', 'demonstration'],
       required: true,
+      index: true,
     },
     submittedAt: {
       type: Date,
-      default: Date.now,
       required: true,
+      default: () => new Date(),
     },
     storageRef: {
       type: String,
       required: true,
     },
-    format: {
-      type: String,
-      enum: ['document', 'link', 'file'],
-      required: true,
-    },
-    version: {
-      type: Number,
-      default: 1,
-    },
     status: {
       type: String,
-      enum: ['submitted', 'accepted', 'rejected'],
+      enum: ['submitted', 'reviewed', 'accepted', 'rejected'],
       default: 'submitted',
     },
+    feedback: {
+      type: String,
+      default: null,
+    },
+    reviewedBy: {
+      type: String,
+      default: null,
+    },
+    reviewedAt: {
+      type: Date,
+      default: null,
+    },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    collection: 'deliverables',
+  }
 );
 
-// Indexes for efficient querying
-deliverableSchema.index({ deliverableId: 1 });
+// Compound indexes for common queries
 deliverableSchema.index({ committeeId: 1, groupId: 1 });
-deliverableSchema.index({ committeeId: 1, type: 1 });
-deliverableSchema.index({ groupId: 1, submittedAt: -1 });
-deliverableSchema.index({ studentId: 1, committeeId: 1 });
+deliverableSchema.index({ groupId: 1, type: 1 });
+deliverableSchema.index({ submittedAt: -1 });
 
-const Deliverable = mongoose.model('Deliverable', deliverableSchema);
-
-module.exports = Deliverable;
+module.exports = mongoose.model('Deliverable', deliverableSchema);

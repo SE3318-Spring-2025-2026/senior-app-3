@@ -12,6 +12,7 @@ const OPERATION_TYPES = {
   ADVISOR_RELEASE: 'advisor_release',
   ADVISOR_TRANSFER: 'advisor_transfer',
   ADVISOR_SANITIZATION: 'advisor_sanitization',
+  DELIVERABLE_SUBMISSION: 'deliverable_submission',
 };
 
 const NOTIFICATION_TYPES = {

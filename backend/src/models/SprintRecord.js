@@ -1,69 +1,78 @@
 const mongoose = require('mongoose');
-const { v4: uuidv4 } = require('uuid');
 
 /**
- * SprintRecord — D6 data store for sprint and contribution tracking.
- *
- * Tracks each group's sprint performance, committee assignment, and links to
- * deliverables submitted during that sprint phase.
- *
+ * SprintRecord Schema (D6 Data Store)
+ * 
+ * Tracks sprint-level committee assignments and deliverable cross-references.
+ * Part of Process 7 (Sprint Tracking) workflow.
+ * 
  * Flows:
- *   - Flow f13 (Process 4.5 → D6): Updated with committeeId and committeeAssignedAt on committee publish
- *   - Flow f14 (D4 → D6): Cross-referenced with deliverable entries after submission
- *
- * One SprintRecord per (sprint, group) pair, linked to Committee for evaluation context.
+ * - f13: 4.5 → D6 (committee assignment to sprint)
+ * - f14: D4 → D6 (deliverable cross-reference)
  */
+const deliverableRefSchema = new mongoose.Schema(
+  {
+    deliverableId: {
+      type: String,
+      required: true,
+    },
+    type: {
+      type: String,
+      enum: ['proposal', 'statement-of-work', 'demonstration'],
+      required: true,
+    },
+    submittedAt: {
+      type: Date,
+      required: true,
+    },
+  },
+  { _id: false }
+);
+
 const sprintRecordSchema = new mongoose.Schema(
   {
     sprintRecordId: {
       type: String,
-      default: () => `spr_${uuidv4().split('-')[0]}`,
-      unique: true,
       required: true,
+      unique: true,
+      index: true,
+      default: () => `SPR-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
     },
     sprintId: {
       type: String,
       required: true,
-      indexed: true,
+      index: true,
     },
     groupId: {
       type: String,
       required: true,
-      indexed: true,
+      index: true,
     },
     committeeId: {
       type: String,
       default: null,
+      index: true,
     },
     committeeAssignedAt: {
       type: Date,
       default: null,
     },
-    deliverableRefs: {
-      type: [
-        {
-          deliverableId: String,
-          type: { type: String, enum: ['proposal', 'statement_of_work', 'demonstration'] },
-          submittedAt: Date,
-        },
-      ],
-      default: [],
-    },
+    deliverableRefs: [deliverableRefSchema],
     status: {
       type: String,
       enum: ['pending', 'in_progress', 'submitted', 'reviewed', 'completed'],
       default: 'pending',
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    collection: 'sprint_records',
+  }
 );
 
-// Indexes for efficient querying
-sprintRecordSchema.index({ sprintRecordId: 1 });
-sprintRecordSchema.index({ sprintId: 1, groupId: 1 }, { unique: true });
+// Compound indexes for common queries
+sprintRecordSchema.index({ sprintId: 1, groupId: 1 });
 sprintRecordSchema.index({ committeeId: 1, sprintId: 1 });
 sprintRecordSchema.index({ groupId: 1, status: 1 });
 
-const SprintRecord = mongoose.model('SprintRecord', sprintRecordSchema);
-
-module.exports = SprintRecord;
+module.exports = mongoose.model('SprintRecord', sprintRecordSchema);
