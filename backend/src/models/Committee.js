@@ -2,21 +2,20 @@ const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 
 /**
- * D3 Data Store — Committee Draft Record
- * Written by Process 4.1 (Create Committee), forwarded to Process 4.2 (Assign Advisor)
- * Updated by Process 4.3 (Add Jury Members), forwarded to Process 4.4 (Validate Jury)
+ * Committee — D3 data store for committee assignments.
  */
 const committeeSchema = new mongoose.Schema(
   {
     committeeId: {
       type: String,
-      default: () => `cmt_${uuidv4().split('-')[0]}`,
+      default: () => `com_${uuidv4().split('-')[0]}`,
       unique: true,
       required: true,
     },
     committeeName: {
       type: String,
       required: true,
+      unique: true,
       trim: true,
       maxlength: [100, 'committeeName cannot exceed 100 characters.'],
     },
@@ -30,7 +29,6 @@ const committeeSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    // Process 4.2 (Assign Advisor) will populate these fields
     advisorIds: {
       type: [String],
       default: [],
@@ -39,23 +37,16 @@ const committeeSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
-    /**
-     * Lifecycle status: draft → validated → published
-     */
     status: {
       type: String,
       enum: ['draft', 'validated', 'published'],
       default: 'draft',
       required: true,
     },
-    /**
-     * DFD flow f02: forwarded flag — marks that 4.1 has forwarded draft to 4.2
-     */
     forwardedToAdvisorAssignment: {
       type: Boolean,
       default: false,
     },
-    // DFD flow f04: forwarded flag — marks that 4.3 has forwarded jury list to 4.4
     forwardedToJuryValidation: {
       type: Boolean,
       default: false,
@@ -64,27 +55,23 @@ const committeeSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    publishedBy: {
+      type: String,
+      default: null,
+    },
   },
   { timestamps: true }
 );
 
-// --- Indexes ---
-
-// Efficient lookup for coordinator-owned committees
-committeeSchema.index({ coordinatorId: 1 });
-committeeSchema.index({ status: 1 });
-
-/**
- * Case-insensitive unique index for committeeName
- * strength: 2 ensures "MyCommittee" and "mycommittee" are treated as duplicates
- */
+// Indexes for efficient querying
+committeeSchema.index({ committeeId: 1 }, { unique: true });
 committeeSchema.index(
   { committeeName: 1 },
-  { 
-    unique: true, 
-    collation: { locale: 'en', strength: 2 } 
-  }
+  { unique: true, collation: { locale: 'en', strength: 2 } }
 );
+committeeSchema.index({ coordinatorId: 1, committeeName: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
+committeeSchema.index({ status: 1 });
+committeeSchema.index({ coordinatorId: 1, status: 1 });
 
 const Committee = mongoose.model('Committee', committeeSchema);
 
