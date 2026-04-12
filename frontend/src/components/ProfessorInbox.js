@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import './ProfessorInbox.css';
-import { useAuthStore } from '../store/authStore';
-import { getMyAdvisorRequests, decideOnAdvisorRequest } from '../api/groupService';
+import { getMyAdvisorRequests, decideOnAdvisorRequest } from '../api/advisorService';
 
 const ProfessorInbox = () => {
-  const { user } = useAuthStore();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

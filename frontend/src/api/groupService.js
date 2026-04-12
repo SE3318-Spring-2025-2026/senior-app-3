@@ -380,15 +380,10 @@ export const configureJira = async (groupId, { host, email, api_token, project_k
   }
 };
 
-export const getMyAdvisorRequests = async () => {
-  const response = await apiClient.get('/advisor-requests/mine');
-  return response.data.requests || [];
-};
-
-export const decideOnAdvisorRequest = async (requestId, decision, reason) => {
-  const response = await apiClient.patch(`/advisor-requests/${requestId}`, {
-    decision,
-    reason: reason ?? undefined,
-  });
+/**
+ * Coordinator/system: run post-deadline advisor sanitization (Process 3.7)
+ */
+export const advisorSanitization = async () => {
+  const response = await apiClient.post('/groups/advisor-sanitization');
   return response.data;
 };

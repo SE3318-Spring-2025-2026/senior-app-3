@@ -30,7 +30,7 @@
 ### 3. ✅ `backend/src/controllers/groupStatusTransition.js`
 - [x] Dosya oluşturuldu
 - [x] transitionStatus(req, res) — PATCH /groups/:groupId/status
-  - [x] Permission check (coordinator, committee_member, professor, admin)
+  - [x] Permission check (coordinator, professor, admin)
   - [x] Required field validation (status, reason)
   - [x] Transition validation
   - [x] Error handling (400, 403, 404, 409, 500)

@@ -384,7 +384,7 @@ npm start          # Start on :3000
 - [x] **Session persistence** - Tokens persist in localStorage across refresh
 - [x] **401 handling** - Redirects to login on invalid/missing token
 - [x] **Session auto-clear** - Expired sessions clear and redirect
-- [x] **Role support** - student, professor, admin, committee_member roles
+- [x] **Role support** - student, professor, admin, coordinator roles
 
 ---
 
