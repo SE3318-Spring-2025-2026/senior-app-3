@@ -438,6 +438,7 @@ const formatGroupResponse = (group, extras = {}) => ({
   groupName: group.groupName,
   leaderId: group.leaderId,
   advisorId: group.advisorId,
+  committeeId: group.committeeId || null,
   professorId: group.professorId ?? null,
   advisorStatus: group.advisorStatus ?? null,
   advisorName: extras.advisorName ?? group.advisorName ?? null,

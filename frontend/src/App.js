@@ -13,6 +13,7 @@ import AdminPasswordReset from './components/AdminPasswordReset';
 import AdminProfessorCreation from './components/AdminProfessorCreation';
 import GitHubCallbackHandler from './components/GitHubCallbackHandler';
 import GroupDashboard from './components/GroupDashboard';
+import JuryCommittees from './components/JuryCommittees';
 import GroupCreationPage from './components/GroupCreationPage';
 import AdviseeRequestForm from './components/AdviseeRequestForm';
 import CoordinatorPanel from './components/CoordinatorPanel';
@@ -105,6 +106,10 @@ function App() {
             <Route
               path="/groups/:group_id/coordinator"
               element={<ProtectedRoute component={CoordinatorPanel} requiredRoles={['coordinator', 'admin']} />}
+            />
+            <Route
+              path="/jury/committees"
+              element={<ProtectedRoute component={JuryCommittees} requiredRoles={['professor', 'committee_member', 'admin']} />}
             />
             <Route
               path="/profile"

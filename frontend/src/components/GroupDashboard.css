@@ -267,7 +267,27 @@
   transform: translateY(-1px);
 }
 
-.card-header {
+.committee-status-card {
+  margin-bottom: 24px;
+}
+
+.committee-details,
+.committee-preview {
+  display: grid;
+  gap: 14px;
+}
+
+.committee-preview .info-label,
+.committee-details .info-label {
+  font-weight: 600;
+}
+
+.committee-preview .info-value,
+.committee-details .info-value {
+  word-break: break-word;
+}
+
+.card-hint {
   display: flex;
   align-items: center;
   margin-bottom: 16px;

@@ -6,8 +6,9 @@ const mongoose = require('mongoose');
 const authRoutes = require('./routes/auth');
 const onboardingRoutes = require('./routes/onboarding');
 const groupRoutes = require('./routes/groups');
-const advisorRequestRoutes = require('./routes/advisorRequests');
-const committeeRoutes = require('./routes/committees');
+const juryRoutes = require('./routes/jury');                 // From your branch
+const advisorRequestRoutes = require('./routes/advisorRequests'); // From main
+const committeeRoutes = require('./routes/committees');       // From main
 const scheduleWindowRoutes = require('./routes/scheduleWindow');
 const auditLogRoutes = require('./routes/auditLogs');
 const { errorHandler } = require('./middleware/auth');
@@ -53,8 +54,9 @@ if (process.env.NODE_ENV !== 'test') {
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/onboarding', onboardingRoutes);
 app.use('/api/v1/groups', groupRoutes);
-app.use('/api/v1/advisor-requests', advisorRequestRoutes);
-app.use('/api/v1/committees', committeeRoutes);
+app.use('/api/v1/jury', juryRoutes);                       // From your branch
+app.use('/api/v1/advisor-requests', advisorRequestRoutes); // From main
+app.use('/api/v1/committees', committeeRoutes);           // From main
 app.use('/api/v1/schedule-window', scheduleWindowRoutes);
 app.use('/api/v1/audit-logs', auditLogRoutes);
 

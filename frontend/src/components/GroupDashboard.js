@@ -8,6 +8,7 @@ import JiraStatusCard from './JiraStatusCard';
 import JiraSetupForm from './JiraSetupForm';
 import GroupMemberList from './GroupMemberList';
 import AddMemberForm from './AddMemberForm';
+import CommitteeStatusCard from './CommitteeStatusCard';
 import DeliverableSubmissionForm from './DeliverableSubmissionForm';
 import { submitMembershipDecision, getMyPendingInvitation } from '../api/groupService';
 import { releaseAdvisor } from '../api/advisorService';
@@ -28,7 +29,6 @@ const GroupDashboard = () => {
   const [decisionLoading, setDecisionLoading] = useState(false);
   const [decisionMsg, setDecisionMsg] = useState('');
   
-  // Release Advisor Modal & UI State
   const [releaseModalOpen, setReleaseModalOpen] = useState(false);
   const [releaseReason, setReleaseReason] = useState('');
   const [releaseLoading, setReleaseLoading] = useState(false);
@@ -36,6 +36,7 @@ const GroupDashboard = () => {
 
   const {
     groupData,
+    committeeStatus,
     members,
     github,
     jira,
@@ -48,12 +49,10 @@ const GroupDashboard = () => {
     stopPolling,
   } = useGroupStore();
 
-  // Basic validation
   useEffect(() => {
     if (!groupId) navigate('/');
   }, [groupId, navigate]);
 
-  // Status Polling Logic
   useEffect(() => {
     if (groupId) {
       pollingIntervalRef.current = startPolling(groupId, 30000);
@@ -63,7 +62,6 @@ const GroupDashboard = () => {
     };
   }, [groupId, startPolling, stopPolling]);
 
-  // Fetch invitation context
   useEffect(() => {
     if (!groupId || !user) return;
     getMyPendingInvitation().then((inv) => {
@@ -124,7 +122,6 @@ const GroupDashboard = () => {
 
   return (
     <div className="group-dashboard">
-      {/* Header Section */}
       <div className="dashboard-header">
         <div>
           <h1 className="dashboard-title">
@@ -166,7 +163,6 @@ const GroupDashboard = () => {
         </div>
       </div>
 
-      {/* Invitation Banner */}
       {invitationInfo && (
         <div className="invitation-banner">
           <p>You have been invited to join <strong>{groupData?.groupName || invitationInfo.group_name}</strong>.</p>
@@ -182,14 +178,12 @@ const GroupDashboard = () => {
         </div>
       )}
 
-      {/* Main Content Grid */}
       {groupData && (
         <>
           <div className="dashboard-grid">
             <GitHubStatusCard data={github} isLoading={isLoading} />
             <JiraStatusCard data={jira} isLoading={isLoading} />
 
-            {/* Advisor Status Card */}
             <div className="status-card">
               <div className="card-header">
                 <h3 className="card-title">
@@ -239,7 +233,6 @@ const GroupDashboard = () => {
               </div>
             </div>
 
-            {/* Pending Approvals Card */}
             <div className="status-card">
               <div className="card-header">
                 <h3 className="card-title">Pending Approvals</h3>
@@ -256,9 +249,10 @@ const GroupDashboard = () => {
             </div>
           </div>
 
+          <CommitteeStatusCard committeeStatus={committeeStatus} user={user} />
+
           <GroupMemberList members={members} isLoading={isLoading} groupLeaderId={groupData?.leaderId} />
 
-          {/* Integration & Management Section */}
           {isLeader && (
             <div className="management-sections">
               <div className="integration-section">
@@ -273,7 +267,6 @@ const GroupDashboard = () => {
             </div>
           )}
 
-          {/* Deliverable Submission */}
           <DeliverableSubmissionForm
             groupId={groupId}
             isLeader={isLeader}
@@ -283,12 +276,10 @@ const GroupDashboard = () => {
             onSuccess={() => fetchGroupDashboard(groupId)}
           />
 
-          {/* Footer */}
           <div className="group-info-footer">
             Group ID: {groupData.groupId} · Status: {groupData.status}
           </div>
 
-          {/* Release Advisor Confirmation Modal */}
           {releaseModalOpen && (
             <div className="modal-overlay">
               <div className="modal-content release-modal">

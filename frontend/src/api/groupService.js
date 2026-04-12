@@ -152,6 +152,72 @@ export const getGroup = async (groupId) => {
 };
 
 /**
+ * Get group committee status
+ * @param {string} groupId - The group ID
+ * @returns {Promise} Committee status object for the group
+ *
+ * NOTE: Backend GET endpoints for committees are planned in Level 2.4 (Issues #71-#81).
+ * TODO: Once backend implements GET /committees/{committeeId}, replace this with:
+ *   1. Fetch group via GET /groups/{groupId} to get committeeId
+ *   2. Call GET /committees/{committeeId} to fetch published committee data
+ */
+export const getGroupCommitteeStatus = async (groupId) => {
+  try {
+    const response = await apiClient.get(`/groups/${groupId}`);
+    const group = response.data;
+
+    if (!group.committeeId) {
+      return {
+        groupId,
+        committeeId: null,
+        committee: null,
+      };
+    }
+
+    // TODO: Backend Implementation (Issue #75 or related GET endpoint requirement)
+    // Once backend implements GET /committees/{committeeId}, uncomment below:
+    // const committeeResponse = await apiClient.get(`/committees/${group.committeeId}`);
+    // return committeeResponse.data;
+
+    // Temporary: Return placeholder response structure
+    return {
+      groupId,
+      committeeId: group.committeeId,
+      committee: null, // Awaiting backend GET /committees/{committeeId} implementation
+    };
+  } catch (error) {
+    console.error('Error fetching committee status:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get jury-assigned committees for the authenticated user
+ * @returns {Promise<{committees: object[]}>}
+ *
+ * NOTE: Backend GET endpoint for jury committees is planned in Level 2.4.
+ * TODO: Once backend implements committee retrieval endpoints, replace with:
+ *   GET /committees?role=jury (or dedicated GET /jury/committees endpoint)
+ *   Filter response to only published committees for non-coordinator users
+ */
+export const getJuryCommittees = async () => {
+  try {
+    // TODO: Backend implementation required (Level 2.4 Issue #75 or related)
+    // Once backend provides endpoint for jury committee retrieval, uncomment:
+    // const response = await apiClient.get('/committees?role=jury&status=published');
+    // return response.data;
+
+    // Temporary: Return empty placeholder response
+    return {
+      committees: [], // Awaiting backend GET endpoint for jury committee retrieval
+    };
+  } catch (error) {
+    console.error('Error fetching jury committees:', error);
+    throw error;
+  }
+};
+
+/**
  * Submit an advisor request (Process 3.2) — team leader only; requires advisor_association schedule window.
  */
 export const createAdvisorRequest = async ({ groupId, professorId, requesterId, message }) => {
@@ -242,11 +308,12 @@ export const getPendingApprovals = async (groupId) => {
  */
 export const getGroupDashboardData = async (groupId) => {
   try {
-    const [groupData, approvalsData, githubData, jiraData] = await Promise.all([
+    const [groupData, approvalsData, githubData, jiraData, committeeData] = await Promise.all([
       getGroup(groupId),
       apiClient.get(`/groups/${groupId}/approvals`).then((r) => r.data).catch(() => ({ approvals: [] })),
       getGitHubStatus(groupId).catch(() => ({ connected: false, repo_url: null, last_synced: null })),
       getJiraStatus(groupId).catch(() => ({ connected: false, project_key: null, board_url: null })),
+      getGroupCommitteeStatus(groupId).catch(() => ({ groupId, committeeId: null, committee: null })),
     ]);
 
     return {
@@ -255,6 +322,7 @@ export const getGroupDashboardData = async (groupId) => {
       github: githubData,
       jira: jiraData,
       approvals: approvalsData,
+      committeeStatus: committeeData,
     };
   } catch (error) {
     console.error('Error fetching group dashboard data:', error);

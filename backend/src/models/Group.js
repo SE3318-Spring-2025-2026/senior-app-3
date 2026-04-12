@@ -94,6 +94,10 @@ const groupSchema = new mongoose.Schema(
       type: Date,
       default: null
     },
+    committeeId: {
+      type: String,
+      default: null,
+    },
     status: {
       type: String,
       enum: ['pending_validation', 'active', 'inactive', 'archived', 'rejected'],
@@ -164,6 +168,7 @@ const groupSchema = new mongoose.Schema(
 
 // --- Core Indexes ---
 groupSchema.index({ leaderId: 1 });
+groupSchema.index({ committeeId: 1 });
 groupSchema.index({ status: 1 });
 groupSchema.index({ groupId: 1 }, { unique: true });
 

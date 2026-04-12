@@ -7,6 +7,7 @@ import * as groupService from '../api/groupService';
 const useGroupStore = create((set, get) => ({
   // State
   groupData: null,
+  committeeStatus: null,
   members: [],
   github: { connected: false, repo_url: null, last_synced: null },
   jira: { connected: false, project_key: null, board_url: null },
@@ -32,6 +33,7 @@ const useGroupStore = create((set, get) => ({
 
       set({
         groupData: data.group,
+        committeeStatus: data.committeeStatus || null,
         members: data.members?.members || data.members || [],
         github: data.github || { connected: false },
         jira: data.jira || { connected: false },
@@ -79,6 +81,7 @@ const useGroupStore = create((set, get) => ({
   clearGroupData: () => {
     set({
       groupData: null,
+      committeeStatus: null,
       members: [],
       github: { connected: false },
       jira: { connected: false },

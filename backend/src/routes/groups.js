@@ -29,9 +29,12 @@ const {
 
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
-const { submitDeliverableHandler } = require('../controllers/deliverables');
-const { releaseAdvisor } = require('../controllers/advisorAssociation');
-const { advisorSanitization } = require('../controllers/sanitizationController');
+
+// Integrated Controllers from both branches
+const { getGroupCommitteeStatus } = require('../controllers/committees'); // From your branch
+const { submitDeliverableHandler } = require('../controllers/deliverables'); // From main
+const { releaseAdvisor } = require('../controllers/advisorAssociation'); // From main
+const { advisorSanitization } = require('../controllers/sanitizationController'); // From main
 
 // ============================================================================
 // GROUP LIFECYCLE & MANAGEMENT (Process 2.1 - 2.2)
@@ -64,6 +67,11 @@ router.get('/', authMiddleware, roleMiddleware(['coordinator']), getAllGroups);
 
 // GET /api/v1/groups/:groupId — Detailed group record
 router.get('/:groupId', authMiddleware, getGroup);
+
+/**
+ * GET /api/v1/groups/:groupId/committee-status — Committee status lookup (From your branch)
+ */
+router.get('/:groupId/committee-status', authMiddleware, getGroupCommitteeStatus);
 
 // ============================================================================
 // MEMBERSHIP & APPROVALS (Process 2.3 - 2.5)
@@ -119,8 +127,7 @@ router.patch(
   transitionStatus
 );
 
-// POST /api/v1/groups/:groupId/deliverables — Process 4.5: Submit deliverable (f11, f12, f13, f14)
-// Validates committee assignment, stores in D4, updates D6, establishes cross-reference
+// POST /api/v1/groups/:groupId/deliverables — Process 4.5: Submit deliverable
 router.post(
   '/:groupId/deliverables',
   authMiddleware,
