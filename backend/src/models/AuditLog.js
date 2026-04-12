@@ -48,8 +48,6 @@ const auditLogSchema = new mongoose.Schema(
         'STATUS_TRANSITION',
         'GITHUB_CONFIGURED',
         'JIRA_CONFIGURED',
-        'COMMITTEE_CREATED', // Added from feature/coordinator-ui-entrypoint
-        'ADVISOR_RELEASED',  // Added from feature/coordinator-ui-entrypoint
 
         // --- Modern Group & Integration Events (snake_case) ---
         'group_created',
@@ -71,7 +69,20 @@ const auditLogSchema = new mongoose.Schema(
         'advisor_transferred',
         'group_disbanded',
         'sanitization_run',
-        'ADVISOR_REQUEST_NOTIFICATION_FAILED', // Added from main
+        'ADVISOR_REQUEST_NOTIFICATION_FAILED',
+
+        // --- Committee Lifecycle (Issue #80 & Process 4) ---
+        'COMMITTEE_CREATED',
+        'COMMITTEE_ADVISORS_ASSIGNED',
+        'COMMITTEE_JURY_ASSIGNED',
+        'COMMITTEE_VALIDATION_PASSED',
+        'COMMITTEE_VALIDATION_FAILED',
+        'COMMITTEE_UPDATED',
+        'COMMITTEE_PUBLISHED',
+        'SPRINT_COMMITTEE_ASSIGNED',
+        'DELIVERABLE_LINKED_TO_SPRINT',
+        'JURY_ASSIGNED',
+        'ADVISOR_RELEASED',
 
         // --- System & Test ---
         'TEST_ACTION',

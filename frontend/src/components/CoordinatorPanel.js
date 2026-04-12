@@ -11,6 +11,7 @@ import {
   transitionGroupStatus,
 } from '../api/groupService';
 import useAuthStore from '../store/authStore';
+import { listCommittees } from '../api/committeeService';
 
 const OPERATION_TYPES = [
   { value: 'group_creation', label: 'Group Creation' },
@@ -45,6 +46,11 @@ const CoordinatorPanel = () => {
   const [groups, setGroups] = useState([]);
   const [groupsLoading, setGroupsLoading] = useState(true);
   const [groupsError, setGroupsError] = useState(null);
+
+  // Committees data
+  const [committees, setCommittees] = useState([]);
+  const [committeesLoading, setCommitteesLoading] = useState(false);
+  const [committeesError, setCommitteesError] = useState(null);
 
   // Schedule windows data
   const [windows, setWindows] = useState([]);
@@ -115,11 +121,25 @@ const CoordinatorPanel = () => {
     }
   }, []);
 
+  const loadCommittees = useCallback(async () => {
+    setCommitteesLoading(true);
+    setCommitteesError(null);
+    try {
+      const data = await listCommittees();
+      setCommittees(data.committees || []);
+    } catch (err) {
+      setCommitteesError('Failed to load committees.');
+    } finally {
+      setCommitteesLoading(false);
+    }
+  }, []);
+
   // Initial load
   useEffect(() => {
     loadGroups();
     loadWindows();
-  }, [loadGroups, loadWindows]);
+    loadCommittees();
+  }, [loadGroups, loadWindows, loadCommittees]);
 
   // Handle override form change
   const handleOverrideFormChange = (e) => {
@@ -398,6 +418,9 @@ const CoordinatorPanel = () => {
           </button>
           <button style={tabButtonStyle(activeTab === 'health')} onClick={() => setActiveTab('health')}>
             Integration Health
+          </button>
+          <button style={tabButtonStyle(activeTab === 'committees')} onClick={() => setActiveTab('committees')}>
+            Committees ({committees.length})
           </button>
         </div>
 
@@ -955,6 +978,159 @@ const CoordinatorPanel = () => {
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* ──── COMMITTEES TAB ──── */}
+        {activeTab === 'committees' && (
+          <section style={{ background: 'white', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <div>
+                <h2 style={{ marginTop: 0, marginBottom: '4px', fontSize: '18px' }}>Committees</h2>
+                <p style={{ margin: 0, fontSize: '13px', color: '#586069' }}>
+                  Process 4.1 — Create and manage committee drafts. Drafts are forwarded to Process 4.2 for advisor assignment.
+                </p>
+              </div>
+              <button
+                id="coordinator-new-committee-btn"
+                onClick={() => navigate('/coordinator/committees/new')}
+                style={{
+                  padding: '10px 18px',
+                  backgroundColor: '#0366d6',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  flexShrink: 0,
+                  marginLeft: '16px',
+                }}
+              >
+                + New Committee
+              </button>
+            </div>
+
+            {committeesLoading && <p style={{ color: '#666' }}>Loading committees…</p>}
+            {committeesError && <p style={{ color: '#d73a49' }}>{committeesError}</p>}
+
+            {!committeesLoading && committees.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                <p style={{ fontSize: '14px', color: '#666', margin: '0 0 12px' }}>
+                  No committees created yet.
+                </p>
+                <button
+                  id="coordinator-committees-empty-btn"
+                  onClick={() => navigate('/coordinator/committees/new')}
+                  style={{
+                    padding: '10px 20px',
+                    backgroundColor: '#0366d6',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                  }}
+                >
+                  Create First Committee
+                </button>
+              </div>
+            )}
+
+            {!committeesLoading && committees.length > 0 && (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #e1e4e8', backgroundColor: '#f6f8fa' }}>
+                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Committee ID</th>
+                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Name</th>
+                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Description</th>
+                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Status</th>
+                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Advisors</th>
+                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Jury</th>
+                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Created</th>
+                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {committees.map((c) => (
+                      <tr key={c.committeeId} style={{ borderBottom: '1px solid #e1e4e8' }}>
+                        <td style={{ padding: '12px', fontFamily: '"SF Mono", Monaco, monospace', fontSize: '12px', color: '#444' }}>
+                          {c.committeeId}
+                        </td>
+                        <td style={{ padding: '12px', color: '#24292e', fontWeight: '500' }}>{c.committeeName}</td>
+                        <td style={{ padding: '12px', color: '#586069', fontSize: '12px', maxWidth: '200px' }}>
+                          {c.description ? (
+                            <span title={c.description}>
+                              {c.description.length > 60 ? c.description.substring(0, 60) + '…' : c.description}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#ccc', fontStyle: 'italic' }}>—</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '3px 10px',
+                            borderRadius: '12px',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            backgroundColor: c.status === 'draft' ? '#fff3cd' : c.status === 'validated' ? '#dcffe4' : '#f1f8ff',
+                            color: c.status === 'draft' ? '#856404' : c.status === 'validated' ? '#22863a' : '#0366d6',
+                          }}>
+                            {c.status}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px', color: '#444' }}>
+                          {c.advisorIds && c.advisorIds.length > 0 ? (
+                            <span title={c.advisorIds.join(', ')}>{c.advisorIds.length}</span>
+                          ) : (
+                            <span style={{ color: '#ccc', fontStyle: 'italic' }}>none</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '12px', color: '#444' }}>
+                          {c.juryIds && c.juryIds.length > 0 ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }} title={c.juryIds.join(', ')}>
+                              {c.juryIds.length}
+                              {c.forwardedToJuryValidation && (
+                                <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '8px', background: '#dcffe4', color: '#22863a', fontWeight: '600' }}>
+                                  → 4.4
+                                </span>
+                              )}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#ccc', fontStyle: 'italic' }}>none yet</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '12px', color: '#586069', fontSize: '12px' }}>
+                          {new Date(c.createdAt).toLocaleDateString()}
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          <button
+                            id={`committee-assign-jury-btn-${c.committeeId}`}
+                            onClick={() => navigate(`/coordinator/committees/${c.committeeId}/jury`)}
+                            style={{
+                              padding: '5px 12px',
+                              backgroundColor: '#f1f8ff',
+                              border: '1px solid #0366d6',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                              fontWeight: '600',
+                              color: '#0366d6',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            ⚖️ Assign Jury
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </section>
