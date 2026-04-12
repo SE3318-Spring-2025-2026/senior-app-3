@@ -316,6 +316,9 @@ components:
           type: string
         notificationTriggered:
           type: boolean
+          description: >
+            On POST create, false at response time; the record is updated asynchronously when dispatch completes.
+            Re-fetch the advisor request or read D2 for the final notificationTriggered value.
         createdAt:
           type: string
           format: date-time

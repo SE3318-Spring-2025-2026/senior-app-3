@@ -1,19 +1,10 @@
 ﻿const axios = require('axios');
+const { retryNotificationWithBackoff } = require('./notificationRetry');
+const Group = require('../models/Group');
 
 const NOTIFICATION_SERVICE_URL =
   process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:4000';
 
-/**
- * Dispatch a GROUP_INVITATION notification to a student.
- * Called by Process 2.3 (DFD flow f06: 2.3 → Notification Service).
- *
- * @param {object} payload
- * @param {string} payload.groupId
- * @param {string} payload.groupName
- * @param {string} payload.inviteeId   - student receiving the invitation
- * @param {string} payload.invitedBy   - leader who sent the invite
- * @returns {object} { notification_id }
- */
 const dispatchInvitationNotification = async ({ groupId, groupName, inviteeId, invitedBy }) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
@@ -23,19 +14,13 @@ const dispatchInvitationNotification = async ({ groupId, groupName, inviteeId, i
   return response.data;
 };
 
-/**
- * Dispatch a MEMBERSHIP_DECISION notification after a student accepts/rejects.
- * Called by Process 2.4 (DFD flow f08: 2.4 → Notification Service).
- *
- * @param {object} payload
- * @param {string} payload.groupId
- * @param {string} payload.groupName
- * @param {string} payload.studentId   - student who made the decision
- * @param {string} payload.decision    - 'accepted' | 'rejected'
- * @param {Date}   payload.decidedAt
- * @returns {object} { notification_id }
- */
-const dispatchMembershipDecisionNotification = async ({ groupId, groupName, studentId, decision, decidedAt }) => {
+const dispatchMembershipDecisionNotification = async ({
+  groupId,
+  groupName,
+  studentId,
+  decision,
+  decidedAt,
+}) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
     { type: 'membership_decision', groupId, groupName, studentId, decision, decidedAt },
@@ -44,16 +29,6 @@ const dispatchMembershipDecisionNotification = async ({ groupId, groupName, stud
   return response.data;
 };
 
-/**
- * Dispatch a GROUP_CREATED notification after a group is successfully created.
- * Called by Process 2.1 (DFD flow f03: 2.1 → Notification Service).
- *
- * @param {object} payload
- * @param {string} payload.groupId
- * @param {string} payload.groupName
- * @param {string} payload.leaderId
- * @returns {object} { notification_id }
- */
 const dispatchGroupCreationNotification = async ({ groupId, groupName, leaderId }) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
@@ -63,17 +38,6 @@ const dispatchGroupCreationNotification = async ({ groupId, groupName, leaderId 
   return response.data;
 };
 
-/**
- * Dispatch a batch APPROVAL_REQUEST notification to multiple students.
- * Called by Process 2.4 (DFD flow f07: 2.4 → Notification Service).
- *
- * @param {object} payload
- * @param {string} payload.groupId
- * @param {string} payload.groupName
- * @param {string[]} payload.recipients  - student IDs to notify
- * @param {string} payload.invitedBy     - leader who sent the invites
- * @returns {object} { notification_id, delivered_to[], sent_at }
- */
 const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipients, invitedBy }) => {
   const response = await axios.post(
     `${NOTIFICATION_SERVICE_URL}/api/notifications`,
@@ -92,50 +56,7 @@ const dispatchBatchInvitationNotification = async ({ groupId, groupName, recipie
 };
 
 /**
- * Issue #87: Dispatch COMMITTEE_PUBLISHED notification to all stakeholders
- * 
- * Called by committeeService.publishCommittee() in Process 4.5
- * Implements DFD Flow f09: 4.5 → Notification Service
- * 
- * Purpose:
- * Notify all relevant parties when a committee is published:
- * - Advisors (assigned in Process 4.2)
- * - Jury members (assigned in Process 4.3)
- * - Group members (students who will submit deliverables)
- * 
- * HTTP Request:
- * - URL: {NOTIFICATION_SERVICE_URL}/api/notifications
- * - Method: POST
- * - Timeout: 5000ms
- * - Payload Type: application/json
- * 
- * Payload Structure:
- * {
- *   type: 'committee_published',
- *   committeeId: string (from D3),
- *   committeeName: string (from D3),
- *   recipients: [userId1, userId2, ...] (deduplicated from advisors + jury + groups),
- *   recipientCount: number (total unique recipients),
- *   publishedAt: timestamp,
- *   publishedBy: coordinatorId
- * }
- * 
- * Return value (Issue #87 contract for retry wrapper):
- * {
- *   success: true,
- *   notificationId: string,
- *   recipientCount: number
- * }
- * 
- * Error Handling:
- * - If HTTP error or timeout: exception thrown
- * - Caller (sendCommitteeNotification) handles retry logic
- * - Non-transient errors (4xx): fail immediately, no retry
- * - Transient errors (5xx, timeout): retried up to 3 times
- * 
- * Logging:
- * - Success: logs to console with recipient count
- * - Failure: exception bubbles up for caller to handle
+ * Used by committeeNotificationService — payload includes recipients and counts.
  */
 const dispatchCommitteePublishedNotification = async (payload, publishedBy) => {
   const response = await axios.post(
@@ -156,8 +77,7 @@ const dispatchCommitteePublishedNotification = async (payload, publishedBy) => {
     `[Notification] Committee ${payload.committeeId} published notification dispatched to ${payload.recipientCount} recipients`
   );
 
-  const notificationId =
-    response.data?.notification_id || `notif_${Date.now()}`;
+  const notificationId = response.data?.notification_id || `notif_${Date.now()}`;
 
   return {
     success: true,
@@ -166,10 +86,139 @@ const dispatchCommitteePublishedNotification = async (payload, publishedBy) => {
   };
 };
 
+/**
+ * Used by committeePublishService — aggregates IDs and applies retry/backoff.
+ */
+const dispatchCommitteePublishNotification = async ({
+  committeeId,
+  committeeName,
+  advisorIds,
+  juryIds,
+  groupMemberIds,
+  coordinatorId,
+}) => {
+  const recipientSet = new Set();
+  if (advisorIds && Array.isArray(advisorIds)) advisorIds.forEach((id) => recipientSet.add(id));
+  if (juryIds && Array.isArray(juryIds)) juryIds.forEach((id) => recipientSet.add(id));
+  if (groupMemberIds && Array.isArray(groupMemberIds)) {
+    groupMemberIds.forEach((id) => recipientSet.add(id));
+  }
+
+  const recipients = Array.from(recipientSet);
+
+  const dispatchFn = async () => {
+    try {
+      const response = await axios.post(
+        `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+        {
+          type: 'committee_published',
+          committeeId,
+          committeeName,
+          recipients,
+          publishedBy: coordinatorId,
+          publishedAt: new Date().toISOString(),
+        },
+        { timeout: 5000 }
+      );
+      return {
+        success: true,
+        notificationId: response.data.notification_id || response.data.notificationId,
+        error: null,
+      };
+    } catch (err) {
+      return { success: false, notificationId: null, error: err };
+    }
+  };
+
+  const wrapped = await retryNotificationWithBackoff(dispatchFn, {
+    maxRetries: 3,
+    backoffMs: [100, 200, 400],
+    context: {
+      committeeId,
+      groupId: 'SYSTEM',
+      actorId: coordinatorId != null ? String(coordinatorId) : 'unknown',
+    },
+  });
+
+  return {
+    success: wrapped.success,
+    notificationId: wrapped.notificationId,
+    error: wrapped.error,
+  };
+};
+
+const dispatchAdvisorRequestNotification = async ({
+  type = 'advisee_request',
+  groupId,
+  professorId,
+  teamLeaderId,
+}) => {
+  const response = await axios.post(
+    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+    { type, groupId, professorId, teamLeaderId },
+    { timeout: 5000 }
+  );
+  return response.data;
+};
+
+const dispatchAdvisorDecisionNotification = async (payload) => {
+  const response = await axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications`, payload, {
+    timeout: 5000,
+  });
+  return response.data;
+};
+
+const dispatchDisbandNotification = async (payload) => {
+  const response = await axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications`, payload, {
+    timeout: 5000,
+  });
+  return response.data;
+};
+
+const dispatchAdvisorTransferNotification = async ({ groupId, oldProfessorId, newProfessorId }) => {
+  const response = await axios.post(
+    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+    {
+      type: 'advisor_transfer',
+      recipient: newProfessorId,
+      payload: {
+        group_id: groupId,
+        old_professor_id: oldProfessorId,
+        new_professor_id: newProfessorId,
+      },
+    },
+    { timeout: 5000 }
+  );
+  return response.data;
+};
+
+const dispatchGroupDisbandNotification = async ({ groupId, reason }) => {
+  const group = await Group.findOne({ groupId }).lean();
+  if (!group) return null;
+  const accepted = (group.members || [])
+    .filter((m) => m.status === 'accepted')
+    .map((m) => m.userId);
+  const members = accepted.length > 0 ? accepted : group.leaderId ? [group.leaderId] : [];
+  if (members.length === 0) return null;
+  return dispatchDisbandNotification({
+    type: 'disband_notice',
+    groupId: group.groupId,
+    groupName: group.groupName,
+    members,
+    reason: reason || 'No advisor assigned',
+  });
+};
+
 module.exports = {
   dispatchInvitationNotification,
   dispatchMembershipDecisionNotification,
   dispatchGroupCreationNotification,
   dispatchBatchInvitationNotification,
   dispatchCommitteePublishedNotification,
+  dispatchCommitteePublishNotification,
+  dispatchAdvisorRequestNotification,
+  dispatchAdvisorDecisionNotification,
+  dispatchAdvisorTransferNotification,
+  dispatchGroupDisbandNotification,
+  dispatchDisbandNotification,
 };

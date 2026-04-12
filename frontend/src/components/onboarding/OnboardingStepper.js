@@ -14,10 +14,10 @@ import './OnboardingStepper.css';
 
 const RESEND_COOLDOWN_SECONDS = 60;
 const ROLE_REDIRECT = {
-  student:          '/dashboard',
-  professor:        '/dashboard',
-  admin:            '/dashboard',
-  committee_member: '/dashboard',
+  student: '/dashboard',
+  professor: '/dashboard',
+  admin: '/dashboard',
+  coordinator: '/dashboard',
 };
 
 // ─────────────────────────────────────────────

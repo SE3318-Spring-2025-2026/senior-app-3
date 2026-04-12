@@ -1,192 +1,344 @@
+const { publishCommitteeWithTransaction } = require('../services/committeePublishService');
 const {
   createCommitteeDraft,
   validateCommittee,
-  publishCommittee,
   getCommittee,
   assignAdvisors,
   assignJury,
+  CommitteeServiceError,
 } = require('../services/committeeService');
-const { responseFormatter } = require('../utils/responseFormatter');
 
-/**
- * POST /api/v1/committees - Create committee draft (Process 4.1)
- */
-const createCommitteeHandler = async (req, res, next) => {
+const createCommitteeHandler = async (req, res) => {
   try {
     const { committeeName, description } = req.body;
-    const coordinatorId = req.user?.id;
+    const coordinatorId = req.user?.userId;
 
     if (!committeeName || typeof committeeName !== 'string' || committeeName.trim().length === 0) {
-      return res.status(400).json(
-        responseFormatter(false, 'Committee name is required', null, 400)
-      );
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'Committee name is required',
+      });
     }
 
-    const committee = await createCommitteeDraft(committeeName, coordinatorId, {
+    if (!coordinatorId) {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'Coordinator authentication required',
+      });
+    }
+
+    const committee = await createCommitteeDraft({
+      committeeName: committeeName.trim(),
       description,
+      coordinatorId,
     });
 
-    res.status(201).json(
-      responseFormatter(true, 'Committee created successfully', committee, 201)
-    );
-  } catch (error) {
-    const status = error.status || 500;
-    res.status(status).json(responseFormatter(false, error.message, null, status));
+    return res.status(201).json({
+      committeeId: committee.committeeId,
+      committeeName: committee.committeeName,
+      description: committee.description,
+      status: committee.status,
+      advisorIds: committee.advisorIds,
+      juryIds: committee.juryIds,
+      createdAt: committee.createdAt,
+      updatedAt: committee.updatedAt,
+    });
+  } catch (err) {
+    if (err instanceof CommitteeServiceError) {
+      return res.status(err.status).json({
+        code: err.code,
+        message: err.message,
+      });
+    }
+    console.error('createCommittee error:', err);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: err.message,
+    });
   }
 };
 
-/**
- * POST /api/v1/committees/:committeeId/advisors - Assign advisors (Process 4.2)
- */
-const assignAdvisorsHandler = async (req, res, next) => {
+const validateCommitteeHandler = async (req, res) => {
+  try {
+    const { committeeId } = req.params;
+    const coordinatorId = req.user?.userId;
+
+    if (!committeeId) {
+      return res.status(400).json({
+        code: 'MISSING_COMMITTEE_ID',
+        message: 'Committee ID is required',
+      });
+    }
+
+    if (!coordinatorId) {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'Coordinator authentication required',
+      });
+    }
+
+    const committee = await getCommittee(committeeId);
+
+    if (!committee) {
+      return res.status(404).json({
+        code: 'COMMITTEE_NOT_FOUND',
+        message: `Committee ${committeeId} not found`,
+      });
+    }
+
+    const missingRequirements = [];
+
+    if (!committee.advisorIds || committee.advisorIds.length === 0) {
+      missingRequirements.push('At least one advisor must be assigned');
+    }
+
+    if (!committee.juryIds || committee.juryIds.length === 0) {
+      missingRequirements.push('At least one jury member must be assigned');
+    }
+
+    if (committee.advisorIds && committee.juryIds) {
+      const conflictingMembers = committee.advisorIds.filter((id) =>
+        committee.juryIds.includes(id)
+      );
+      if (conflictingMembers.length > 0) {
+        missingRequirements.push(
+          `${conflictingMembers.length} member(s) are assigned as both advisor and jury`
+        );
+      }
+    }
+
+    const isValid = missingRequirements.length === 0;
+
+    if (isValid) {
+      await validateCommittee(committeeId, coordinatorId);
+    }
+
+    return res.status(200).json({
+      committeeId,
+      valid: isValid,
+      missingRequirements,
+      checkedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    if (err instanceof CommitteeServiceError) {
+      return res.status(err.status).json({
+        code: err.code,
+        message: err.message,
+      });
+    }
+
+    console.error('Committee validation error:', err);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: 'An error occurred during committee validation',
+    });
+  }
+};
+
+const assignAdvisorsHandler = async (req, res) => {
   try {
     const { committeeId } = req.params;
     const { advisorIds } = req.body;
+    const coordinatorId = req.user?.userId;
 
-    if (!Array.isArray(advisorIds) || advisorIds.length === 0) {
-      return res.status(400).json(
-        responseFormatter(false, 'advisorIds must be a non-empty array', null, 400)
-      );
+    if (!committeeId) {
+      return res.status(400).json({
+        code: 'MISSING_COMMITTEE_ID',
+        message: 'Committee ID is required',
+      });
     }
 
-    const committee = await assignAdvisors(committeeId, advisorIds);
+    if (!Array.isArray(advisorIds) || advisorIds.length === 0) {
+      return res.status(400).json({
+        code: 'INVALID_ADVISORS',
+        message: 'advisorIds must be a non-empty array',
+      });
+    }
 
-    res.status(200).json(
-      responseFormatter(true, 'Advisors assigned successfully', committee, 200)
-    );
-  } catch (error) {
-    const status = error.status || 500;
-    res.status(status).json(responseFormatter(false, error.message, null, status));
+    if (!coordinatorId) {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'Coordinator authentication required',
+      });
+    }
+
+    const committee = await assignAdvisors(committeeId, advisorIds, coordinatorId);
+
+    return res.status(200).json({
+      committeeId: committee.committeeId,
+      committeeName: committee.committeeName,
+      advisorIds: committee.advisorIds,
+      juryIds: committee.juryIds,
+      status: committee.status,
+      createdAt: committee.createdAt,
+      updatedAt: committee.updatedAt,
+    });
+  } catch (err) {
+    if (err instanceof CommitteeServiceError) {
+      return res.status(err.status).json({
+        code: err.code,
+        message: err.message,
+      });
+    }
+
+    console.error('Advisor assignment error:', err);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: 'An error occurred during advisor assignment',
+    });
   }
 };
 
-/**
- * POST /api/v1/committees/:committeeId/jury - Assign jury members (Process 4.3)
- */
-const assignJuryHandler = async (req, res, next) => {
+const assignJuryHandler = async (req, res) => {
   try {
     const { committeeId } = req.params;
     const { juryIds } = req.body;
+    const coordinatorId = req.user?.userId;
 
-    if (!Array.isArray(juryIds) || juryIds.length === 0) {
-      return res.status(400).json(
-        responseFormatter(false, 'juryIds must be a non-empty array', null, 400)
-      );
+    if (!committeeId) {
+      return res.status(400).json({
+        code: 'MISSING_COMMITTEE_ID',
+        message: 'Committee ID is required',
+      });
     }
 
-    const committee = await assignJury(committeeId, juryIds);
+    if (!Array.isArray(juryIds) || juryIds.length === 0) {
+      return res.status(400).json({
+        code: 'INVALID_JURY',
+        message: 'juryIds must be a non-empty array',
+      });
+    }
 
-    res.status(200).json(
-      responseFormatter(true, 'Jury members assigned successfully', committee, 200)
-    );
-  } catch (error) {
-    const status = error.status || 500;
-    res.status(status).json(responseFormatter(false, error.message, null, status));
+    if (!coordinatorId) {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'Coordinator authentication required',
+      });
+    }
+
+    const committee = await assignJury(committeeId, juryIds, coordinatorId);
+
+    return res.status(200).json({
+      committeeId: committee.committeeId,
+      committeeName: committee.committeeName,
+      advisorIds: committee.advisorIds,
+      juryIds: committee.juryIds,
+      status: committee.status,
+      createdAt: committee.createdAt,
+      updatedAt: committee.updatedAt,
+    });
+  } catch (err) {
+    if (err instanceof CommitteeServiceError) {
+      return res.status(err.status).json({
+        code: err.code,
+        message: err.message,
+      });
+    }
+
+    console.error('Jury assignment error:', err);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: 'An error occurred during jury assignment',
+    });
   }
 };
 
-/**
- * POST /api/v1/committees/:committeeId/validate - Validate committee setup (Process 4.4)
- */
-const validateCommitteeHandler = async (req, res, next) => {
+const publishCommitteeHandler = async (req, res) => {
   try {
     const { committeeId } = req.params;
+    const coordinatorId = req.user?.userId;
+    const { assignedGroupIds = [] } = req.body || {};
 
-    const committee = await validateCommittee(committeeId);
+    if (!coordinatorId) {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'Coordinator authentication required',
+      });
+    }
 
-    res.status(200).json(
-      responseFormatter(true, 'Committee validated successfully', committee, 200)
-    );
-  } catch (error) {
-    const status = error.status || 500;
-    res.status(status).json(responseFormatter(false, error.message, null, status));
+    const result = await publishCommitteeWithTransaction({
+      committeeId,
+      coordinatorId,
+      assignedGroupIds,
+    });
+
+    return res.status(200).json({
+      committeeId: result.committeeId,
+      status: result.status,
+      publishedAt: result.publishedAt,
+      notificationTriggered: result.notificationTriggered,
+    });
+  } catch (err) {
+    if (err.statusCode === 404) {
+      return res.status(404).json({
+        code: 'COMMITTEE_NOT_FOUND',
+        message: err.message,
+      });
+    }
+
+    if (err.statusCode === 409) {
+      return res.status(409).json({
+        code: 'COMMITTEE_CONFLICT',
+        message: err.message,
+      });
+    }
+
+    if (err.statusCode === 400) {
+      return res.status(400).json({
+        code: 'COMMITTEE_INVALID_STATE',
+        message: err.message,
+      });
+    }
+
+    console.error('publishCommittee error:', err);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: err.message,
+    });
   }
 };
 
-/**
- * Issue #87: Publish Committee Handler - Process 4.5
- * 
- * This handler implements the final step of committee assignment workflow
- * with integration to Notification Service (Flow f09).
- * 
- * HTTP Contract:
- * - Request: POST /api/v1/committees/:committeeId/publish
- * - Authorization: Coordinator only (403 Forbidden for others)
- * - Status Codes:
- *   - 200: Success (committee published, notificationTriggered flag in response)
- *   - 400: Committee not validated or setup incomplete
- *   - 403: Unauthorized (non-coordinator)
- *   - 404: Committee not found
- *   - 409: Committee already published
- * 
- * Response Schema (OpenAPI: CommitteePublish):
- * {
- *   "status": true,
- *   "message": "Committee published successfully",
- *   "data": {
- *     "committeeId": "COMM_...",
- *     "committeeName": "Spring 2025 Senior Projects",
- *     "status": "published",
- *     "publishedAt": "2026-04-11T...",
- *     "notificationTriggered": true,           // Issue #87: CRITICAL FLAG
- *     "notificationId": "notif_..." or null
- *   }
- * }
- * 
- * Issue #87 Specific Behavior:
- * 1. If notification dispatch succeeds: notificationTriggered = true
- * 2. If notification dispatch fails after retries: notificationTriggered = false
- * 3. Committee is ALWAYS published regardless of notification status (partial failure)
- * 4. Coordinator receives flag to verify notification delivery
- * 5. Manual retry of notification can be done via support/admin tools
- */
-const publishCommitteeHandler = async (req, res, next) => {
-  try {
-    const { committeeId } = req.params;
-    const publishedBy = req.user?.id;
-
-    const result = await publishCommittee(committeeId, publishedBy);
-
-    res.status(200).json(
-      responseFormatter(true, 'Committee published successfully', {
-        committeeId: result.committeeId,
-        committeeName: result.committeeName,
-        status: result.status,
-        publishedAt: result.publishedAt,
-        /**
-         * Issue #87: Notification Triggered Flag in Response
-         * 
-         * This is the primary way coordinator verifies Issue #87 implementation.
-         * - true: All notification recipients queued successfully
-         * - false: Notification dispatch failed, but committee is still published
-         * 
-         * OpenAPI requires this field in CommitteePublish schema.
-         */
-        notificationTriggered: result.notificationTriggered,
-        notificationId: result.notificationId,
-      }, 200)
-    );
-  } catch (error) {
-    const status = error.status || 500;
-    res.status(status).json(responseFormatter(false, error.message, null, status));
-  }
-};
-
-/**
- * GET /api/v1/committees/:committeeId - Get committee details
- */
-const getCommitteeHandler = async (req, res, next) => {
+const getCommitteeHandler = async (req, res) => {
   try {
     const { committeeId } = req.params;
 
     const committee = await getCommittee(committeeId);
 
-    res.status(200).json(
-      responseFormatter(true, 'Committee retrieved successfully', committee, 200)
-    );
-  } catch (error) {
-    const status = error.status || 500;
-    res.status(status).json(responseFormatter(false, error.message, null, status));
+    if (!committee) {
+      return res.status(404).json({
+        code: 'COMMITTEE_NOT_FOUND',
+        message: `Committee ${committeeId} not found`,
+      });
+    }
+
+    return res.status(200).json({
+      committeeId: committee.committeeId,
+      committeeName: committee.committeeName,
+      description: committee.description,
+      advisorIds: committee.advisorIds,
+      juryIds: committee.juryIds,
+      status: committee.status,
+      createdBy: committee.createdBy,
+      publishedAt: committee.publishedAt,
+      publishedBy: committee.publishedBy,
+      validatedAt: committee.validatedAt,
+      validatedBy: committee.validatedBy,
+      createdAt: committee.createdAt,
+      updatedAt: committee.updatedAt,
+    });
+  } catch (err) {
+    if (err instanceof CommitteeServiceError) {
+      return res.status(err.status).json({
+        code: err.code,
+        message: err.message,
+      });
+    }
+
+    console.error('getCommittee error:', err);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: err.message,
+    });
   }
 };
 
