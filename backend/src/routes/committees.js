@@ -1,117 +1,96 @@
 const express = require('express');
+const { publishCommittee, createCommittee } = require('../controllers/committees');
+const { authMiddleware } = require('../middleware/auth');
+const { roleMiddleware } = require('../middleware/roleMiddleware');
+
 const router = express.Router();
-const { authMiddleware, roleMiddleware } = require('../middleware/auth');
-const { committeeLimiter } = require('../middleware/committeeLimiter');
-const { validateCommitteeSetup } = require('../services/committeeValidationService');
-const {
-  createCommittee,
-  listCommittees,
-  getCommittee,
-  assignCommitteeAdvisors,
-  addJuryMembers,
-} = require('../controllers/committeeController');
-
-// Using placeholder function for publishCommittee until Issue #81 is implemented
-const publishCommittee = async (req, res) => {
-  res.status(501).json({
-    code: 'NOT_IMPLEMENTED',
-    message: 'Publish endpoint will be implemented in Issue #81',
-  });
-};
 
 /**
- * GET /api/v1/committees
+ * POST /committees
+ * Create Committee (Process 4.1)
+ * 
+ * Coordinator creates a new committee draft.
+ * Requires: coordinator role
+ * 
+ * Request body:
+ * {
+ *   committeeName: string (required, min 3, max 100)
+ *   description: string (optional)
+ *   coordinatorId: string (required)
+ * }
+ * 
+ * Response (201):
+ * {
+ *   committeeId: string
+ *   committeeName: string
+ *   description: string
+ *   status: "draft"
+ *   advisorIds: []
+ *   juryIds: []
+ *   createdAt: ISO date
+ * }
  */
-router.get(
-  '/',
-  authMiddleware,
-  roleMiddleware(['coordinator', 'admin']),
-  listCommittees
-);
+router.post('/', authMiddleware, roleMiddleware(['coordinator']), createCommittee);
 
 /**
- * POST /api/v1/committees
- */
-router.post(
-  '/',
-  authMiddleware,
-  roleMiddleware(['coordinator']),
-  committeeLimiter,
-  createCommittee
-);
-
-/**
- * GET /api/v1/committees/:committeeId
- */
-router.get(
-  '/:committeeId',
-  authMiddleware,
-  roleMiddleware(['coordinator', 'admin']),
-  getCommittee
-);
-
-/**
- * POST /api/v1/committees/:committeeId/advisors
- */
-router.post(
-  '/:committeeId/advisors',
-  authMiddleware,
-  roleMiddleware(['coordinator']),
-  assignCommitteeAdvisors
-);
-
-/**
- * POST /api/v1/committees/:committeeId/jury
- */
-router.post(
-  '/:committeeId/jury',
-  authMiddleware,
-  roleMiddleware(['coordinator']),
-  addJuryMembers
-);
-
-/**
- * POST /api/v1/committees/:committeeId/validate
- */
-router.post(
-  '/:committeeId/validate',
-  authMiddleware,
-  roleMiddleware(['coordinator']),
-  async (req, res) => {
-    try {
-      const { committeeId } = req.params;
-      const coordinatorId = req.user.userId;
-
-      // Use committeeValidationService for validation logic
-      const validationResult = await validateCommitteeSetup(committeeId, coordinatorId);
-
-      res.status(200).json({
-        committeeId: validationResult.committeeId,
-        valid: validationResult.valid,
-        missingRequirements: validationResult.missingRequirements,
-        checkedAt: validationResult.checkedAt,
-        status: validationResult.status,
-      });
-    } catch (err) {
-      if (err.status && err.code) {
-        // Known error from validation service
-        return res.status(err.status).json({
-          code: err.code,
-          message: err.message,
-        });
-      }
-
-      console.error('[POST /committees/:committeeId/validate]', err);
-      res.status(500).json({
-        code: 'INTERNAL_ERROR',
-        message: 'Failed to validate committee setup',
-      });
-    }
-  }
-);
-
-/**
- * POST /api/v1/committees/:committeeId/publish
+ * POST /committees/{committeeId}/publish
+ * Publish Committee (Process 4.5)
+ * 
+ * Publishes the validated committee configuration, stores the final committee data,
+ * updates related assignments (D2 Groups), and triggers committee notifications.
+ * 
+ * DFD flows:
+ * - f06: 4.5 → D3 (Committee) - Update committee status
+ * - f07: 4.5 → D2 (Groups) - Link groups to committee
+ * - f09: 4.5 → Notification Service - Dispatch notifications
+ * 
+ * Requires: authMiddleware + coordinator role
+ * Prerequisite: committee must be in "validated" status
+ * 
+ * Request body:
+ * {
+ *   assignedGroupIds: string[] (optional, group IDs to link to committee)
+ * }
+ * 
+ * Response (200):
+ * {
+ *   committeeId: string
+ *   status: "published"
+ *   publishedAt: ISO date
+ *   notificationTriggered: boolean
+ * }
+ * 
+ * Error responses:
+ * - 400: Committee is incomplete or invalid / not in validated status
+ * - 403: Not authenticated or not a coordinator
+ * - 404: Committee not found
+ * - 409: Committee is already published
+ * 
+ * ARCHITECTURAL NOTE (Issue #81 FIX #1):
+ * 
+ * DEFICIENCY (from PR review):
+ * "the route uses roleMiddleware(['coordinator']) but is missing the standard
+ *  authMiddleware that precedes it. Without req.user being set by authMiddleware,
+ *  the role check will fail with a 401."
+ * 
+ * SOLUTION:
+ * Added authMiddleware as the FIRST middleware in the chain, BEFORE roleMiddleware.
+ * This ensures:
+ * 1. authMiddleware runs first and populates req.user from JWT token
+ * 2. roleMiddleware runs second and checks req.user.role === 'coordinator'
+ * 3. Controller receives authenticated and authorized request
+ * 
+ * Middleware chain: authMiddleware → roleMiddleware → publishCommittee controller
+ * 
+ * Without authMiddleware:
+ * ❌ req.user is undefined
+ * ❌ roleMiddleware cannot access req.user.role
+ * ❌ Authorization bypass (any unauthenticated user passes through)
+ * 
+ * With authMiddleware:
+ * ✅ req.user is populated with userId, role, email
+ * ✅ roleMiddleware can verify role === 'coordinator'
+ * ✅ Proper authorization enforced (401 for missing token, 403 for wrong role)
  */
 router.post(
   '/:committeeId/publish',

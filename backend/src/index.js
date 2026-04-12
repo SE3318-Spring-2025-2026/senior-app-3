@@ -10,6 +10,7 @@ const advisorRequestRoutes = require('./routes/advisorRequests');
 const committeeRoutes = require('./routes/committees'); // Resolved conflict
 const scheduleWindowRoutes = require('./routes/scheduleWindow');
 const auditLogRoutes = require('./routes/auditLogs');
+const committeeRoutes = require('./routes/committees');
 const { errorHandler } = require('./middleware/auth');
 
 const app = express();
@@ -57,6 +58,7 @@ app.use('/api/v1/advisor-requests', advisorRequestRoutes);
 app.use('/api/v1/committees', committeeRoutes); // Mounted committees middleware
 app.use('/api/v1/schedule-window', scheduleWindowRoutes);
 app.use('/api/v1/audit-logs', auditLogRoutes);
+app.use('/api/v1/committees', committeeRoutes);
 
 // 404 Handler
 app.use((req, res) => {

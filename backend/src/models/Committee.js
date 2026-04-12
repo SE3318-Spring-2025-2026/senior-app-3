@@ -1,78 +1,83 @@
 const mongoose = require('mongoose');
-const { v4: uuidv4 } = require('uuid');
 
 /**
- * Committee — D3 data store for committee assignments.
+ * Committee Schema (D3 Data Store)
+ * 
+ * Represents a committee configuration for evaluating group projects.
+ * Part of Process 4.0 (Committee Assignment) workflow.
+ * 
+ * Flows:
+ * - f09: 4.5 → Notification Service (committee publish notifications)
+ * - Related to f13: D3 Committee → D6 SprintRecord (sprint assignment)
  */
 const committeeSchema = new mongoose.Schema(
   {
     committeeId: {
       type: String,
-      default: () => `com_${uuidv4().split('-')[0]}`,
-      unique: true,
       required: true,
+      unique: true,
+      index: true,
+      default: () => `COM-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
     },
     committeeName: {
       type: String,
       required: true,
       unique: true,
-      trim: true,
-      maxlength: [100, 'committeeName cannot exceed 100 characters.'],
+      index: true,
+      minlength: 3,
+      maxlength: 100,
     },
     description: {
       type: String,
+      maxlength: 500,
       default: null,
-      trim: true,
-      maxlength: [500, 'description cannot exceed 500 characters.'],
-    },
-    coordinatorId: {
-      type: String,
-      required: true,
     },
     advisorIds: {
       type: [String],
       default: [],
+      index: true,
     },
     juryIds: {
       type: [String],
       default: [],
+      index: true,
     },
     status: {
       type: String,
       enum: ['draft', 'validated', 'published'],
       default: 'draft',
+      index: true,
+    },
+    createdBy: {
+      type: String, // coordinatorId
       required: true,
-    },
-    forwardedToAdvisorAssignment: {
-      type: Boolean,
-      default: false,
-    },
-    forwardedToJuryValidation: {
-      type: Boolean,
-      default: false,
+      index: true,
     },
     publishedAt: {
       type: Date,
       default: null,
     },
     publishedBy: {
+      type: String, // coordinatorId who published
+      default: null,
+    },
+    validatedAt: {
+      type: Date,
+      default: null,
+    },
+    validatedBy: {
       type: String,
       default: null,
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    collection: 'committees',
+  }
 );
 
-// Indexes for efficient querying
-committeeSchema.index({ committeeId: 1 }, { unique: true });
-committeeSchema.index(
-  { committeeName: 1 },
-  { unique: true, collation: { locale: 'en', strength: 2 } }
-);
-committeeSchema.index({ coordinatorId: 1, committeeName: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
-committeeSchema.index({ status: 1 });
-committeeSchema.index({ coordinatorId: 1, status: 1 });
+// Compound indexes for common queries
+committeeSchema.index({ createdBy: 1, status: 1 });
+committeeSchema.index({ status: 1, publishedAt: -1 });
 
-const Committee = mongoose.model('Committee', committeeSchema);
-
-module.exports = Committee;
+module.exports = mongoose.model('Committee', committeeSchema);

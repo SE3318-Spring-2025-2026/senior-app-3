@@ -1,133 +1,172 @@
 const SyncErrorLog = require('../models/SyncErrorLog');
 
 /**
- * Helper: Standalone sleep utility
+ * Determines if an error is transient (should retry) or permanent (should fail fast).
+ * 
+ * Transient errors: 5xx, 429 (rate limit), network timeouts
+ * Permanent errors: 4xx (except 429), invalid input, bad configuration
+ * 
+ * @param {Error|object} error - The error to classify
+ * @returns {boolean} true if transient (retry), false if permanent (fail fast)
  */
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const isTransientError = (error) => {
+  // Network-level errors are transient
+  if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === 'ENOTFOUND') {
+    return true;
+  }
+
+  // HTTP status code errors
+  if (error.response) {
+    const status = error.response.status;
+    // 5xx errors are transient (server issue)
+    if (status >= 500) {
+      return true;
+    }
+    // 429 (rate limit) is transient
+    if (status === 429) {
+      return true;
+    }
+    // All other 4xx errors are permanent (client issue)
+    return false;
+  }
+
+  // Timeout errors are transient
+  if (error.message?.includes('timeout')) {
+    return true;
+  }
+
+  // Default: treat unknown errors as permanent to fail fast
+  return false;
+};
 
 /**
- * isTransientError(error)
- * Classifies error as transient (retry) or permanent (fail immediately).
- * - TRANSIENT: 5xx server errors, 429 rate limit, network timeouts, ECONNREFUSED
- * - PERMANENT: 4xx (except 429), invalid input, validation errors
+ * Retries a notification dispatch function with exponential backoff.
+ * 
+ * Retry strategy:
+ * - Up to 3 attempts
+ * - 100ms → 200ms → 400ms delays between attempts
+ * - Only retries on transient errors (5xx, 429, network issues)
+ * - Creates SyncErrorLog entry on permanent failure or exhaustion
+ * 
+ * @param {Function} dispatchFn - Async function to call (must return {success, notificationId, error})
+ * @param {object} options
+ * @param {object} options.context - Error context {groupId, operation, committeeId, etc.}
+ * @param {number} options.maxAttempts - Max retry attempts (default: 3)
+ * @returns {Promise<object>} { success: boolean, notificationId: string|null, error: object|null }
  */
-function isTransientError(error) {
-  if (!error) return false;
+const retryNotificationWithBackoff = async (dispatchFn, options = {}) => {
+  const { context = {}, maxAttempts = 3 } = options;
+  const backoffDelays = [100, 200, 400]; // milliseconds
 
-  const status = error.response?.status || error.status;
-  const message = error.message || '';
-
-  if (status >= 500 && status < 600) return true;
-  if (status === 429) return true;
-  if (message.includes('ECONNREFUSED') || message.includes('ETIMEDOUT')) return true;
-  if (message.includes('timeout') || message.includes('network')) return true;
-
-  if (status >= 400 && status < 500) return false;
-
-  return true;
-}
-
-/**
- * retryNotificationWithBackoff(dispatchFn, options)
- * Specialized retry logic for the Notification Service with exponential backoff and DB logging.
- */
-async function retryNotificationWithBackoff(dispatchFn, options = {}) {
-  const { maxAttempts = 3, baseDelayMs = 100, context = {} } = options;
   let lastError = null;
+  let attempt = 0;
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  for (attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
       const result = await dispatchFn();
-      return {
-        success: true,
-        notificationId: result?.notificationId || result?.id || null,
-        error: null,
-      };
-    } catch (error) {
-      lastError = error;
-      const isTransient = isTransientError(error);
 
-      console.warn(
-        `[Notification] Attempt ${attempt}/${maxAttempts} failed (${isTransient ? 'transient' : 'permanent'}):`,
-        error.message
-      );
-
-      if (!isTransient) {
-        return handlePermanentError(error, context);
+      // Success case
+      if (result.success) {
+        return {
+          success: true,
+          notificationId: result.notificationId,
+          error: null,
+        };
       }
 
-      if (attempt < maxAttempts) {
-        const delayMs = baseDelayMs * Math.pow(2, attempt - 1);
-        console.log(`[Notification] Retrying in ${delayMs}ms...`);
-        await sleep(delayMs);
+      // Dispatch failed; store as lastError for potential retry
+      lastError = result.error;
+
+      // Check if error is transient
+      if (!isTransientError(lastError)) {
+        // Permanent error; fail immediately
+        await SyncErrorLog.create({
+          service: 'notification_service',
+          groupId: context.groupId,
+          committeeId: context.committeeId,
+          actorId: context.actorId,
+          operation: context.operation || 'notification_dispatch',
+          status: 'failed',
+          attempts: attempt + 1,
+          lastError: {
+            message: lastError.message || String(lastError),
+            code: lastError.code || 'UNKNOWN',
+            type: 'permanent',
+          },
+        });
+
+        return {
+          success: false,
+          notificationId: null,
+          error: lastError,
+        };
       }
-    }
-  }
 
-  console.error('[Notification] All retries exhausted');
-  return handleTransientExhaustedError(lastError, context);
-}
-
-/**
- * withRetry(fn, maxRetries, delays)
- * Generic utility from main branch to retry any async function with specified delays.
- */
-async function withRetry(fn, maxRetries = 3, delays = [100, 200, 400]) {
-  let lastError;
-  for (let attempt = 0; attempt < maxRetries; attempt += 1) {
-    try {
-      return await fn();
+      // Transient error; continue to next attempt if available
+      if (attempt < maxAttempts - 1) {
+        const delayMs = backoffDelays[attempt];
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
     } catch (err) {
       lastError = err;
-      if (attempt < maxRetries - 1) {
-        const wait = delays[attempt] !== undefined ? delays[attempt] : delays[delays.length - 1] || 0;
-        await sleep(wait);
+
+      // Check if caught error is transient
+      if (!isTransientError(err)) {
+        // Permanent error; fail immediately
+        await SyncErrorLog.create({
+          service: 'notification_service',
+          groupId: context.groupId,
+          committeeId: context.committeeId,
+          actorId: context.actorId,
+          operation: context.operation || 'notification_dispatch',
+          status: 'failed',
+          attempts: attempt + 1,
+          lastError: {
+            message: err.message || String(err),
+            code: err.code || 'UNKNOWN',
+            type: 'permanent',
+          },
+        });
+
+        return {
+          success: false,
+          notificationId: null,
+          error: err,
+        };
+      }
+
+      // Transient error; continue to next attempt if available
+      if (attempt < maxAttempts - 1) {
+        const delayMs = backoffDelays[attempt];
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
   }
-  throw lastError;
-}
 
-/**
- * Helpers for DB Error Logging
- */
-async function handlePermanentError(error, context) {
-  try {
-    await SyncErrorLog.create({
-      service: 'NotificationService',
-      operation: 'dispatch',
-      status: 'failed',
-      errorType: 'permanent',
-      errorMessage: error.message,
-      context,
-      timestamp: new Date(),
-    });
-  } catch (logErr) {
-    console.error('[Notification] SyncErrorLog creation failed:', logErr.message);
-  }
-  return { success: false, notificationId: null, error };
-}
+  // Exhausted all retry attempts
+  await SyncErrorLog.create({
+    service: 'notification_service',
+    groupId: context.groupId,
+    committeeId: context.committeeId,
+    actorId: context.actorId,
+    operation: context.operation || 'notification_dispatch',
+    status: 'failed',
+    attempts: maxAttempts,
+    lastError: {
+      message: lastError?.message || 'Max retries exhausted',
+      code: lastError?.code || 'MAX_RETRIES_EXCEEDED',
+      type: 'transient_exhausted',
+    },
+  });
 
-async function handleTransientExhaustedError(lastError, context) {
-  try {
-    await SyncErrorLog.create({
-      service: 'NotificationService',
-      operation: 'dispatch',
-      status: 'failed',
-      errorType: 'transient_exhausted',
-      errorMessage: lastError?.message || 'Unknown error',
-      context,
-      timestamp: new Date(),
-    });
-  } catch (logErr) {
-    console.error('[Notification] SyncErrorLog creation failed:', logErr.message);
-  }
-  return { success: false, notificationId: null, error: lastError };
-}
+  return {
+    success: false,
+    notificationId: null,
+    error: lastError,
+  };
+};
 
 module.exports = {
-  retryNotificationWithBackoff,
   isTransientError,
-  withRetry,
-  sleep
+  retryNotificationWithBackoff,
 };
