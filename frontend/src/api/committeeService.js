@@ -42,6 +42,15 @@ export const getCommittee = async (committeeId) => {
 };
 
 /**
+ * List committee candidates
+ * @returns {Promise<object>}
+ */
+export const listCommitteeCandidates = async () => {
+  const response = await apiClient.get('/committees/candidates');
+  return response.data;
+};
+
+/**
  * Assign advisors to a committee
  * @param {string} committeeId
  * @param {string[]} advisorIds
@@ -78,4 +87,24 @@ export const addJuryMembers = async (committeeId, juryIds) => {
 export const getProfessorsForJury = async () => {
   const response = await apiClient.get('/auth/users/professors');
   return response.data.professors || [];
+};
+
+/**
+ * Validate committee setup
+ * @param {string} committeeId
+ * @returns {Promise<object>}
+ */
+export const validateCommitteeSetup = async (committeeId) => {
+  const response = await apiClient.post(`/committees/${committeeId}/validate`);
+  return response.data;
+};
+
+/**
+ * Publish a committee
+ * @param {string} committeeId
+ * @returns {Promise<object>}
+ */
+export const publishCommittee = async (committeeId) => {
+  const response = await apiClient.post(`/committees/${committeeId}/publish`);
+  return response.data;
 };

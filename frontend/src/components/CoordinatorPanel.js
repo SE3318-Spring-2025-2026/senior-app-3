@@ -24,8 +24,6 @@ const GROUP_STATUSES = [
   { value: 'inactive', label: 'Inactive' },
 ];
 
-
-
 /**
  * Coordinator Panel
  * Manages all coordinator functions:
@@ -121,6 +119,7 @@ const CoordinatorPanel = () => {
     }
   }, []);
 
+  // Load committees
   const loadCommittees = useCallback(async () => {
     setCommitteesLoading(true);
     setCommitteesError(null);
@@ -227,53 +226,12 @@ const CoordinatorPanel = () => {
 
     setScheduleSubmitting(true);
     try {
-      /**
-       * =====================================================================
-       * FIX #5a: EXPLICIT UTC CONVERSION IN DATETIME SUBMISSION (ISSUE #70 - HIGH)
-       * =====================================================================
-       * PROBLEM: datetime-local input returns the coordinator's local time without
-       * timezone information. If coordinator is in UTC+8 and enters "9:00 AM", the
-       * browser returns "2024-01-15T09:00:00" (no timezone). When sent to backend
-       * and stored as UTC, it becomes 2024-01-15T09:00:00Z. Students in UTC-8
-       * see this as opening 17 hours earlier than intended (2024-01-15T01:00:00 UTC-8).
-       *
-       * WHAT CHANGED: Added explicit offset calculation to convert local time to UTC
-       * OLD CODE:
-       *   await createScheduleWindow(
-       *     scheduleForm.operationType,
-       *     new Date(scheduleForm.startsAt).toISOString(),
-       *     new Date(scheduleForm.endsAt).toISOString(),
-       *     scheduleForm.label
-       *   );
-       *
-       * NEW CODE: Calculate the browser's timezone offset and adjust both times
-       * to UTC before submission. This ensures the backend receives truly UTC times
-       * that represent the intended schedule window regardless of coordinator timezone.
-       *
-       * HOW IT WORKS:
-       * 1. Parse datetime-local values as local times
-       * 2. Get browser's UTC offset in milliseconds (negative for west, positive for east)
-       * 3. Subtract offset to convert from local to UTC
-       *    Example: Coordinator in UTC+8 at 09:00 local
-       *      - offset = -8 * 60 * 60 * 1000 = -28,800,000 ms
-       *      - UTC time = 09:00 - 8 hours = 01:00 UTC ✓
-       * 4. Submit UTC time to backend for consistent storage
-       *
-       * IMPACT: Schedule windows now open/close at the same absolute time
-       * regardless of coordinator's timezone. All students see consistent windows.
-       * =====================================================================
-       */
       const startLocal = new Date(scheduleForm.startsAt);
       const endLocal = new Date(scheduleForm.endsAt);
-      
-      // Get the browser's timezone offset in milliseconds
-      // getTimezoneOffset() returns minutes (negative for UTC+, positive for UTC-)
       const timezoneOffsetMs = startLocal.getTimezoneOffset() * 60 * 1000;
-      
-      // Convert from local time to UTC by subtracting the offset
       const startUTC = new Date(startLocal.getTime() - timezoneOffsetMs).toISOString();
       const endUTC = new Date(endLocal.getTime() - timezoneOffsetMs).toISOString();
-      
+
       await createScheduleWindow(
         scheduleForm.operationType,
         startUTC,
@@ -713,93 +671,83 @@ const CoordinatorPanel = () => {
               </p>
 
               <form onSubmit={handleScheduleSubmit}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-              <div>
-                <label htmlFor="sw-operationType" style={labelStyle}>Operation Type</label>
-                <select
-                  id="sw-operationType"
-                  name="operationType"
-                  value={scheduleForm.operationType}
-                  onChange={handleScheduleFormChange}
-                  style={inputStyle}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                  <div>
+                    <label htmlFor="sw-operationType" style={labelStyle}>Operation Type</label>
+                    <select
+                      id="sw-operationType"
+                      name="operationType"
+                      value={scheduleForm.operationType}
+                      onChange={handleScheduleFormChange}
+                      style={inputStyle}
+                    >
+                      {OPERATION_TYPES.map((t) => (
+                        <option key={t.value} value={t.value}>{t.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label htmlFor="sw-label" style={labelStyle}>Label (optional)</label>
+                    <input
+                      id="sw-label"
+                      name="label"
+                      type="text"
+                      value={scheduleForm.label}
+                      onChange={handleScheduleFormChange}
+                      placeholder="e.g. Spring 2026 – Group Creation"
+                      style={inputStyle}
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="sw-startsAt" style={labelStyle}>Open At (your local time → UTC)</label>
+                    <input
+                      id="sw-startsAt"
+                      name="startsAt"
+                      type="datetime-local"
+                      value={scheduleForm.startsAt}
+                      onChange={handleScheduleFormChange}
+                      style={inputStyle}
+                      required
+                      title="Enter time in your local timezone; it will be converted to UTC for storage"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="sw-endsAt" style={labelStyle}>Close At (your local time → UTC)</label>
+                    <input
+                      id="sw-endsAt"
+                      name="endsAt"
+                      type="datetime-local"
+                      value={scheduleForm.endsAt}
+                      onChange={handleScheduleFormChange}
+                      style={inputStyle}
+                      required
+                      title="Enter time in your local timezone; it will be converted to UTC for storage"
+                    />
+                  </div>
+                </div>
+
+                {scheduleError && <p style={{ color: '#d73a49', fontSize: '14px', marginBottom: '12px' }}>{scheduleError}</p>}
+                {scheduleSuccess && <p style={{ color: '#22863a', fontSize: '14px', marginBottom: '12px' }}>{scheduleSuccess}</p>}
+
+                <button
+                  type="submit"
+                  disabled={scheduleSubmitting}
+                  style={{
+                    padding: '10px 20px',
+                    backgroundColor: scheduleSubmitting ? '#ccc' : '#0366d6',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: scheduleSubmitting ? 'not-allowed' : 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                  }}
                 >
-                  {OPERATION_TYPES.map((t) => (
-                    <option key={t.value} value={t.value}>{t.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label htmlFor="sw-label" style={labelStyle}>Label (optional)</label>
-                <input
-                  id="sw-label"
-                  name="label"
-                  type="text"
-                  value={scheduleForm.label}
-                  onChange={handleScheduleFormChange}
-                  placeholder="e.g. Spring 2026 – Group Creation"
-                  style={inputStyle}
-                />
-              </div>
-
-              <div>
-                <label htmlFor="sw-startsAt" style={labelStyle}>
-                  {/* FIX #5b: UTC TIMEZONE INDICATOR IN UI (ISSUE #70 - HIGH) */}
-                  {/* Shows user that times are automatically converted to UTC. This helps */}
-                  {/* coordinators understand that local time is being translated to UTC. */}
-                  Open At (your local time → UTC)
-                </label>
-                <input
-                  id="sw-startsAt"
-                  name="startsAt"
-                  type="datetime-local"
-                  value={scheduleForm.startsAt}
-                  onChange={handleScheduleFormChange}
-                  style={inputStyle}
-                  required
-                  title="Enter time in your local timezone; it will be converted to UTC for storage"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="sw-endsAt" style={labelStyle}>
-                  {/* FIX #5b: UTC TIMEZONE INDICATOR IN UI (ISSUE #70 - HIGH) */}
-                  {/* Shows user that times are automatically converted to UTC. This helps */}
-                  {/* coordinators understand that local time is being translated to UTC. */}
-                  Close At (your local time → UTC)
-                </label>
-                <input
-                  id="sw-endsAt"
-                  name="endsAt"
-                  type="datetime-local"
-                  value={scheduleForm.endsAt}
-                  onChange={handleScheduleFormChange}
-                  style={inputStyle}
-                  required
-                  title="Enter time in your local timezone; it will be converted to UTC for storage"
-                />
-              </div>
-            </div>
-
-            {scheduleError && <p style={{ color: '#d73a49', fontSize: '14px', marginBottom: '12px' }}>{scheduleError}</p>}
-            {scheduleSuccess && <p style={{ color: '#22863a', fontSize: '14px', marginBottom: '12px' }}>{scheduleSuccess}</p>}
-
-            <button
-              type="submit"
-              disabled={scheduleSubmitting}
-              style={{
-                padding: '10px 20px',
-                backgroundColor: scheduleSubmitting ? '#ccc' : '#0366d6',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: scheduleSubmitting ? 'not-allowed' : 'pointer',
-                fontSize: '14px',
-                fontWeight: '600',
-              }}
-            >
-              {scheduleSubmitting ? 'Saving…' : 'Create Window'}
-            </button>
+                  {scheduleSubmitting ? 'Saving…' : 'Create Window'}
+                </button>
               </form>
             </section>
 
