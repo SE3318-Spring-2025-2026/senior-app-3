@@ -12,9 +12,7 @@ const migration006 = require('./006_add_advisor_assignment_fields_to_groups');
 const migration006_deliverable = require('./006_create_deliverable_schema');
 const migration007 = require('./007_create_committee_schema');
 const migration008 = require('./008_create_d6_sprint_and_contribution_schema');
-
-// Migrations are applied in order
-const migrations = [
+const migration009 = require('./009_create_committee_schema');
   migration001,
   migration002,
   migration003,
@@ -24,6 +22,7 @@ const migrations = [
   migration006_deliverable,
   migration007,
   migration008,
+  migration009,
 ];
 
 module.exports = migrations;
