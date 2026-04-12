@@ -126,7 +126,7 @@ const updateSprintRecordsOnPublish = async (committeeId, session = null) => {
     entityType: 'Committee',
     entityId: committeeId,
     changes: { committeeAssignedAt: new Date(), recordsUpdated: updatedRecords.length },
-  });
+  }, session);
 
   return { updatedCount: updatedRecords.length, recordIds: updatedRecords };
 };
@@ -165,7 +165,7 @@ const publishCommittee = async (committeeId, publishedBy) => {
       entityType: 'Committee',
       entityId: committeeId,
       changes: { status: 'published', publishedAt: committee.publishedAt },
-    });
+    }, session);
 
     await session.commitTransaction();
     session.endSession();

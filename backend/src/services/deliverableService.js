@@ -37,7 +37,7 @@ const validateCommitteeAssignment = async (committeeId, groupId) => {
 /**
  * Store deliverable in D4
  */
-const storeDeliverableInD4 = async (deliverableData) => {
+const storeDeliverableInD4 = async (deliverableData, session = null) => {
   const deliverableId = `DEL_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
   const deliverable = new Deliverable({
@@ -46,7 +46,7 @@ const storeDeliverableInD4 = async (deliverableData) => {
     status: 'submitted',
   });
 
-  await deliverable.save();
+  await deliverable.save({ session });
   return deliverable;
 };
 
@@ -120,7 +120,7 @@ const submitDeliverable = async (submissionData) => {
       studentId,
       type,
       storageRef,
-    });
+    }, session);
 
     // Flow f13: 4.5 → D6 - Create or update sprint record
     await createOrUpdateSprintRecord(sprintId, groupId, committeeId, session);
@@ -134,7 +134,7 @@ const submitDeliverable = async (submissionData) => {
       entityType: 'Deliverable',
       entityId: deliverable.deliverableId,
       changes: { committeeId, groupId, type, status: 'submitted' },
-    });
+    }, session);
 
     await session.commitTransaction();
     session.endSession();
