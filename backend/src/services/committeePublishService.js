@@ -223,76 +223,68 @@ const publishCommitteeWithTransaction = async ({
     }
 
     /**
-     * FIX #4 (Issue #81): STEP 7: Dispatch notifications non-blocking (fire-and-forget)
-     * 
-     * DEFICIENCY: PR review identified blocking notification dispatch
-     * "Sending fan-out notifications to potentially hundreds of users synchronously
-     *  will cause the request to hang and timeout."
-     * 
-     * SOLUTION:
-     * Use setImmediate to dispatch notifications AFTER response is sent:
-     * - HTTP response returned immediately with status 200
-     * - Notification dispatch scheduled for next event loop tick
-     * - If notification fails, only audit log is affected (non-fatal)
-     * - Response already sent, so user doesn't wait for retry backoff (100/200/400ms)
-     * 
-     * This pattern:
-     * ✅ Prevents request hangs (avoids 30-60 second timeouts)
-     * ✅ Maintains database consistency (transaction already committed)
-     * ✅ Allows notification retries without blocking user
-     * ✅ Gracefully handles notification service unavailability
+     * Issue #92: Dispatch notifications after DB commit, with graceful degradation.
+     * - Mongo transaction (D3/D2/audit) completes before this runs.
+     * - Retries + SyncErrorLog are handled inside dispatchCommitteePublishNotification / retryNotificationWithBackoff.
+     * - HTTP response reflects actual outcome: notificationTriggered matches dispatch success (200 OK either way).
      */
-    setImmediate(async () => {
-      try {
-        const notificationResult = await dispatchCommitteePublishNotification({
-          committeeId,
-          committeeName: publishedCommittee.committeeName,
-          advisorIds: publishedCommittee.advisorIds || [],
-          juryIds: publishedCommittee.juryIds || [],
-          groupMemberIds, // Now includes all group members (FIX #5)
-          coordinatorId,
-        });
+    let notificationResult = { success: false, notificationId: null, error: null };
+    try {
+      notificationResult = await dispatchCommitteePublishNotification({
+        committeeId,
+        committeeName: publishedCommittee.committeeName,
+        advisorIds: publishedCommittee.advisorIds || [],
+        juryIds: publishedCommittee.juryIds || [],
+        groupMemberIds,
+        coordinatorId,
+      });
+    } catch (notificationError) {
+      console.error(
+        `[WARNING] Notification dispatch error for committee ${committeeId}:`,
+        notificationError.message
+      );
+      notificationResult = {
+        success: false,
+        notificationId: null,
+        error: notificationError,
+      };
+    }
 
-        // Log notification dispatch outcome (non-fatal if fails)
-        await createAuditLog({
-          action: 'NOTIFICATION_DISPATCHED',
-          actorId: coordinatorId,
-          targetId: committeeId,
-          details: {
-            operation: 'committee_published',
-            notificationId: notificationResult.notificationId,
-            success: notificationResult.success,
-            recipientCount:
-              (publishedCommittee.advisorIds?.length || 0) +
-              (publishedCommittee.juryIds?.length || 0) +
-              groupMemberIds.length,
-            advisorCount: publishedCommittee.advisorIds?.length || 0,
-            juryCount: publishedCommittee.juryIds?.length || 0,
-            groupMemberCount: groupMemberIds.length,
-          },
-        });
+    try {
+      await createAuditLog({
+        action: 'NOTIFICATION_DISPATCHED',
+        actorId: coordinatorId,
+        targetId: committeeId,
+        details: {
+          operation: 'committee_published',
+          notificationId: notificationResult.notificationId,
+          success: notificationResult.success,
+          recipientCount:
+            (publishedCommittee.advisorIds?.length || 0) +
+            (publishedCommittee.juryIds?.length || 0) +
+            groupMemberIds.length,
+          advisorCount: publishedCommittee.advisorIds?.length || 0,
+          juryCount: publishedCommittee.juryIds?.length || 0,
+          groupMemberCount: groupMemberIds.length,
+        },
+      });
+    } catch (auditErr) {
+      console.error('[WARNING] NOTIFICATION_DISPATCHED audit log failed:', auditErr.message);
+    }
 
-        if (!notificationResult.success) {
-          console.error(
-            `[WARNING] Committee publish notification failed for ${committeeId}:`,
-            notificationResult.error?.message
-          );
-        }
-      } catch (notificationError) {
-        console.error(
-          `[WARNING] Notification dispatch error for committee ${committeeId}:`,
-          notificationError.message
-        );
-        // Non-fatal; don't throw or propagate
-      }
-    });
+    if (!notificationResult.success) {
+      console.error(
+        `[WARNING] Committee publish notification failed for ${committeeId}:`,
+        notificationResult.error?.message
+      );
+    }
 
     return {
       success: true,
       committeeId,
       status: 'published',
       publishedAt,
-      notificationTriggered: true, // Always true (actual dispatch happens async)
+      notificationTriggered: notificationResult.success === true,
     };
   } catch (err) {
     await session.endSession();
