@@ -200,6 +200,26 @@
                         </Array>
                     </mxGeometry>
                 </mxCell>
+                <mxCell id="f18" value="deliverable file upload" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#1F4788;strokeWidth=2.5;fontSize=9;" edge="1" parent="1" source="ext_student" target="p52">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="150" y="450"/>
+                            <mxPoint x="150" y="460"/>
+                            <mxPoint x="660" y="460"/>
+                            <mxPoint x="660" y="290"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="f19" value="submission confirmation / receipt" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#2D6A2D;strokeWidth=2.5;fontSize=9;" edge="1" parent="1" source="p56" target="ext_student">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1770" y="245"/>
+                            <mxPoint x="1770" y="430"/>
+                            <mxPoint x="150" y="430"/>
+                            <mxPoint x="150" y="420"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
             </root>
         </mxGraphModel>
     </diagram>

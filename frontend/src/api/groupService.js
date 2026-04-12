@@ -155,7 +155,7 @@ export const getGroup = async (groupId) => {
  * Get group committee status
  * @param {string} groupId - The group ID
  * @returns {Promise} Committee status object for the group
- * 
+ *
  * NOTE: Backend GET endpoints for committees are planned in Level 2.4 (Issues #71-#81).
  * TODO: Once backend implements GET /committees/{committeeId}, replace this with:
  *   1. Fetch group via GET /groups/{groupId} to get committeeId
@@ -163,7 +163,6 @@ export const getGroup = async (groupId) => {
  */
 export const getGroupCommitteeStatus = async (groupId) => {
   try {
-    // Fetch group to check if it has a committeeId linked
     const response = await apiClient.get(`/groups/${groupId}`);
     const group = response.data;
 
@@ -195,7 +194,7 @@ export const getGroupCommitteeStatus = async (groupId) => {
 /**
  * Get jury-assigned committees for the authenticated user
  * @returns {Promise<{committees: object[]}>}
- * 
+ *
  * NOTE: Backend GET endpoint for jury committees is planned in Level 2.4.
  * TODO: Once backend implements committee retrieval endpoints, replace with:
  *   GET /committees?role=jury (or dedicated GET /jury/committees endpoint)
@@ -216,6 +215,19 @@ export const getJuryCommittees = async () => {
     console.error('Error fetching jury committees:', error);
     throw error;
   }
+};
+
+/**
+ * Submit an advisor request (Process 3.2) — team leader only; requires advisor_association schedule window.
+ */
+export const createAdvisorRequest = async ({ groupId, professorId, requesterId, message }) => {
+  const response = await apiClient.post('/advisor-requests', {
+    groupId,
+    professorId,
+    requesterId,
+    ...(message != null && message !== '' ? { message } : {}),
+  });
+  return response.data;
 };
 
 /**
@@ -343,6 +355,20 @@ export const coordinatorOverride = async (groupId, payload) => {
 };
 
 /**
+ * Coordinator transfer: reassign group advisor to another professor
+ * @param {string} groupId
+ * @param {{newProfessorId: string, reason?: string}} payload
+ * @returns {Promise<{groupId: string, professorId: string, status: string, updatedAt: string}>}
+ */
+export const transferAdvisor = async (groupId, { newProfessorId, reason }) => {
+  const response = await apiClient.post(`/groups/${groupId}/advisor/transfer`, {
+    newProfessorId,
+    reason: reason || undefined,
+  });
+  return response.data;
+};
+
+/**
  * Get group status
  * @param {string} groupId - The group ID
  * @returns {Promise<{groupId, status, lastTransitionAt, lastTransitionBy}>}
@@ -420,4 +446,12 @@ export const configureJira = async (groupId, { host, email, api_token, project_k
     console.error('Error configuring JIRA:', error);
     throw error;
   }
+};
+
+/**
+ * Coordinator/system: run post-deadline advisor sanitization (Process 3.7)
+ */
+export const advisorSanitization = async () => {
+  const response = await apiClient.post('/groups/advisor-sanitization');
+  return response.data;
 };

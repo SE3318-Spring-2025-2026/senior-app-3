@@ -139,6 +139,14 @@ export const professorOnboard = async (newPassword, connectGithub = false) => {
   return response.data;
 };
 
+/**
+ * List all professors
+ */
+export const listProfessors = async () => {
+  const response = await apiClient.get('/auth/users/professors');
+  return response.data;
+};
+
 const authService = {
   loginUser,
   registerStudent,
@@ -151,6 +159,7 @@ const authService = {
   requestPasswordReset,
   confirmPasswordReset,
   professorOnboard,
+  listProfessors,
 };
 
 export default authService;

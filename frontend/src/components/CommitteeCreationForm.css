@@ -1,0 +1,125 @@
+.committee-creation-page {
+  min-height: 100%;
+  padding: 24px;
+  background: #f6f8fa;
+}
+
+.committee-creation-card {
+  max-width: 520px;
+  margin: 0 auto;
+  background: #fff;
+  border: 1px solid #e1e4e8;
+  border-radius: 8px;
+  padding: 28px 32px 32px;
+  box-shadow: 0 1px 3px rgba(27, 31, 35, 0.08);
+}
+
+.committee-creation-title {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 600;
+  color: #24292e;
+}
+
+.committee-creation-subtitle {
+  margin: 0 0 24px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #586069;
+}
+
+.committee-creation-alert {
+  padding: 12px 14px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.committee-creation-alert.error {
+  background: #ffeef0;
+  border: 1px solid #fdb8c0;
+  color: #86181d;
+}
+
+.committee-creation-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #24292e;
+  margin-bottom: 6px;
+}
+
+.committee-creation-label .required {
+  color: #cb2431;
+}
+
+.committee-creation-label .optional {
+  font-weight: 400;
+  color: #586069;
+}
+
+.committee-creation-input,
+.committee-creation-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  font-size: 14px;
+  border: 1px solid #d1d5da;
+  border-radius: 6px;
+  margin-bottom: 4px;
+}
+
+.committee-creation-textarea {
+  resize: vertical;
+  min-height: 96px;
+  font-family: inherit;
+  margin-bottom: 20px;
+}
+
+.committee-creation-field-error {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: #cb2431;
+}
+
+.committee-creation-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.committee-creation-actions .btn-primary,
+.committee-creation-actions .btn-secondary {
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.committee-creation-actions .btn-primary {
+  background: #2ea44f;
+  color: #fff;
+  border-color: rgba(27, 31, 35, 0.15);
+}
+
+.committee-creation-actions .btn-primary:hover:not(:disabled) {
+  background: #2c9740;
+}
+
+.committee-creation-actions .btn-secondary {
+  background: #fafbfc;
+  color: #24292e;
+  border-color: #d1d5da;
+}
+
+.committee-creation-actions .btn-secondary:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+
+.committee-creation-actions button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
