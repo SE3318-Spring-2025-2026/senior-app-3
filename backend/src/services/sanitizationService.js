@@ -166,7 +166,7 @@ const disbandGroupBatch = async (groups, coordinatorId, options = {}) => {
     if (!group) continue;
     try {
       await createAuditLog({
-        action: 'group_sanitized',
+        action: 'group_disbanded',
         actorId: coordinatorId,
         targetId: group.groupId,
         groupId: group.groupId,
