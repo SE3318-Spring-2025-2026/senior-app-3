@@ -565,6 +565,79 @@ describe('Committee & deliverable integration (Process 4.0)', () => {
 
       expect(res.status).toBe(403);
     });
+
+    it('returns 401 Unauthorized when token is missing or invalid', async () => {
+      const resMissing = await request(app)
+        .post(`${API}/committees/some-id/publish`)
+        .send({ assignedGroupIds: [] });
+      expect(resMissing.status).toBe(401);
+
+      const resInvalid = await request(app)
+        .post(`${API}/committees/some-id/publish`)
+        .set('Authorization', 'Bearer invalid-token')
+        .send({ assignedGroupIds: [] });
+      expect(resInvalid.status).toBe(401);
+    });
+
+    it('rolls back D2 and D3 changes if an error occurs within the transaction (Cross-Collection Consistency)', async () => {
+      const coord = tokenCoordinator();
+
+      const created = await request(app)
+        .post(`${API}/committees`)
+        .set('Authorization', `Bearer ${coord.token}`)
+        .send({ committeeName: unique('RollbackTest') });
+      const committeeId = created.body.committeeId;
+
+      const g1 = unique('grp_rb_1');
+      await Group.create({
+        groupId: g1,
+        groupName: unique('GRB1'),
+        leaderId: coord.userId,
+        status: 'active',
+      });
+
+      await request(app)
+        .post(`${API}/committees/${committeeId}/advisors`)
+        .set('Authorization', `Bearer ${coord.token}`)
+        .send({ advisorIds: [unique('adv')] });
+      await request(app)
+        .post(`${API}/committees/${committeeId}/jury`)
+        .set('Authorization', `Bearer ${coord.token}`)
+        .send({ juryIds: [unique('jur')] });
+      await request(app)
+        .post(`${API}/committees/${committeeId}/validate`)
+        .set('Authorization', `Bearer ${coord.token}`);
+
+      // Mock AuditLog.prototype.save to throw error to simulate failure inside the transaction
+      const originalSave = AuditLog.prototype.save;
+      let saveCalled = false;
+      jest.spyOn(AuditLog.prototype, 'save').mockImplementation(async function(options) {
+        if (this.action === 'COMMITTEE_PUBLISHED') {
+          saveCalled = true;
+          throw new Error('Simulated Database Error During Write');
+        }
+        return originalSave.call(this, options);
+      });
+
+      const res = await request(app)
+        .post(`${API}/committees/${committeeId}/publish`)
+        .set('Authorization', `Bearer ${coord.token}`)
+        .send({ assignedGroupIds: [g1] });
+
+      expect(res.status).toBe(500); 
+      expect(saveCalled).toBe(true);
+
+      // Verify Rollback: Committee should NOT be published
+      const c = await Committee.findOne({ committeeId }).lean();
+      expect(c.status).toBe('validated'); // Should remain validated
+      
+      // Verify Rollback: Group should NOT be linked
+      const gDoc = await Group.findOne({ groupId: g1 }).lean();
+      expect(gDoc.committeeId).toBeFalsy(); 
+      expect(gDoc.committeePublishedAt).toBeFalsy();
+
+      AuditLog.prototype.save.mockRestore();
+    });
   });
 
   describe('POST /api/v1/groups/:groupId/deliverables', () => {
