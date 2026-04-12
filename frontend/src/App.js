@@ -17,6 +17,7 @@ import GroupCreationPage from './components/GroupCreationPage';
 import AdviseeRequestForm from './components/AdviseeRequestForm';
 import CoordinatorPanel from './components/CoordinatorPanel';
 import CommitteeCreationForm from './components/CommitteeCreationForm';
+import JuryAssignmentForm from './components/JuryAssignmentForm';
 import Dashboard from './components/Dashboard';
 import Sidebar from './components/layout/Sidebar';
 import './App.css';
@@ -78,6 +79,10 @@ function App() {
             <Route
               path="/coordinator/committees/new"
               element={<ProtectedRoute component={CommitteeCreationForm} requiredRoles={['coordinator']} />}
+            />
+            <Route
+              path="/coordinator/committees/:committeeId/jury"
+              element={<ProtectedRoute component={JuryAssignmentForm} requiredRoles={['coordinator']} />}
             />
 
             {/* Protected Routes */}

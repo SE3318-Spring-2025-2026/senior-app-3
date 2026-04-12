@@ -6,8 +6,12 @@ const {
   createCommittee,
   listCommittees,
   getCommittee,
+  assignCommitteeAdvisors,
+  addJuryMembers,
+} = require('../controllers/committeeController');
+
+const {
   publishCommittee,
-  assignAdvisorsToCommittee
 } = require('../controllers/committees');
 
 /**
@@ -45,15 +49,23 @@ router.get(
   getCommittee
 );
 
-/**
- * POST /api/v1/committees/:committeeId/advisors
- * Process 4.2: Assign advisors to the committee draft
- */
+// POST /api/v1/committees/:committeeId/advisors
+// Process 4.2: Assign advisors to committee
 router.post(
   '/:committeeId/advisors',
   authMiddleware,
   roleMiddleware(['coordinator']),
-  assignAdvisorsToCommittee
+  assignCommitteeAdvisors
+);
+
+// POST /api/v1/committees/:committeeId/jury
+// Process 4.3: Coordinator assigns jury members to a committee draft
+// DFD Flow f10 (Coordinator → 4.3), f04 (4.3 → 4.4)
+router.post(
+  '/:committeeId/jury',
+  authMiddleware,
+  roleMiddleware(['coordinator']),
+  addJuryMembers
 );
 
 /**

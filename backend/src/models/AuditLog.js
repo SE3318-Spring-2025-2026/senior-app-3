@@ -75,6 +75,12 @@ const auditLogSchema = new mongoose.Schema(
 
         // --- System & Test ---
         'TEST_ACTION',
+        // Committee events (Issue #65)
+        'COMMITTEE_CREATED',
+        // Jury assignment (Issue #65 / Process 4.3)
+        'JURY_ASSIGNED',
+        // Advisor release (Issue #65 / 3.5)
+        'ADVISOR_RELEASED',
       ],
     },
     actorId: {
