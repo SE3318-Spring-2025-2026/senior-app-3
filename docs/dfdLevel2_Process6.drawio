@@ -83,28 +83,33 @@
                         </Array>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="f7" value="store comments +&lt;br&gt;&amp;nbsp;clarifications" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=none;endFill=0;strokeColor=#666666;strokeWidth=2;dashed=1;fontSize=9;" parent="1" edge="1">
+                <mxCell id="f7" value="store comments +&lt;br&gt;&amp;nbsp;clarifications" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=none;endFill=0;strokeColor=#666666;strokeWidth=2;dashed=1;fontSize=9;" parent="1" source="p62" target="d5" edge="1">
                     <mxGeometry x="-0.0212" y="10" relative="1" as="geometry">
                         <Array as="points">
                             <mxPoint x="795" y="380"/>
                             <mxPoint x="795" y="980"/>
                             <mxPoint x="1095" y="980"/>
                         </Array>
-                        <mxPoint x="795" y="290" as="sourcePoint"/>
-                        <mxPoint x="1130" y="1050" as="targetPoint"/>
                         <mxPoint as="offset"/>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="f8" value="store section marks +&lt;br&gt;&amp;nbsp;review status" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=none;endFill=0;strokeColor=#666666;strokeWidth=2;dashed=1;fontSize=9;" parent="1" edge="1">
+                <mxCell id="f8" value="store section marks +&lt;br&gt;&amp;nbsp;review status" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=none;endFill=0;strokeColor=#666666;strokeWidth=2;dashed=1;fontSize=9;" parent="1" source="p63" target="d5" edge="1">
                     <mxGeometry x="-0.0212" y="10" relative="1" as="geometry">
                         <Array as="points">
                             <mxPoint x="1010" y="380"/>
                             <mxPoint x="1010" y="1000"/>
                             <mxPoint x="1130" y="1000"/>
                         </Array>
-                        <mxPoint x="1010" y="290" as="sourcePoint"/>
-                        <mxPoint x="1130" y="1050" as="targetPoint"/>
                         <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="f9" value="clarification /&lt;br&gt;&amp;nbsp;revision request" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#893FA3;strokeWidth=2.5;fontSize=9;" parent="1" source="p62" target="ext_student" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="720" y="340"/>
+                            <mxPoint x="230" y="340"/>
+                            <mxPoint x="230" y="490"/>
+                        </Array>
                     </mxGeometry>
                 </mxCell>
                 <mxCell id="f10" value="section status +&lt;br&gt;&amp;nbsp;final feedback" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#893FA3;strokeWidth=2.5;fontSize=9;" parent="1" source="p63" edge="1" target="ext_student">

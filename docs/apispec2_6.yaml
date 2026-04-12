@@ -49,10 +49,10 @@ paths:
   # 6.1 — Assign Review to Committee Members
   #
   # DFD Flows:
-  #   f12: Coordinator → 6.1 (review schedule + instructions)
+  #   f11: Coordinator → 6.1 (review schedule + instructions)
   #   f5: D3 → 6.1 (committee assignment list)
   #   f13: 6.1 → Committee (review assignment + deliverable link)
-  #   f16: 6.1 → NotificationService (review assignment notification)
+  #   f14: 6.1 → NotificationService (review assignment notification)
   #
   # Action: Create review task and send to assigned committee members
   # (Usually automatic when deliverable stored, but exposed for admin)
