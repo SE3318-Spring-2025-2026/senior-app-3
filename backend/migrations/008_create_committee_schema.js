@@ -15,37 +15,44 @@ const mongoose = require('mongoose');
  * - status
  * - (createdBy, status) compound
  * - (status, publishedAt) compound descending
+ * 
+ * IDEMPOTENT INDEX PATTERN:
+ * Index creation is UNCONDITIONAL (outside collection existence check).
+ * This ensures that if a collection exists but indexes were manually dropped
+ * or failed to create in a previous partial run, the migration self-heals.
  */
 
 const up = async () => {
   const db = mongoose.connection.db;
 
-  // Check if collection already exists
+  // 1. Ensure collection exists (Non-destructive)
   const collections = await db.listCollections().toArray();
   const collectionNames = collections.map((c) => c.name);
 
-  if (collectionNames.includes('committees')) {
-    console.log('Committees collection already exists, skipping creation');
-  } else {
+  if (!collectionNames.includes('committees')) {
     console.log('Creating committees collection...');
     await db.createCollection('committees');
-
-    // Create indexes
-    const collection = db.collection('committees');
-
-    // Unique indexes
-    await collection.createIndex({ committeeId: 1 }, { unique: true });
-    await collection.createIndex({ committeeName: 1 }, { unique: true });
-
-    // Standard indexes
-    await collection.createIndex({ status: 1 });
-
-    // Compound indexes
-    await collection.createIndex({ createdBy: 1, status: 1 });
-    await collection.createIndex({ status: 1, publishedAt: -1 });
-
-    console.log('Committees collection created with 5 indexes');
+  } else {
+    console.log('Committees collection already exists, proceeding with index enforcement');
   }
+
+  // 2. UNCONDITIONAL INDEX CREATION (The Idempotency Fix)
+  // We execute these regardless of whether the collection was just created
+  // to ensure the DB state matches the architectural spec.
+  const collection = db.collection('committees');
+
+  // Unique indexes
+  await collection.createIndex({ committeeId: 1 }, { unique: true });
+  await collection.createIndex({ committeeName: 1 }, { unique: true });
+
+  // Standard indexes
+  await collection.createIndex({ status: 1 });
+
+  // Compound indexes
+  await collection.createIndex({ createdBy: 1, status: 1 });
+  await collection.createIndex({ status: 1, publishedAt: -1 });
+
+  console.log('D3 Schema: Indices enforced successfully.');
 };
 
 const down = async () => {
