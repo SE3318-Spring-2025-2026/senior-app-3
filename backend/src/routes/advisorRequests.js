@@ -6,13 +6,18 @@ const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const { checkAdvisorOperationWindow } = require('../middleware/scheduleWindow');
 const OPERATION_TYPES = require('../utils/operationTypes');
 
-// Controllers
-const { listProfessorPendingRequests } = require('../controllers/advisorRequests');
-const { submitAdvisorRequest, processAdvisorRequest } = require('../controllers/advisorAssociation');
+// Unified Controller imports 
+// (Ensure your exports in advisorAssociation and advisorRequests are consistent)
+const { 
+  submitAdvisorRequest, 
+  processAdvisorRequest, 
+  listProfessorPendingRequests 
+} = require('../controllers/advisorRequestController');
 
 /**
  * GET /api/v1/advisor-requests/pending
- * Process 3.4: List professor's pending advisee requests
+ * Process 3.4: List professor's pending advisee requests.
+ * Used by the Professor Dashboard.
  */
 router.get(
   '/pending',
@@ -23,8 +28,8 @@ router.get(
 
 /**
  * POST /api/v1/advisor-requests
- * Process 3.1 + 3.2: Student leader submits an advisee request
- * Schedule: Subject to advisor_association window enforcement (422 if outside)
+ * Process 3.1 + 3.2: Student leader submits an advisee request.
+ * Guarded by: Authentication, Student Role, and the Global Schedule Window.
  */
 router.post(
   '/',
@@ -36,14 +41,14 @@ router.post(
 
 /**
  * PATCH /api/v1/advisor-requests/:requestId
- * Process 3.4 + 3.5: Professor approves or rejects an advisee request
- * Schedule: Subject to advisor_decision window enforcement (422 if outside)
+ * Process 3.4 + 3.5: Professor approves or rejects an advisee request.
+ * Guarded by: Professor Role and the Decision Window.
  */
 router.patch(
   '/:requestId',
   authMiddleware,
   roleMiddleware(['professor']),
-  checkAdvisorOperationWindow(OPERATION_TYPES.ADVISOR_DECISION),
+  checkAdvisorOperationWindow(OPERATION_TYPES.ADVISOR_DECISION || 'advisor_decision'),
   processAdvisorRequest
 );
 

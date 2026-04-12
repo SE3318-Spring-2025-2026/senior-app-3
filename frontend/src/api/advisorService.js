@@ -7,7 +7,7 @@ import apiClient from './apiClient';
 
 /**
  * Submit an advisee request to a professor (Process 3.1)
- * POST /api/v1/advisor-requests
+ * Uses object destructuring to match the updated service signature.
  */
 export const submitAdvisorRequest = async ({ groupId, professorId, message }) => {
   const response = await apiClient.post('/advisor-requests', {
@@ -29,7 +29,7 @@ export const getAdvisorAssociationWindow = async () => {
     });
     return response.data;
   } catch (error) {
-    // Graceful degradation for UI
+    // Graceful degradation for UI: assume closed if check fails
     return { open: false, window: null };
   }
 };
@@ -48,7 +48,7 @@ export const searchProfessors = async (query = '') => {
 
 /**
  * Release the currently assigned advisor from the group (Process 3.5)
- * Team Leader or Coordinator: uses a transaction on backend.
+ * Available to Team Leader or Coordinator.
  * @param {string} groupId - Target group
  * @param {string} reason - Optional reason for audit logs
  */
@@ -61,6 +61,7 @@ export const releaseAdvisor = async (groupId, reason = '') => {
 
 /**
  * Coordinator Transfer: reassign a group to a new advisor (Process 3.6)
+ * Exclusively used by the Coordinator Dashboard.
  */
 export const transferAdvisor = async (groupId, { newProfessorId, reason }) => {
   const response = await apiClient.post(`/groups/${groupId}/advisor/transfer`, {

@@ -23,6 +23,7 @@ const scheduleWindowSchema = new mongoose.Schema(
     },
     operationType: {
       type: String,
+      // Priority Merge: Use the dynamic array from VALID_OPERATION_TYPES (Main)
       enum: VALID_OPERATION_TYPES,
       required: true,
       /**
@@ -38,9 +39,6 @@ const scheduleWindowSchema = new mongoose.Schema(
        * JavaScript/Mongoose conventions use camelCase for field names.
        * Database values and API JSON responses use snake_case enum strings for consistency
        * with REST API naming conventions and DFD process naming.
-       *
-       * VALIDATION: All enum values are already snake_case strings ✓
-       * All references in code use consistent enum values from VALID_OPERATION_TYPES ✓
        * =====================================================================
        */
     },

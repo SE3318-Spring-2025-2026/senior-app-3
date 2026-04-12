@@ -92,7 +92,7 @@ const GroupDashboard = () => {
     setReleaseLoading(true);
     setReleaseError('');
     try {
-      // Transactional release with reason support
+      // Transactional release from main with reason support
       await releaseAdvisor(groupId, releaseReason);
       setReleaseModalOpen(false);
       setReleaseReason('');
@@ -143,7 +143,12 @@ const GroupDashboard = () => {
         </div>
 
         <div className="dashboard-actions">
-          <button className="refresh-button" onClick={handleRefresh} disabled={manualRefresh || isLoading}>
+          <button 
+            className="refresh-button" 
+            onClick={handleRefresh} 
+            disabled={manualRefresh || isLoading}
+            title="Refresh dashboard data"
+          >
             {manualRefresh ? 'Refreshing...' : 'Refresh'}
           </button>
           
@@ -184,7 +189,7 @@ const GroupDashboard = () => {
             <GitHubStatusCard data={github} isLoading={isLoading} />
             <JiraStatusCard data={jira} isLoading={isLoading} />
 
-            {/* Rich Advisor Status Card (Merged from main) */}
+            {/* Advisor Status Card - Merged UI and Logic */}
             <div className="status-card">
               <div className="card-header">
                 <h3 className="card-title">
@@ -206,10 +211,10 @@ const GroupDashboard = () => {
                   <div className="info-row assigned-advisor-row">
                     <div className="advisor-info">
                       <span className="info-label">Assigned:</span>
-                      <span className="info-value">{groupData.advisorName || 'Faculty Advisor'}</span>
+                      <span className="info-value">Dr. {groupData.advisorName || 'Faculty Advisor'}</span>
                     </div>
-                    {isLeader && (
-                      <button className="release-advisor-btn-outline" onClick={() => setReleaseModalOpen(true)}>
+                    {(isLeader || isCoordinator) && (
+                      <button className="release-advisor-btn-outline" onClick={() => setReleaseModalOpen(true)} title="Release advisor from this group">
                         Release
                       </button>
                     )}
@@ -273,19 +278,20 @@ const GroupDashboard = () => {
             Group ID: {groupData.groupId} · Status: {groupData.status}
           </div>
 
-          {/* Release Advisor Confirmation Modal (Fix from main) */}
+          {/* Release Advisor Confirmation Modal */}
           {releaseModalOpen && (
             <div className="modal-overlay">
               <div className="modal-content release-modal">
                 <h2>Release Advisor</h2>
                 <p>Are you sure you want to release <strong>Dr. {groupData.advisorName}</strong>?</p>
+                <p className="modal-warning">This action will clear the current assignment and allow you to request a new advisor.</p>
                 <div className="form-group">
-                  <label htmlFor="releaseReason">Reason (optional):</label>
+                  <label htmlFor="releaseReason">Reason for Release (optional):</label>
                   <textarea
                     id="releaseReason"
                     value={releaseReason}
                     onChange={(e) => setReleaseReason(e.target.value)}
-                    placeholder="Provide a reason..."
+                    placeholder="Provide a reason for releasing the advisor..."
                     rows="3"
                   />
                 </div>

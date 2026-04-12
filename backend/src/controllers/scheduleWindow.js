@@ -4,12 +4,12 @@ const { VALID_OPERATION_TYPES } = require('../utils/operationTypes');
 /**
  * GET /schedule-window/active?operationType=group_creation
  * Returns the currently active schedule window for the given operation type.
- * Used by the frontend to show open/closed status on creation/member-add pages.
  */
 const getActiveWindow = async (req, res) => {
   try {
     const { operationType } = req.query;
 
+    // Use centralized validation from Main
     if (!operationType || !VALID_OPERATION_TYPES.includes(operationType)) {
       return res.status(400).json({
         code: 'INVALID_INPUT',
@@ -47,13 +47,13 @@ const getActiveWindow = async (req, res) => {
 
 /**
  * GET /schedule-window
- * Returns all schedule windows (active and inactive) for coordinator panel display.
- * Optional query param: ?operationType=group_creation|member_addition
+ * Returns all schedule windows for coordinator panel display.
  */
 const listWindows = async (req, res) => {
   try {
     const { operationType } = req.query;
     const filter = {};
+    
     if (operationType) {
       if (!VALID_OPERATION_TYPES.includes(operationType)) {
         return res.status(400).json({
@@ -86,10 +86,7 @@ const listWindows = async (req, res) => {
 
 /**
  * POST /schedule-window
- * Coordinator/admin creates a new schedule window for a specific operation type.
- * Body: { operationType, startsAt, endsAt, label? }
- *
- * Deactivates any existing windows of the same operationType that overlap with the new one.
+ * Creates a new window and deactivates overlapping ones.
  */
 const createWindow = async (req, res) => {
   try {
@@ -112,7 +109,8 @@ const createWindow = async (req, res) => {
 
     const start = new Date(startsAt);
     const end = new Date(endsAt);
-    // Explicitly normalize to ISO/UTC so stored instants are not tied to server-local parsing quirks
+    
+    // Normalize to ISO/UTC to prevent timezone-related bypasses
     const utcStart = new Date(start.toISOString());
     const utcEnd = new Date(end.toISOString());
 
@@ -120,7 +118,7 @@ const createWindow = async (req, res) => {
       return res.status(400).json({ code: 'INVALID_INPUT', message: 'endsAt must be after startsAt.' });
     }
 
-    // Deactivate overlapping windows of the same operationType
+    // Deactivate overlapping windows (Concurrency fix from Main)
     await ScheduleWindow.updateMany(
       {
         operationType,
@@ -157,7 +155,6 @@ const createWindow = async (req, res) => {
 
 /**
  * DELETE /schedule-window/:windowId
- * Coordinator/admin deactivates a schedule window.
  */
 const deactivateWindow = async (req, res) => {
   try {

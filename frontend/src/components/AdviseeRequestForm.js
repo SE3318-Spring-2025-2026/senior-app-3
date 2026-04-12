@@ -27,14 +27,17 @@ const AdviseeRequestForm = () => {
 
     const fetchData = async () => {
       setIsLoading(true);
+      setError(null);
       try {
+        // 1. Security Check: Verify group membership and leader status
         const group = await getGroup(groupId);
-        // Eğer giriş yapan kullanıcı grup lideri değilse, doğrudan dashboarda geri yolla
         if (group.leaderId !== user.userId) {
+          // Redirect if not the leader
           navigate(`/groups/${groupId}`, { replace: true });
           return;
         }
 
+        // 2. Fetch required data in parallel
         const [profList, winStatus] = await Promise.all([
           getProfessors(),
           checkAdvisorWindow(),
@@ -65,10 +68,15 @@ const AdviseeRequestForm = () => {
     setError(null);
 
     try {
-      await submitAdvisorRequest(groupId, selectedProfessor, message);
+      await submitAdvisorRequest({
+        groupId,
+        professorId: selectedProfessor,
+        message: message.trim() || undefined
+      });
+      
       setSuccess(true);
       
-      // Başarılı olursa 3 saniye sonra geri yönlendir
+      // Redirect after success
       setTimeout(() => {
         navigate(`/groups/${groupId}`);
       }, 3000);

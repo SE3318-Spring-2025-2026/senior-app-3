@@ -13,7 +13,7 @@ const auditLogSchema = new mongoose.Schema(
       type: String,
       required: true,
       enum: [
-        // --- Auth & Account Events (SCREAMING_SNAKE_CASE, legacy) ---
+        // --- Auth & Account Events ---
         'ACCOUNT_CREATED',
         'ACCOUNT_RETRIEVED',
         'ACCOUNT_UPDATED',
@@ -33,7 +33,7 @@ const auditLogSchema = new mongoose.Schema(
         'LOGIN_FAILED',
         'PASSWORD_CHANGED',
 
-        // --- Group Formation Events (Legacy Support) ---
+        // --- Group Formation Events (Legacy) ---
         'GROUP_CREATED',
         'GROUP_RETRIEVED',
         'COORDINATOR_OVERRIDE',
@@ -48,8 +48,10 @@ const auditLogSchema = new mongoose.Schema(
         'STATUS_TRANSITION',
         'GITHUB_CONFIGURED',
         'JIRA_CONFIGURED',
+        'COMMITTEE_CREATED', // Added from feature/coordinator-ui-entrypoint
+        'ADVISOR_RELEASED',  // Added from feature/coordinator-ui-entrypoint
 
-        // --- Modern Group & Integration Events (snake_case, Issue Spec) ---
+        // --- Modern Group & Integration Events (snake_case) ---
         'group_created',
         'member_added',
         'member_removed',
@@ -60,7 +62,7 @@ const auditLogSchema = new mongoose.Schema(
         'status_transition',
         'sync_error',
 
-        // --- Advisor Association & Sanitization (Issue #66, #70, #75) ---
+        // --- Advisor Association & Sanitization ---
         'advisor_request_created',
         'advisor_request_submitted',
         'advisor_approved',
@@ -68,11 +70,11 @@ const auditLogSchema = new mongoose.Schema(
         'advisor_released',
         'advisor_transferred',
         'group_disbanded',
-        'sanitization_run', // Coordinator manual trigger tracking
+        'sanitization_run',
+        'ADVISOR_REQUEST_NOTIFICATION_FAILED', // Added from main
 
         // --- System & Test ---
         'TEST_ACTION',
-        'ADVISOR_REQUEST_NOTIFICATION_FAILED',
       ],
     },
     actorId: {
@@ -83,18 +85,15 @@ const auditLogSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
-    // First-class group reference for rapid audit filtering
     groupId: {
       type: String,
       default: null,
       index: true,
     },
-    // Consolidated event-specific data (JSON payload)
     payload: {
       type: mongoose.Schema.Types.Mixed,
       default: null,
     },
-    // For ACCOUNT_UPDATED or heavy state changes
     changes: {
       type: mongoose.Schema.Types.Mixed,
       default: null,
@@ -111,7 +110,6 @@ const auditLogSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
-    // Mirror of createdAt for explicit time-series queries
     timestamp: {
       type: Date,
       default: Date.now,
@@ -122,10 +120,7 @@ const auditLogSchema = new mongoose.Schema(
 
 /**
  * INDEX STRATEGY
- * Optimized for:
- * 1. Actor/Target history
- * 2. Group formation audit (Process 2.x)
- * 3. Advisor lifecycle tracking (Process 3.x)
+ * Optimized for rapid audit filtering in the Coordinator UI.
  */
 auditLogSchema.index({ targetId: 1, createdAt: -1 });
 auditLogSchema.index({ actorId: 1, createdAt: -1 });

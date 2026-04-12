@@ -1,3 +1,5 @@
+'use strict';
+
 const express = require('express');
 const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
@@ -13,6 +15,7 @@ const {
   createMemberRequest,
   decideMemberRequest,
   coordinatorOverride,
+  transferAdvisor
 } = require('../controllers/groups');
 
 const { 
@@ -26,7 +29,7 @@ const {
 
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
-const { releaseAdvisor, transferAdvisor } = require('../controllers/advisorAssociation');
+const { releaseAdvisor } = require('../controllers/advisorAssociation');
 const { decideAdvisorRequest } = require('../controllers/advisorDecision');
 const { advisorSanitization } = require('../controllers/sanitizationController');
 
@@ -34,16 +37,20 @@ const { advisorSanitization } = require('../controllers/sanitizationController')
 // GROUP LIFECYCLE & MANAGEMENT (Process 2.1 - 2.2)
 // ============================================================================
 
-// POST /api/v1/groups — Create group record in D2
-router.post('/', authMiddleware, roleMiddleware(['student']), createGroup);
+// POST /api/v1/groups — Student group creation
+router.post(
+  '/', 
+  authMiddleware, 
+  roleMiddleware(['student']), 
+  checkScheduleWindow(OPERATION_TYPES.GROUP_CREATION),
+  createGroup
+);
 
 // GET /api/v1/groups/pending-invitation — User's pending group invites
 router.get('/pending-invitation', authMiddleware, getMyPendingInvitation);
 
 /**
  * POST /api/v1/groups/advisor-sanitization — Process 3.7: Disband unassigned groups
- * Place this before parameterized /:groupId routes to avoid route conflicts.
- * Authorization: Coordinator, Admin or System (automated jobs).
  */
 router.post(
   '/advisor-sanitization',
@@ -55,14 +62,20 @@ router.post(
 // GET /api/v1/groups — Coordinator dashboard list
 router.get('/', authMiddleware, roleMiddleware(['coordinator']), getAllGroups);
 
-// GET /api/v1/groups/:groupId — Retrieve validated group record
+// GET /api/v1/groups/:groupId — Detailed group record
 router.get('/:groupId', authMiddleware, getGroup);
 
 // ============================================================================
 // MEMBERSHIP & APPROVALS (Process 2.3 - 2.5)
 // ============================================================================
 
-router.post('/:groupId/members', authMiddleware, checkScheduleWindow(OPERATION_TYPES.MEMBER_ADDITION), addMember);
+router.post(
+  '/:groupId/members', 
+  authMiddleware, 
+  checkScheduleWindow(OPERATION_TYPES.MEMBER_ADDITION), 
+  addMember
+);
+
 router.get('/:groupId/members', authMiddleware, getMembers);
 router.post('/:groupId/member-requests', authMiddleware, roleMiddleware(['student']), createMemberRequest);
 router.patch('/:groupId/member-requests/:requestId', authMiddleware, decideMemberRequest);
@@ -70,7 +83,7 @@ router.post('/:groupId/notifications', authMiddleware, dispatchNotification);
 router.post('/:groupId/membership-decisions', authMiddleware, membershipDecision);
 router.get('/:groupId/approvals', authMiddleware, getApprovals);
 
-// Flow f09: forward collected approval results to the queue
+// Process 2.5: Forward approval results to the reconciliation queue
 router.post(
   '/:groupId/approval-results',
   authMiddleware,
@@ -108,7 +121,6 @@ router.patch(
 
 /**
  * DELETE /api/v1/groups/:groupId/advisor — Process 3.5: Release current advisor
- * Schedule: Subject to advisor_release window enforcement (422 if outside)
  */
 router.delete(
   '/:groupId/advisor',
@@ -120,10 +132,6 @@ router.delete(
 
 /**
  * POST /api/v1/groups/:groupId/advisor/transfer — Process 3.6: Coordinator transfer
- * * =====================================================================
- * FIX #3b: REMOVE 'ADMIN' FROM COORDINATOR-ONLY ROUTE (ISSUE #70)
- * Logic: Admin handles system infra, Coordinator handles domain logic.
- * =====================================================================
  */
 router.post(
   '/:groupId/advisor/transfer',

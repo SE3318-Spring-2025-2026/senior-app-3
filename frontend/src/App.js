@@ -16,6 +16,7 @@ import GroupDashboard from './components/GroupDashboard';
 import GroupCreationPage from './components/GroupCreationPage';
 import AdviseeRequestForm from './components/AdviseeRequestForm';
 import CoordinatorPanel from './components/CoordinatorPanel';
+import CommitteeCreationForm from './components/CommitteeCreationForm';
 import Dashboard from './components/Dashboard';
 import Sidebar from './components/layout/Sidebar';
 import './App.css';
@@ -73,6 +74,10 @@ function App() {
             <Route
               path="/coordinator"
               element={<ProtectedRoute component={CoordinatorPanel} requiredRoles={['coordinator', 'admin']} />}
+            />
+            <Route
+              path="/coordinator/committees/new"
+              element={<ProtectedRoute component={CommitteeCreationForm} requiredRoles={['coordinator']} />}
             />
 
             {/* Protected Routes */}

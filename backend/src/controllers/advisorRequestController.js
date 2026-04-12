@@ -8,10 +8,9 @@ const { createAuditLog } = require('../services/auditService');
 
 /**
  * Process 3.1: Submit Advisee Request
- * * Logic:
+ * Logic:
  * - Enforce schedule window boundary (422)
  * - Authorize requester: must be the Team Leader of the specified group (403)
- * - Forward valid data to Process 3.2 (Service)
  */
 const createRequest = async (req, res) => {
   try {
@@ -19,17 +18,14 @@ const createRequest = async (req, res) => {
     const requesterId = req.user.userId;
 
     // 1. Input validation
-    if (
-      typeof groupId !== 'string' || !groupId.trim() ||
-      typeof professorId !== 'string' || !professorId.trim()
-    ) {
+    if (!groupId?.trim() || !professorId?.trim()) {
       return res.status(400).json({
         code: 'INVALID_INPUT',
         message: 'groupId and professorId must be non-empty strings.',
       });
     }
 
-    // 2. Schedule boundary enforcement (Coordinator set window)
+    // 2. Schedule boundary enforcement
     const now = new Date();
     const activeWindow = await ScheduleWindow.findOne({
       operationType: 'advisor_association',
@@ -40,27 +36,24 @@ const createRequest = async (req, res) => {
     if (!activeWindow) {
       return res.status(422).json({
         code: 'WINDOW_CLOSED',
-        message: 'The advisor association window is currently closed. Please check the coordinator schedule.'
+        message: 'The advisor association window is currently closed.'
       });
     }
 
     // 3. Authorization (Team Leader Guard)
     const group = await Group.findOne({ groupId });
     if (!group) {
-      return res.status(404).json({
-        code: 'GROUP_NOT_FOUND',
-        message: 'Group not found.'
-      });
+      return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found.' });
     }
 
     if (group.leaderId !== requesterId) {
       return res.status(403).json({
         code: 'FORBIDDEN',
-        message: 'Only the Team Leader of the group can submit an advisor request.'
+        message: 'Only the Team Leader can submit an advisor request.'
       });
     }
 
-    // 4. Forward to Process 3.2
+    // 4. Forward to Service
     const result = await advisorRequestService.submitRequest({
       groupId,
       professorId,
@@ -76,85 +69,81 @@ const createRequest = async (req, res) => {
 
   } catch (error) {
     console.error('Advisor request error:', error);
-    
-    if (error.status) {
-      return res.status(error.status).json({
-        code: error.code,
-        message: error.message
-      });
-    }
-
-    return res.status(500).json({
-      code: 'SERVER_ERROR',
-      message: 'An unexpected error occurred while processing the request.'
+    const status = error.status || 500;
+    return res.status(status).json({
+      code: error.code || 'SERVER_ERROR',
+      message: error.message
     });
   }
 };
 
 /**
  * Process 3.5: Release Advisor
- * POST /groups/:groupId/release-advisor — Team Leader releases current advisor
- * * Logic:
- * - Authorize requester: Team Leader or Coordinator (403)
- * - Verify group currently has an assigned advisor (409)
- * - Update D2 group record: clear advisorId, set advisorStatus to 'released'
- * - Log the action to audit trail
+ * Logic:
+ * - Transactional update of Group and AdvisorAssignment history
+ * - Enforce schedule window boundary (422)
  */
 const releaseAdvisor = async (req, res) => {
   const session = await mongoose.startSession();
-  let responsePayload;
-
+  
   try {
     const { groupId } = req.params;
+    const { professorId, reason } = req.body || {};
     const requesterId = req.user.userId;
     const requesterRole = req.user.role;
-    // Handle both req.body structures
-    const { professorId, reason } = req.body || {};
 
-    if (typeof groupId !== 'string' || !groupId.trim()) {
-      return res.status(400).json({
-        code: 'INVALID_INPUT',
-        message: 'groupId is required.',
+    // 1. Schedule boundary enforcement (Feature Branch logic)
+    const now = new Date();
+    const activeWindow = await ScheduleWindow.findOne({
+      operationType: 'advisor_association',
+      startsAt: { $lte: now },
+      endsAt: { $gte: now }
+    });
+
+    if (!activeWindow) {
+      return res.status(422).json({
+        code: 'WINDOW_CLOSED',
+        message: 'The advisor association window is closed. Release blocked.'
       });
     }
 
+    let responsePayload;
+
     await session.withTransaction(async () => {
-      // 1. Fetch group and check if it exists (using session for atomic read-modify-write)
+      // 2. Fetch group
       const group = await Group.findOne({ groupId }).session(session);
       if (!group) {
         throw { status: 404, code: 'GROUP_NOT_FOUND', message: 'Group not found.' };
       }
 
-      // 2. Authorization (Team Leader or Coordinator)
+      // 3. Authorization
       const isTeamLeader = group.leaderId === requesterId;
       const isCoordinator = requesterRole === 'coordinator';
 
       if (!isTeamLeader && !isCoordinator) {
-        throw { status: 403, code: 'FORBIDDEN', message: 'Only the Team Leader or a Coordinator can release the advisor.' };
+        throw { status: 403, code: 'FORBIDDEN', message: 'Unauthorized to release advisor.' };
       }
 
-      // 3. Conflict Check: check if group HAS an advisor
+      // 4. Conflict Check
       if (!group.advisorId) {
-        throw { status: 409, code: 'NO_ASSIGNED_ADVISOR', message: 'Group does not currently have an assigned advisor.' };
+        throw { status: 409, code: 'NO_ASSIGNED_ADVISOR', message: 'No advisor assigned.' };
       }
 
-      // Optional: Validation of professorId if provided
       if (professorId && group.advisorId !== professorId) {
-        throw { status: 400, code: 'ADVISOR_MISMATCH', message: 'The provided professorId does not match the currently assigned advisor.' };
+        throw { status: 400, code: 'ADVISOR_MISMATCH', message: 'Advisor mismatch.' };
       }
 
       const oldAdvisorId = group.advisorId;
 
-      // 4. Update Group Record
+      // 5. Update Group and History (Main Branch logic)
       group.advisorId = null;
       group.advisorStatus = 'released';
       await group.save({ session });
 
-      // 5. Persist to Assignment History
       await AdvisorAssignment.create([{
         assignmentId: `asn_${uuidv4().split('-')[0]}`,
         groupId: group.groupId,
-        groupRef: group._id, // Ensuring groupRef is provided per the updated schema
+        groupRef: group._id,
         advisorId: oldAdvisorId,
         status: 'released',
         releasedBy: requesterId,
@@ -162,31 +151,24 @@ const releaseAdvisor = async (req, res) => {
         releasedAt: new Date()
       }], { session });
 
-      // 6. Audit Log (non-fatal)
+      // 6. Audit Log
       try {
         await createAuditLog({
           action: 'ADVISOR_RELEASED',
           actorId: requesterId,
           groupId: group.groupId,
           targetId: oldAdvisorId,
-          payload: {
-            previous_advisor: oldAdvisorId,
-            reason: reason || 'No reason provided',
-            requester_role: requesterRole
-          },
+          payload: { reason: reason || 'No reason provided' },
           ipAddress: req.ip,
           userAgent: req.headers['user-agent']
         }, session);
-      } catch (auditError) {
-        console.error('Advisor release audit log failed:', auditError.message);
-      }
+      } catch (e) { console.error('Audit failed:', e.message); }
 
       responsePayload = {
         groupId: group.groupId,
         professorId: null,
         status: 'released',
-        updatedAt: group.updatedAt,
-        message: 'Advisor has been released from this group.'
+        updatedAt: group.updatedAt
       };
     });
 
@@ -197,7 +179,7 @@ const releaseAdvisor = async (req, res) => {
     const status = error.status || 500;
     return res.status(status).json({
       code: error.code || 'SERVER_ERROR',
-      message: error.message || 'An unexpected error occurred while releasing the advisor.'
+      message: error.message
     });
   } finally {
     session.endSession();
