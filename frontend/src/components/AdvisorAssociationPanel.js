@@ -56,6 +56,10 @@ const AdvisorAssociationPanel = () => {
       bgColor = '#fee2e2';
       textColor = '#b91c1c';
       displayText = 'Rejected';
+    } else if (statusValue?.toLowerCase() === 'assigned') {
+      bgColor = '#dbeafe';
+      textColor = '#1e40af';
+      displayText = 'Assigned';
     }
 
     return (
@@ -243,8 +247,11 @@ const AdvisorAssociationPanel = () => {
             <p>
               <strong>Professor ID:</strong> {assignedAdvisorId}
             </p>
-            <p>
-              <strong>Assignment Status:</strong> {status || 'Assigned'}
+            <p style={{ marginBottom: 0 }}>
+              <strong>Assignment Status:</strong>{' '}
+              <span style={{ marginLeft: '8px', verticalAlign: 'middle' }}>
+                {renderStatusBadge(status || 'assigned')}
+              </span>
             </p>
 
             {isLeader && (

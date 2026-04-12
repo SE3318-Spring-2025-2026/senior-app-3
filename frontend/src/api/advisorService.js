@@ -7,11 +7,10 @@ import apiClient from './apiClient';
 
 /**
  * Submit a new advisee request
- * POST /api/v1/advisor-requests
+ * POST /api/v1/groups/{groupId}/advisor-requests
  */
 export const submitAdvisorRequest = async ({ groupId, professorId, message }) => {
-  const response = await apiClient.post('/api/v1/advisor-requests', {
-    groupId,
+  const response = await apiClient.post(`/api/v1/groups/${groupId}/advisor-requests`, {
     professorId,
     message: message?.trim() || undefined,
   });
