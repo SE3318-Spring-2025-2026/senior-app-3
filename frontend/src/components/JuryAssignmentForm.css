@@ -1,0 +1,186 @@
+.jury-page {
+  padding: 40px 24px;
+  background-color: #ffffff;
+  min-height: 100vh;
+}
+
+.jury-card {
+  max-width: 900px;
+  margin: 0 auto;
+  background: #ffffff;
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+  padding: 32px;
+}
+
+.jury-back {
+  background: none;
+  border: none;
+  color: #0366d6;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+}
+
+.jury-back:hover {
+  text-decoration: underline;
+}
+
+.jury-title {
+  margin: 0 0 4px 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #24292e;
+}
+
+.jury-subtitle {
+  margin: 0 0 24px 0;
+  color: #586069;
+  font-size: 14px;
+  border-bottom: 1px solid #eaecef;
+  padding-bottom: 16px;
+}
+
+.jury-error {
+  background-color: #ffeef0;
+  color: #d73a49;
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin-bottom: 24px;
+  font-size: 13px;
+  border: 1px solid rgba(215, 58, 73, 0.4);
+}
+
+.jury-list {
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+  margin-bottom: 24px;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.jury-item {
+  border-bottom: 1px solid #e1e4e8;
+  padding: 12px 16px;
+  transition: background-color 0.1s;
+}
+
+.jury-item:hover:not(.jury-item--disabled) {
+  background-color: #f6f8fa;
+}
+
+.jury-item:last-child {
+  border-bottom: none;
+}
+
+.jury-item--disabled {
+  background-color: #fafbfc;
+}
+
+.jury-label {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  width: 100%;
+}
+
+.jury-item--disabled .jury-label {
+  cursor: default;
+}
+
+.jury-label input[type="checkbox"] {
+  margin-right: 16px;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.jury-item--disabled input[type="checkbox"] {
+  cursor: default;
+}
+
+.jury-prof-info {
+  flex-grow: 1;
+}
+
+.jury-prof-name {
+  display: block;
+  font-weight: 600;
+  font-size: 14px;
+  color: #24292e;
+}
+
+.jury-prof-email {
+  display: block;
+  font-size: 12px;
+  color: #586069;
+}
+
+.jury-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-left: 12px;
+}
+
+.jury-badge--advisor {
+  background-color: #fff3cd;
+  color: #856404;
+  border: 1px solid rgba(133, 100, 4, 0.2);
+}
+
+.jury-badge--existing {
+  background-color: #dcffe4;
+  color: #22863a;
+  border: 1px solid rgba(34, 134, 58, 0.2);
+}
+
+.jury-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid #eaecef;
+}
+
+.btn-primary {
+  background-color: #2ea44f;
+  color: white;
+  border: 1px solid rgba(27, 31, 35, 0.15);
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 0 rgba(27, 31, 35, 0.1);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: #2c974b;
+}
+
+.btn-primary:disabled {
+  background-color: #94d3ff;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background-color: #fafbfc;
+  color: #24292e;
+  border: 1px solid rgba(27, 31, 35, 0.15);
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 0 rgba(27, 31, 35, 0.04);
+}
+
+.btn-secondary:hover {
+  background-color: #f3f4f6;
+}

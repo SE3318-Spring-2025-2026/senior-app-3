@@ -1,281 +1,301 @@
 const Deliverable = require('../models/Deliverable');
 const SprintRecord = require('../models/SprintRecord');
-const Committee = require('../models/Committee');
 const Group = require('../models/Group');
-const ScheduleWindow = require('../models/ScheduleWindow');
-const { createAuditLog } = require('./auditLogService');
+const Committee = require('../models/Committee');
+const { createAuditLog } = require('./auditService');
 
 /**
- * ═══════════════════════════════════════════════════════════════════════════════════════════
- * DELIVERABLE SERVICE (D4) - ISSUE #85 D4-D6 INTEGRATION LAYER
- * ═══════════════════════════════════════════════════════════════════════════════════════════
- *
- * PURPOSE:
- * ────────────────────────────────────────────────────────────────────────────────────────────
- * Service layer for D4 (deliverables) create/read/update/delete operations.
- * Implements defense-in-depth validation BEFORE database operations (Layer 1).
- * Manages atomic D4→D6 cross-reference creation using MongoDB sessions (Layer 4).
- *
- * DEFENSE-IN-DEPTH STRATEGY (4 Layers):
- * ────────────────────────────────────────────────────────────────────────────────────────────
- * Layer 1 (HERE): Application validation
- *   - validateCommitteeAssignment() checks committee exists + is published
- *   - Catches invalid submissions early (before database operations)
- *   - Example: Reject submission if committee not published yet
- *
- * Layer 2 (Deliverable.js Schema): Mongoose schema constraints
- *   - unique: true on deliverableId field
- *   - required: true on critical fields
- *   - enum: enforces valid status values
- *
- * Layer 3 (Migration 006 Phase 2): Database-level index guarantee
- *   - Unconditional index creation ensures unique constraint ALWAYS exists
- *   - Issue #85 fix: Even if migration re-runs, indexes are recreated ✓
- *   - MongoDB createIndex() idempotency: safe to call repeatedly
- *
- * Layer 4 (HERE): Atomic D4→D6 transactions using MongoDB sessions
- *   - D4 deliverable creation + D6 sprint record linking in single transaction
- *   - If both succeed → Both changes persist (consistent state)
- *   - If either fails → Both rolled back (no orphaned documents)
- *   - Result: D4 and D6 never out of sync ✓
- *
- * D4-D6 CROSS-REFERENCE PATTERN:
- * ────────────────────────────────────────────────────────────────────────────────────────────
- * D4 stores deliverables (submissions)
- * D6 stores sprint records (time-tracking for deliverables)
- * When deliverable created → Atomically link to sprint record
- *
- * Atomic Linking (MongoDB Session):
- *   session.startTransaction()
- *   1. Insert D4 document (new deliverable)
- *   2. Update D6 document (add deliverable reference)
- *   3. commitTransaction() if both succeed, abortTransaction() if either fails
- *   Result: D4 and D6 always in sync (no orphaned references)
- *
- * ISSUE #85 IMPACT:
- * ────────────────────────────────────────────────────────────────────────────────────────────
- * Before: Migration 006 indexes trapped in conditional
- *         Unique constraint not guaranteed on re-runs → duplicates possible
- *         D4→D6 linking could reference wrong deliverable
- *
- * After: Migration 006 Phase 2 unconditional index creation
- *        Unique constraint ALWAYS guaranteed ✓
- *        D4→D6 linking always references correct deliverable ✓
- * ═══════════════════════════════════════════════════════════════════════════════════════════
+ * Custom error class for deliverable service operations
  */
-
 class DeliverableServiceError extends Error {
-  constructor(message, status = 500) {
+  constructor(message, status = 500, code = 'DELIVERABLE_ERROR') {
     super(message);
     this.name = 'DeliverableServiceError';
     this.status = status;
+    this.code = code;
   }
 }
 
 /**
- * Validate that committee is published (DEFENSE-IN-DEPTH LAYER 1)
+ * Validate that a group is linked to a published committee.
  * 
- * Application-level validation BEFORE database operations.
- * Checks committee exists + is published for submissions.
- * Prevents invalid submissions to non-existent or draft committees.
- * 
- * Layer Stack:
- *   Layer 1 (HERE): App-level - rejects invalid inputs early
- *   Layer 2: Schema - enforces constraints at Mongoose level
- *   Layer 3: Database - Migration 006 Phase 2 guarantees indexes
- *   Layer 4: Transactions - MongoDB sessions ensure D4→D6 atomicity
- * 
- * @param {string} committeeId - ID of the committee
- * @param {string} groupId - ID of the group
- * @returns {Promise<object>} Committee assignment validation result
+ * @param {string} groupId - Group identifier
+ * @returns {Promise<object>} Committee object if valid
+ * @throws {DeliverableServiceError} If group not linked to published committee
  */
-const validateCommitteeAssignment = async (committeeId, groupId) => {
-  const committee = await Committee.findOne({ committeeId });
-  if (!committee) {
-    throw new DeliverableServiceError('Committee not found', 404);
-  }
+const validateCommitteeAssignment = async (groupId) => {
+  try {
+    const group = await Group.findOne({ groupId });
+    
+    if (!group) {
+      throw new DeliverableServiceError(
+        `Group ${groupId} not found`,
+        404,
+        'GROUP_NOT_FOUND'
+      );
+    }
 
-  // Check committee is published (defense-in-depth Layer 1)
-  // Only published committees can accept submissions
-  if (committee.status !== 'published') {
+    if (!group.committeeId) {
+      throw new DeliverableServiceError(
+        `Group ${groupId} is not assigned to any committee`,
+        400,
+        'GROUP_NOT_LINKED_TO_COMMITTEE'
+      );
+    }
+
+    const committee = await Committee.findOne({ 
+      committeeId: group.committeeId,
+      status: 'published'
+    });
+    
+    if (!committee) {
+      throw new DeliverableServiceError(
+        `No published committee found for committee ID: ${group.committeeId}`,
+        400,
+        'COMMITTEE_NOT_PUBLISHED'
+      );
+    }
+
+    return committee;
+  } catch (err) {
+    if (err instanceof DeliverableServiceError) {
+      throw err;
+    }
     throw new DeliverableServiceError(
-      'Committee must be published for submissions',
-      409
+      `Failed to validate committee assignment: ${err.message}`,
+      500,
+      'VALIDATION_ERROR'
     );
   }
-
-  const group = await Group.findOne({ groupId });
-  if (!group) {
-    throw new DeliverableServiceError('Group not found', 404);
-  }
-
-  return { committee, group };
 };
 
 /**
- * Store deliverable in D4
- * @param {object} deliverableData - Deliverable data (committeeId, groupId, studentId, type, storageRef)
- * @returns {Promise<object>} Created deliverable
+ * Store deliverable in D4 collection.
+ * 
+ * @param {object} data - Deliverable data
+ * @param {string} data.committeeId - Committee identifier
+ * @param {string} data.groupId - Group identifier
+ * @param {string} data.studentId - Student identifier
+ * @param {string} data.type - Deliverable type (proposal, statement-of-work, demonstration)
+ * @param {string} data.storageRef - Storage reference (URL or file path)
+ * @param {object} session - MongoDB session for atomic transaction
+ * @returns {Promise<object>} Created Deliverable document
  */
-const storeDeliverableInD4 = async (deliverableData) => {
-  const deliverableId = `DEL_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-
-  const deliverable = new Deliverable({
-    deliverableId,
-    ...deliverableData,
-    status: 'submitted',
-  });
-
-  await deliverable.save();
-  return deliverable;
-};
-
-/**
- * Create or update sprint record in D6
- * @param {string} sprintId - ID of the sprint
- * @param {string} groupId - ID of the group
- * @param {string} committeeId - ID of the committee
- * @returns {Promise<object>} Sprint record
- */
-const createOrUpdateSprintRecord = async (sprintId, groupId, committeeId) => {
-  let sprintRecord = await SprintRecord.findOne({ sprintId, groupId });
-
-  if (sprintRecord) {
-    // Update existing sprint record with committee info if not already set
-    if (!sprintRecord.committeeId) {
-      sprintRecord.committeeId = committeeId;
-      sprintRecord.committeeAssignedAt = new Date();
-    }
-    sprintRecord.status = 'submitted';
-  } else {
-    const sprintRecordId = `SR_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-    sprintRecord = new SprintRecord({
-      sprintRecordId,
-      sprintId,
-      groupId,
-      committeeId,
-      committeeAssignedAt: new Date(),
-      status: 'submitted',
-    });
-  }
-
-  await sprintRecord.save();
-  return sprintRecord;
-};
-
-/**
- * Link D4 deliverable to D6 sprint record
- * @param {string} deliverableId - ID of the deliverable (D4)
- * @param {string} sprintId - ID of the sprint
- * @param {string} groupId - ID of the group
- * @param {string} type - Type of deliverable
- * @returns {Promise<object>} Updated sprint record
- */
-const linkD4ToD6 = async (deliverableId, sprintId, groupId, type) => {
-  const sprintRecord = await SprintRecord.findOne({ sprintId, groupId });
-  if (!sprintRecord) {
-    throw new DeliverableServiceError('Sprint record not found', 404);
-  }
-
-  // Add deliverable reference to sprint record
-  const deliverableRef = {
-    deliverableId,
-    type,
-    submittedAt: new Date(),
-  };
-
-  sprintRecord.deliverableRefs.push(deliverableRef);
-  await sprintRecord.save();
-
-  return sprintRecord;
-};
-
-/**
- * Submit a deliverable with atomic D4/D6 writes
- * @param {object} submissionData - Submission data
- * @returns {Promise<object>} Submission result
- */
-const submitDeliverable = async (submissionData) => {
-  const {
-    committeeId,
-    groupId,
-    studentId,
-    sprintId,
-    type,
-    storageRef,
-    submittedBy,
-  } = submissionData;
-
-  // Validate committee assignment
-  await validateCommitteeAssignment(committeeId, groupId);
-
-  // Start MongoDB session for atomic transaction
-  const session = await Deliverable.startSession();
-  session.startTransaction();
-
+const storeDeliverableInD4 = async (data, session = null) => {
   try {
-    // Store in D4
-    const deliverable = await storeDeliverableInD4({
+    const { committeeId, groupId, studentId, type, storageRef } = data;
+
+    const deliverable = new Deliverable({
       committeeId,
       groupId,
       studentId,
       type,
       storageRef,
+      submittedAt: new Date(),
+      status: 'submitted',
     });
 
-    // Create or update D6 sprint record
-    await createOrUpdateSprintRecord(
-      sprintId,
-      groupId,
-      committeeId
+    await deliverable.save(session ? { session } : undefined);
+    return deliverable;
+  } catch (err) {
+    throw new DeliverableServiceError(
+      `Failed to store deliverable in D4: ${err.message}`,
+      500,
+      'D4_STORAGE_ERROR'
+    );
+  }
+};
+
+/**
+ * Create or update sprint record with committee assignment.
+ * 
+ * @param {object} data - Sprint record data
+ * @param {string} data.groupId - Group identifier
+ * @param {string} data.sprintId - Sprint identifier
+ * @param {string} data.committeeId - Committee identifier
+ * @param {object} session - MongoDB session for atomic transaction
+ * @returns {Promise<object>} SprintRecord document
+ */
+const createOrUpdateSprintRecord = async (data, session = null) => {
+  try {
+    const { groupId, sprintId, committeeId } = data;
+
+    let sprintRecord = await SprintRecord.findOne(
+      { sprintId, groupId },
+      null,
+      session ? { session } : undefined
     );
 
-    // Link D4 to D6
-    await linkD4ToD6(
-      deliverable.deliverableId,
-      sprintId,
-      groupId,
-      type
+    if (sprintRecord) {
+      // Update existing sprint record
+      sprintRecord.committeeId = committeeId;
+      sprintRecord.committeeAssignedAt = new Date();
+      sprintRecord.status = sprintRecord.status === 'pending' ? 'in_progress' : sprintRecord.status;
+      await sprintRecord.save(session ? { session } : undefined);
+    } else {
+      // Create new sprint record
+      sprintRecord = new SprintRecord({
+        sprintId,
+        groupId,
+        committeeId,
+        committeeAssignedAt: new Date(),
+        status: 'in_progress',
+      });
+      await sprintRecord.save(session ? { session } : undefined);
+    }
+
+    return sprintRecord;
+  } catch (err) {
+    throw new DeliverableServiceError(
+      `Failed to create/update sprint record in D6: ${err.message}`,
+      500,
+      'D6_UPDATE_ERROR'
+    );
+  }
+};
+
+/**
+ * Establish D4-to-D6 cross-reference link.
+ * 
+ * @param {object} data - Cross-reference data
+ * @param {string} data.deliverableId - Deliverable identifier (D4)
+ * @param {string} data.sprintId - Sprint identifier (D6)
+ * @param {string} data.groupId - Group identifier
+ * @param {string} data.type - Deliverable type
+ * @param {Date} data.submittedAt - Submission timestamp
+ * @param {object} session - MongoDB session for atomic transaction
+ * @returns {Promise<object>} Updated SprintRecord document
+ */
+const linkD4ToD6 = async (data, session = null) => {
+  try {
+    const { deliverableId, sprintId, groupId, type, submittedAt } = data;
+
+    const sprintRecord = await SprintRecord.findOneAndUpdate(
+      { sprintId, groupId },
+      {
+        $push: {
+          deliverableRefs: {
+            deliverableId,
+            type,
+            submittedAt,
+          },
+        },
+      },
+      { new: true, session: session || undefined }
     );
 
-    // Audit log
-    await createAuditLog({
-      event: 'DELIVERABLE_SUBMITTED',
-      userId: submittedBy,
-      entityType: 'Deliverable',
-      entityId: deliverable.deliverableId,
-      changes: {
+    if (!sprintRecord) {
+      throw new DeliverableServiceError(
+        `Sprint record not found for cross-reference: sprintId=${sprintId}, groupId=${groupId}`,
+        404,
+        'SPRINT_RECORD_NOT_FOUND'
+      );
+    }
+
+    return sprintRecord;
+  } catch (err) {
+    if (err instanceof DeliverableServiceError) {
+      throw err;
+    }
+    throw new DeliverableServiceError(
+      `Failed to establish D4-to-D6 cross-reference: ${err.message}`,
+      500,
+      'CROSS_REFERENCE_ERROR'
+    );
+  }
+};
+
+/**
+ * Complete deliverable submission workflow with atomic D4/D6 writes.
+ * 
+ * @param {object} data - Submission data
+ * @param {string} data.groupId - Group identifier
+ * @param {string} data.committeeId - Committee identifier
+ * @param {string} data.sprintId - Sprint identifier
+ * @param {string} data.studentId - Student identifier
+ * @param {string} data.type - Deliverable type
+ * @param {string} data.storageRef - Storage reference
+ * @param {string} data.coordinatorId - Coordinator performing submission (for audit)
+ * @returns {Promise<object>} { deliverableId, committeeId, groupId, type, submittedAt, storageRef }
+ */
+const submitDeliverable = async (data) => {
+  const session = await Deliverable.startSession();
+  let result;
+
+  try {
+    await session.withTransaction(async () => {
+      const { groupId, committeeId, sprintId, studentId, type, storageRef, coordinatorId } = data;
+
+      // Step 1: Store deliverable in D4
+      const deliverable = await storeDeliverableInD4(
+        { committeeId, groupId, studentId, type, storageRef },
+        session
+      );
+
+      // Step 2: Create or update sprint record in D6
+      const sprintRecord = await createOrUpdateSprintRecord(
+        { groupId, sprintId, committeeId },
+        session
+      );
+
+      // Step 3: Establish D4-to-D6 cross-reference
+      await linkD4ToD6(
+        {
+          deliverableId: deliverable.deliverableId,
+          sprintId: sprintRecord.sprintId,
+          groupId,
+          type,
+          submittedAt: deliverable.submittedAt,
+        },
+        session
+      );
+
+      // Step 4: Create audit log
+      await createAuditLog(
+        {
+          action: 'DELIVERABLE_SUBMITTED',
+          actorId: coordinatorId || studentId,
+          groupId,
+          payload: {
+            deliverableId: deliverable.deliverableId,
+            committeeId,
+            type,
+            sprintId,
+          },
+        },
+        session
+      );
+
+      result = {
+        deliverableId: deliverable.deliverableId,
         committeeId,
         groupId,
         type,
-        status: 'submitted',
-      },
+        submittedAt: deliverable.submittedAt,
+        storageRef,
+      };
     });
 
-    // Commit transaction
-    await session.commitTransaction();
-    session.endSession();
-
-    return {
-      deliverableId: deliverable.deliverableId,
-      committeeId,
-      groupId,
-      type,
-      submittedAt: deliverable.submittedAt,
-      storageRef,
-    };
-  } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
-    throw error;
+    return result;
+  } catch (err) {
+    if (err instanceof DeliverableServiceError) {
+      throw err;
+    }
+    throw new DeliverableServiceError(
+      `Deliverable submission failed: ${err.message}`,
+      500,
+      'SUBMISSION_ERROR'
+    );
+  } finally {
+    await session.endSession();
   }
 };
 
 module.exports = {
+  DeliverableServiceError,
   validateCommitteeAssignment,
   storeDeliverableInD4,
   createOrUpdateSprintRecord,
   linkD4ToD6,
   submitDeliverable,
-  DeliverableServiceError,
 };

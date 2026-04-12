@@ -19,7 +19,7 @@ const { VALID_STATUS_TRANSITIONS } = require('../utils/groupStatusEnum');
  * PATCH /api/v1/groups/:groupId/status
  *
  * Transition a group to a new status.
- * Only coordinators, committee members, or admins can trigger transitions.
+ * Only coordinators, professors, or admins can trigger transitions.
  *
  * Request body:
  * {
@@ -40,12 +40,12 @@ const transitionStatus = async (req, res) => {
     const { groupId } = req.params;
     const { status: targetStatus, reason } = req.body;
 
-    // Validate permission: only coordinators, committee members, or admins
-    const allowedRoles = new Set(['coordinator', 'committee_member', 'admin', 'professor']);
+    // Validate permission: only coordinators, professors, or admins
+    const allowedRoles = new Set(['coordinator', 'admin', 'professor']);
     if (!allowedRoles.has(req.user.role)) {
       return res.status(403).json({
         code: 'FORBIDDEN',
-        message: 'This action requires coordinator, committee member, admin, or professor role',
+        message: 'This action requires coordinator, admin, or professor role',
       });
     }
 
