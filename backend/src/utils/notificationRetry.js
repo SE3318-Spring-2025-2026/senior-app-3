@@ -96,21 +96,18 @@ const retryNotificationWithBackoff = async (
     }
   }
 
-  // All retries exhausted - log to SyncErrorLog
+  // All retries exhausted - log to SyncErrorLog (schema: service, groupId, actorId, attempts, lastError)
   try {
+    const groupId =
+      identifierType === 'groupId' && identifier
+        ? identifier
+        : `notification_${identifierType}_${identifier || 'unknown'}`;
     await SyncErrorLog.create({
-      errorType: 'notification_dispatch_failed',
-      targetId: identifier,
-      [identifierType]: identifier,
-      message: `Failed to dispatch notification after ${maxAttempts} attempts: ${lastError?.message}`,
-      timestamp: new Date(),
-      details: {
-        operation: 'notification_dispatch',
-        max_attempts: maxAttempts,
-        identifier_type: identifierType,
-        final_error: lastError?.message,
-        is_transient_error: isTransientError(lastError),
-      },
+      service: 'notification',
+      groupId,
+      actorId: 'notification_retry',
+      attempts: maxAttempts,
+      lastError: `Failed after ${maxAttempts} attempts (${identifierType}: ${identifier}): ${lastError?.message}`,
     });
   } catch (logErr) {
     console.error(

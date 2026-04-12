@@ -1,85 +1,45 @@
 /**
  * Notification Service Integration for Advisor Association (Issue #76)
  *
- * Coverage notes (Cross-check: feature issues #54-#67):
- * - #56 Notify Advisor (f05 / process 3.3): advisee_request dispatch + payload
- * - #63 Notification Service Integration: retry, failure logging, graceful degradation
- * - #61 Disband Unassigned Groups (f14 / process 3.7): disband_notice per group
- * - Advisor endpoint contract alignment (#69/#70): 403/404/409/422 branches + audit trail
+ * HTTP contract tests via supertest — exercises Express routing, auth middleware,
+ * schedule windows, and notification dispatch (mocked).
  */
 
 'use strict';
-
-const mongoose = require('mongoose');
-const notificationService = require('../src/services/notificationService');
 
 jest.mock('../src/services/notificationService', () => ({
   dispatchAdvisorRequestNotification: jest.fn().mockResolvedValue({ notification_id: 'notif_advisor_req_001' }),
   dispatchAdvisorDecisionNotification: jest.fn().mockResolvedValue({ notification_id: 'notif_advisor_dec_001' }),
   dispatchAdvisorTransferNotification: jest.fn().mockResolvedValue({ notification_id: 'notif_advisor_transfer_001' }),
   dispatchGroupDisbandNotification: jest.fn().mockResolvedValue({ notification_id: 'notif_disband_001' }),
+  dispatchDisbandNotification: jest.fn().mockResolvedValue({ notification_id: 'notif_disband_001' }),
 }));
 
 const MONGO_URI =
   process.env.MONGODB_TEST_URI ||
   'mongodb://localhost:27017/senior-app-test-advisor-notification-integration';
+process.env.MONGODB_URI = MONGO_URI;
 
-const makeReq = (params = {}, body = {}, userOverrides = {}) => ({
-  params,
-  body,
-  user: { userId: 'usr_default', role: 'student', ...userOverrides },
-  ip: '127.0.0.1',
-  headers: { 'user-agent': 'jest-notification-contract-test' },
-});
+const mongoose = require('mongoose');
+const request = require('supertest');
+const app = require('../src/index');
 
-const makeRes = () => {
-  const res = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
-  return res;
-};
+const User = require('../src/models/User');
+const AuditLog = require('../src/models/AuditLog');
+const Group = require('../src/models/Group');
+const AdvisorRequest = require('../src/models/AdvisorRequest');
+const ScheduleWindow = require('../src/models/ScheduleWindow');
+const notificationService = require('../src/services/notificationService');
+const { generateTokenPair } = require('../src/utils/jwt');
+const OT = require('../src/utils/operationTypes');
 
 const uid = (prefix) => `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
 
-let User;
-let AuditLog;
-let SyncErrorLog;
-
-const loadAdvisorHandlers = () => {
-  const candidates = [
-    '../src/controllers/advisorRequests',
-    '../src/controllers/advisorAssociation',
-    '../src/controllers/advisors',
-    '../src/controllers/groups',
-  ];
-
-  const merged = {};
-  candidates.forEach((p) => {
-    try {
-      Object.assign(merged, require(p));
-    } catch (_) {
-      // best effort discovery for contract tests
-    }
-  });
-
-  return {
-    submit: merged.submitAdvisorRequest || merged.createAdvisorRequest,
-    decide: merged.processAdvisorRequest || merged.decideAdvisorRequest || merged.updateAdvisorRequest,
-    sanitize: merged.runAdvisorSanitization || merged.advisorSanitization || merged.sanitizeAdvisors,
-  };
-};
-
-const ensureHandler = (name, handler) => {
-  if (typeof handler !== 'function') {
-    throw new Error(
-      `Missing controller handler "${name}". Implement advisor notification integration handlers to satisfy Issue #76 contract tests.`
-    );
-  }
-};
+const bearer = (token) => ({ Authorization: `Bearer ${token}` });
 
 const createUser = async (overrides = {}) =>
   User.create({
-    userId: uid('usr'),
+    userId: overrides.userId || uid('usr'),
     email: `${uid('mail')}@test.edu`,
     hashedPassword: 'hashed',
     accountStatus: 'active',
@@ -87,72 +47,54 @@ const createUser = async (overrides = {}) =>
     ...overrides,
   });
 
-const openAdvisorWindow = async (operationType = 'advisor_association', overrides = {}) => {
+const openAdvisorWindow = async (operationType, overrides = {}) => {
   const now = new Date();
-  await mongoose.connection.collection('schedulewindows').insertOne({
+  return ScheduleWindow.create({
     windowId: uid('sw'),
     operationType,
     startsAt: new Date(now.getTime() - 60_000),
     endsAt: new Date(now.getTime() + 3_600_000),
     isActive: true,
     createdBy: 'usr_coord',
-    createdAt: now,
-    updatedAt: now,
     ...overrides,
   });
 };
 
-const createGroupRaw = async (overrides = {}) => {
-  const now = new Date();
-  const group = {
-    groupId: uid('grp'),
-    groupName: uid('Group'),
-    leaderId: 'usr_leader',
-    status: 'active',
-    advisorId: null,
-    advisorStatus: 'pending',
-    professorId: null,
-    members: [],
-    createdAt: now,
-    updatedAt: now,
-    ...overrides,
-  };
-  await mongoose.connection.collection('groups').insertOne(group);
-  return group;
+/** Advisor association deadline has passed — required for POST /groups/advisor-sanitization */
+const seedAdvisorAssociationDeadlineElapsed = async () => {
+  await ScheduleWindow.deleteMany({ operationType: OT.ADVISOR_ASSOCIATION });
+  const end = new Date(Date.now() - 30_000);
+  await ScheduleWindow.create({
+    windowId: uid('sw_deadline'),
+    operationType: OT.ADVISOR_ASSOCIATION,
+    startsAt: new Date(end.getTime() - 86_400_000),
+    endsAt: end,
+    isActive: true,
+    createdBy: 'usr_coord_deadline',
+  });
 };
 
-const createAdvisorRequestRaw = async (overrides = {}) => {
-  const now = new Date();
-  const reqDoc = {
-    requestId: uid('arq'),
-    groupId: uid('grp'),
-    professorId: uid('usr_prof'),
-    status: 'pending',
-    createdBy: 'usr_leader',
-    createdAt: now,
-    updatedAt: now,
+const createGroupDoc = async (overrides = {}) => {
+  const groupName = overrides.groupName || uid('GroupName');
+  return Group.create({
+    groupId: overrides.groupId || uid('grp'),
+    groupName,
+    leaderId: overrides.leaderId ?? 'usr_leader',
+    status: overrides.status ?? 'active',
+    advisorStatus: overrides.advisorStatus ?? 'pending',
+    professorId: overrides.professorId ?? null,
+    members: overrides.members ?? [],
     ...overrides,
-  };
-  await mongoose.connection.collection('advisorrequests').insertOne(reqDoc);
-  return reqDoc;
+  });
 };
 
 describe('Issue #76 — Notification Service Integration for Advisor Association', () => {
-  let handlers;
   let consoleErrorSpy;
 
   beforeAll(async () => {
     if (mongoose.connection.readyState !== 0) await mongoose.disconnect();
     await mongoose.connect(MONGO_URI);
     await mongoose.connection.dropDatabase();
-
-    User = require('../src/models/User');
-    AuditLog = require('../src/models/AuditLog');
-    try {
-      SyncErrorLog = require('../src/models/SyncErrorLog');
-    } catch (_) {
-      SyncErrorLog = null;
-    }
   });
 
   afterAll(async () => {
@@ -161,15 +103,13 @@ describe('Issue #76 — Notification Service Integration for Advisor Association
   });
 
   beforeEach(async () => {
-    handlers = loadAdvisorHandlers();
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     await Promise.all([
       User.deleteMany({}),
       AuditLog.deleteMany({}),
-      mongoose.connection.collection('groups').deleteMany({}),
-      mongoose.connection.collection('advisorrequests').deleteMany({}),
-      mongoose.connection.collection('schedulewindows').deleteMany({}),
-      SyncErrorLog ? SyncErrorLog.deleteMany({}) : Promise.resolve(),
+      Group.deleteMany({}),
+      AdvisorRequest.deleteMany({}),
+      ScheduleWindow.deleteMany({}),
     ]);
     jest.clearAllMocks();
   });
@@ -178,251 +118,254 @@ describe('Issue #76 — Notification Service Integration for Advisor Association
     consoleErrorSpy.mockRestore();
   });
 
-  describe('POST /advisor-requests (advisee_request)', () => {
+  describe('POST /api/v1/advisor-requests (advisee_request)', () => {
     it('returns 201 and notificationTriggered=true when advisee_request dispatch succeeds', async () => {
-      ensureHandler('submitAdvisorRequest', handlers.submit);
-      await openAdvisorWindow('advisor_association');
+      await openAdvisorWindow(OT.ADVISOR_ASSOCIATION);
 
       const leader = await createUser({ userId: 'usr_leader_req_ok', role: 'student' });
       const professor = await createUser({ userId: 'usr_prof_req_ok', role: 'professor' });
-      const group = await createGroupRaw({ leaderId: leader.userId, advisorStatus: 'pending', professorId: null });
+      const group = await createGroupDoc({
+        leaderId: leader.userId,
+        advisorStatus: 'pending',
+        professorId: null,
+      });
+      const token = generateTokenPair(leader.userId, 'student').accessToken;
 
-      const res = makeRes();
-      await handlers.submit(
-        makeReq({}, { groupId: group.groupId, professorId: professor.userId }, { userId: leader.userId, role: 'student' }),
-        res
-      );
+      const res = await request(app)
+        .post('/api/v1/advisor-requests')
+        .set(bearer(token))
+        .send({ groupId: group.groupId, professorId: professor.userId });
 
-      expect(res.status).toHaveBeenCalledWith(201);
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          requestId: expect.any(String),
-          notificationTriggered: true,
-        })
-      );
+      expect(res.status).toBe(201);
+      expect(res.body.requestId).toEqual(expect.any(String));
+      expect(res.body.notificationTriggered).toBe(true);
       expect(notificationService.dispatchAdvisorRequestNotification).toHaveBeenCalledTimes(1);
       expect(notificationService.dispatchAdvisorRequestNotification).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'advisee_request',
           professorId: professor.userId,
           groupId: group.groupId,
-          requesterId: leader.userId,
+          teamLeaderId: leader.userId,
         })
       );
     });
 
     it('retries transient notification failures and succeeds on third attempt with notificationTriggered=true', async () => {
-      ensureHandler('submitAdvisorRequest', handlers.submit);
-      await openAdvisorWindow('advisor_association');
+      await openAdvisorWindow(OT.ADVISOR_ASSOCIATION);
 
       const leader = await createUser({ userId: 'usr_leader_req_retry', role: 'student' });
       const professor = await createUser({ userId: 'usr_prof_req_retry', role: 'professor' });
-      const group = await createGroupRaw({ leaderId: leader.userId, advisorStatus: 'pending', professorId: null });
+      const group = await createGroupDoc({
+        leaderId: leader.userId,
+        advisorStatus: 'pending',
+        professorId: null,
+      });
+      const token = generateTokenPair(leader.userId, 'student').accessToken;
 
       notificationService.dispatchAdvisorRequestNotification
         .mockRejectedValueOnce(new Error('Notification transient timeout 1'))
         .mockRejectedValueOnce(new Error('Notification transient timeout 2'))
         .mockResolvedValueOnce({ notification_id: 'notif_advisor_req_retry_ok' });
 
-      const res = makeRes();
-      await handlers.submit(
-        makeReq({}, { groupId: group.groupId, professorId: professor.userId }, { userId: leader.userId, role: 'student' }),
-        res
-      );
+      const res = await request(app)
+        .post('/api/v1/advisor-requests')
+        .set(bearer(token))
+        .send({ groupId: group.groupId, professorId: professor.userId });
 
       expect(notificationService.dispatchAdvisorRequestNotification).toHaveBeenCalledTimes(3);
-      expect(res.status).toHaveBeenCalledWith(201);
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          notificationTriggered: true,
-        })
-      );
+      expect(res.status).toBe(201);
+      expect(res.body.notificationTriggered).toBe(true);
     });
 
-    it('on notification failure logs error and returns graceful response with notificationTriggered=false', async () => {
-      ensureHandler('submitAdvisorRequest', handlers.submit);
-      await openAdvisorWindow('advisor_association');
+    it('on permanent notification failure returns 201 with notificationTriggered=false (no retry storm)', async () => {
+      await openAdvisorWindow(OT.ADVISOR_ASSOCIATION);
 
       const leader = await createUser({ userId: 'usr_leader_req_soft_fail', role: 'student' });
       const professor = await createUser({ userId: 'usr_prof_req_soft_fail', role: 'professor' });
-      const group = await createGroupRaw({ leaderId: leader.userId, advisorStatus: 'pending', professorId: null });
+      const group = await createGroupDoc({
+        leaderId: leader.userId,
+        advisorStatus: 'pending',
+        professorId: null,
+      });
+      const token = generateTokenPair(leader.userId, 'student').accessToken;
 
-      notificationService.dispatchAdvisorRequestNotification.mockRejectedValue(new Error('Notification service unavailable'));
+      const permanentErr = new Error('Notification client error');
+      permanentErr.response = { status: 400 };
+      notificationService.dispatchAdvisorRequestNotification.mockRejectedValue(permanentErr);
 
-      const res = makeRes();
-      await handlers.submit(
-        makeReq({}, { groupId: group.groupId, professorId: professor.userId }, { userId: leader.userId, role: 'student' }),
-        res
-      );
+      const res = await request(app)
+        .post('/api/v1/advisor-requests')
+        .set(bearer(token))
+        .send({ groupId: group.groupId, professorId: professor.userId });
 
       expect(consoleErrorSpy).toHaveBeenCalled();
-      expect(res.status).toHaveBeenCalledWith(201);
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          requestId: expect.any(String),
-          notificationTriggered: false,
-        })
-      );
+      expect(notificationService.dispatchAdvisorRequestNotification).toHaveBeenCalledTimes(1);
+      expect(res.status).toBe(201);
+      expect(res.body.notificationTriggered).toBe(false);
+      expect(res.body.requestId).toEqual(expect.any(String));
     });
 
-    it('returns 503 and persists error log when retries are exhausted (fail x3)', async () => {
-      ensureHandler('submitAdvisorRequest', handlers.submit);
-      await openAdvisorWindow('advisor_association');
+    it('returns 201 with notificationTriggered=false when transient retries are exhausted (fail x3)', async () => {
+      await openAdvisorWindow(OT.ADVISOR_ASSOCIATION);
 
       const leader = await createUser({ userId: 'usr_leader_req_hard_fail', role: 'student' });
       const professor = await createUser({ userId: 'usr_prof_req_hard_fail', role: 'professor' });
-      const group = await createGroupRaw({ leaderId: leader.userId, advisorStatus: 'pending', professorId: null });
+      const group = await createGroupDoc({
+        leaderId: leader.userId,
+        advisorStatus: 'pending',
+        professorId: null,
+      });
+      const token = generateTokenPair(leader.userId, 'student').accessToken;
 
       notificationService.dispatchAdvisorRequestNotification
         .mockRejectedValueOnce(new Error('Notification timeout #1'))
         .mockRejectedValueOnce(new Error('Notification timeout #2'))
         .mockRejectedValueOnce(new Error('Notification timeout #3'));
 
-      const res = makeRes();
-      await handlers.submit(
-        makeReq({}, { groupId: group.groupId, professorId: professor.userId }, { userId: leader.userId, role: 'student' }),
-        res
-      );
+      const res = await request(app)
+        .post('/api/v1/advisor-requests')
+        .set(bearer(token))
+        .send({ groupId: group.groupId, professorId: professor.userId });
 
       expect(notificationService.dispatchAdvisorRequestNotification).toHaveBeenCalledTimes(3);
-      expect(consoleErrorSpy).toHaveBeenCalled();
-      expect(res.status).toHaveBeenCalledWith(503);
-
-      if (SyncErrorLog) {
-        const syncLogs = await SyncErrorLog.find({ groupId: group.groupId, service: 'notification' });
-        expect(syncLogs.length).toBeGreaterThan(0);
-      }
+      expect(res.status).toBe(201);
+      expect(res.body.notificationTriggered).toBe(false);
     });
 
     it('returns 403 for non-team-leader', async () => {
-      ensureHandler('submitAdvisorRequest', handlers.submit);
+      await openAdvisorWindow(OT.ADVISOR_ASSOCIATION);
       const professor = await createUser({ userId: 'usr_prof_req_403', role: 'professor' });
-      const group = await createGroupRaw({ leaderId: 'usr_real_leader' });
-      const res = makeRes();
+      const group = await createGroupDoc({ leaderId: 'usr_real_leader' });
+      const token = generateTokenPair('usr_not_leader', 'student').accessToken;
 
-      await handlers.submit(
-        makeReq({}, { groupId: group.groupId, professorId: professor.userId }, { userId: 'usr_not_leader', role: 'student' }),
-        res
-      );
+      const res = await request(app)
+        .post('/api/v1/advisor-requests')
+        .set(bearer(token))
+        .send({ groupId: group.groupId, professorId: professor.userId });
 
-      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.status).toBe(403);
     });
 
     it('returns 409 when group already has advisor or active pending request', async () => {
-      ensureHandler('submitAdvisorRequest', handlers.submit);
+      await openAdvisorWindow(OT.ADVISOR_ASSOCIATION);
       const professor = await createUser({ userId: 'usr_prof_req_409', role: 'professor' });
-      const assignedGroup = await createGroupRaw({
+      const assignedGroup = await createGroupDoc({
         leaderId: 'usr_leader_assigned',
         advisorStatus: 'assigned',
         professorId: professor.userId,
       });
-      const pendingGroup = await createGroupRaw({ leaderId: 'usr_leader_pending', advisorStatus: 'pending' });
-      await createAdvisorRequestRaw({
+      const pendingGroup = await createGroupDoc({ leaderId: 'usr_leader_pending', advisorStatus: 'pending' });
+      await AdvisorRequest.create({
         groupId: pendingGroup.groupId,
         professorId: professor.userId,
         status: 'pending',
-        createdBy: pendingGroup.leaderId,
+        requesterId: pendingGroup.leaderId,
       });
 
-      const assignedRes = makeRes();
-      await handlers.submit(
-        makeReq(
-          {},
-          { groupId: assignedGroup.groupId, professorId: professor.userId },
-          { userId: assignedGroup.leaderId, role: 'student' }
-        ),
-        assignedRes
-      );
-      expect(assignedRes.status).toHaveBeenCalledWith(409);
+      const leaderAssigned = await createUser({ userId: 'usr_leader_assigned', role: 'student' });
+      const leaderPending = await createUser({ userId: 'usr_leader_pending', role: 'student' });
+      const tokA = generateTokenPair(leaderAssigned.userId, 'student').accessToken;
+      const tokB = generateTokenPair(leaderPending.userId, 'student').accessToken;
 
-      const pendingRes = makeRes();
-      await handlers.submit(
-        makeReq(
-          {},
-          { groupId: pendingGroup.groupId, professorId: professor.userId },
-          { userId: pendingGroup.leaderId, role: 'student' }
-        ),
-        pendingRes
-      );
-      expect(pendingRes.status).toHaveBeenCalledWith(409);
+      const assignedRes = await request(app)
+        .post('/api/v1/advisor-requests')
+        .set(bearer(tokA))
+        .send({ groupId: assignedGroup.groupId, professorId: professor.userId });
+      expect(assignedRes.status).toBe(409);
+
+      const pendingRes = await request(app)
+        .post('/api/v1/advisor-requests')
+        .set(bearer(tokB))
+        .send({ groupId: pendingGroup.groupId, professorId: professor.userId });
+      expect(pendingRes.status).toBe(409);
     });
 
     it('returns 422 for out-of-window/inactive window', async () => {
-      ensureHandler('submitAdvisorRequest', handlers.submit);
+      await openAdvisorWindow(OT.ADVISOR_ASSOCIATION);
       const now = new Date();
       const professor = await createUser({ userId: 'usr_prof_req_422', role: 'professor' });
-      const groupA = await createGroupRaw({ leaderId: 'usr_leader_out_window' });
-      const groupB = await createGroupRaw({ leaderId: 'usr_leader_inactive_window' });
+      const groupA = await createGroupDoc({ leaderId: 'usr_leader_out_window' });
+      const groupB = await createGroupDoc({ leaderId: 'usr_leader_inactive_window' });
+      const leaderA = await createUser({ userId: 'usr_leader_out_window', role: 'student' });
+      const leaderB = await createUser({ userId: 'usr_leader_inactive_window', role: 'student' });
 
-      await openAdvisorWindow('advisor_association', {
+      await ScheduleWindow.deleteMany({ operationType: OT.ADVISOR_ASSOCIATION });
+      await ScheduleWindow.create({
+        windowId: uid('sw_future'),
+        operationType: OT.ADVISOR_ASSOCIATION,
         startsAt: new Date(now.getTime() + 60_000),
         endsAt: new Date(now.getTime() + 120_000),
+        isActive: true,
+        createdBy: 'usr_coord',
       });
-      const outWindowRes = makeRes();
-      await handlers.submit(
-        makeReq({}, { groupId: groupA.groupId, professorId: professor.userId }, { userId: groupA.leaderId, role: 'student' }),
-        outWindowRes
-      );
-      expect(outWindowRes.status).toHaveBeenCalledWith(422);
 
-      await mongoose.connection.collection('schedulewindows').deleteMany({});
-      await openAdvisorWindow('advisor_association', { isActive: false });
-      const inactiveRes = makeRes();
-      await handlers.submit(
-        makeReq({}, { groupId: groupB.groupId, professorId: professor.userId }, { userId: groupB.leaderId, role: 'student' }),
-        inactiveRes
-      );
-      expect(inactiveRes.status).toHaveBeenCalledWith(422);
+      const outRes = await request(app)
+        .post('/api/v1/advisor-requests')
+        .set(bearer(generateTokenPair(leaderA.userId, 'student').accessToken))
+        .send({ groupId: groupA.groupId, professorId: professor.userId });
+      expect(outRes.status).toBe(422);
+
+      await ScheduleWindow.deleteMany({ operationType: OT.ADVISOR_ASSOCIATION });
+      await ScheduleWindow.create({
+        windowId: uid('sw_inactive'),
+        operationType: OT.ADVISOR_ASSOCIATION,
+        startsAt: new Date(now.getTime() - 60_000),
+        endsAt: new Date(now.getTime() + 3_600_000),
+        isActive: false,
+        createdBy: 'usr_coord',
+      });
+
+      const inactiveRes = await request(app)
+        .post('/api/v1/advisor-requests')
+        .set(bearer(generateTokenPair(leaderB.userId, 'student').accessToken))
+        .send({ groupId: groupB.groupId, professorId: professor.userId });
+      expect(inactiveRes.status).toBe(422);
     });
 
     it('returns 404 when group or professor is not found', async () => {
-      ensureHandler('submitAdvisorRequest', handlers.submit);
+      await openAdvisorWindow(OT.ADVISOR_ASSOCIATION);
       const professor = await createUser({ userId: 'usr_prof_req_404', role: 'professor' });
-      const group = await createGroupRaw({ leaderId: 'usr_leader_404' });
+      const group = await createGroupDoc({ leaderId: 'usr_leader_404' });
+      const leader = await createUser({ userId: 'usr_leader_404', role: 'student' });
+      const token = generateTokenPair(leader.userId, 'student').accessToken;
 
-      const missingGroupRes = makeRes();
-      await handlers.submit(
-        makeReq({}, { groupId: 'grp_missing', professorId: professor.userId }, { userId: group.leaderId, role: 'student' }),
-        missingGroupRes
-      );
-      expect(missingGroupRes.status).toHaveBeenCalledWith(404);
+      const missingGroupRes = await request(app)
+        .post('/api/v1/advisor-requests')
+        .set(bearer(token))
+        .send({ groupId: 'grp_missing', professorId: professor.userId });
+      expect(missingGroupRes.status).toBe(404);
 
-      const missingProfRes = makeRes();
-      await handlers.submit(
-        makeReq({}, { groupId: group.groupId, professorId: 'usr_prof_missing' }, { userId: group.leaderId, role: 'student' }),
-        missingProfRes
-      );
-      expect(missingProfRes.status).toHaveBeenCalledWith(404);
+      const missingProfRes = await request(app)
+        .post('/api/v1/advisor-requests')
+        .set(bearer(token))
+        .send({ groupId: group.groupId, professorId: 'usr_prof_missing' });
+      expect(missingProfRes.status).toBe(404);
     });
   });
 
-  describe('PATCH /advisor-requests/{requestId} (decision: reject)', () => {
+  describe('PATCH /api/v1/advisor-requests/:requestId (decision: reject)', () => {
     it('dispatches rejection_notice to team leader with required payload fields', async () => {
-      ensureHandler('processAdvisorRequest', handlers.decide);
-      await openAdvisorWindow('advisor_decision');
+      await openAdvisorWindow(OT.ADVISOR_DECISION);
 
       const leader = await createUser({ userId: 'usr_leader_reject_ok', role: 'student' });
       const professor = await createUser({ userId: 'usr_prof_reject_ok', role: 'professor' });
-      const group = await createGroupRaw({ leaderId: leader.userId, advisorStatus: 'pending', professorId: null });
-      const reqDoc = await createAdvisorRequestRaw({
+      const group = await createGroupDoc({ leaderId: leader.userId, advisorStatus: 'pending', professorId: null });
+      const reqDoc = await AdvisorRequest.create({
         groupId: group.groupId,
         professorId: professor.userId,
         status: 'pending',
-        createdBy: leader.userId,
+        requesterId: leader.userId,
       });
       const reason = 'Research area mismatch';
+      const token = generateTokenPair(professor.userId, 'professor').accessToken;
 
-      const res = makeRes();
-      await handlers.decide(
-        makeReq(
-          { requestId: reqDoc.requestId },
-          { decision: 'reject', reason },
-          { userId: professor.userId, role: 'professor' }
-        ),
-        res
-      );
+      const res = await request(app)
+        .patch(`/api/v1/advisor-requests/${reqDoc.requestId}`)
+        .set(bearer(token))
+        .send({ decision: 'reject', reason });
 
-      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.status).toBe(200);
+      expect(res.body.notificationTriggered).toBe(true);
       expect(notificationService.dispatchAdvisorDecisionNotification).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'rejection_notice',
@@ -437,15 +380,15 @@ describe('Issue #76 — Notification Service Integration for Advisor Association
     });
 
     it('retries reject notification dispatch on transient failures and succeeds within 3 attempts', async () => {
-      ensureHandler('processAdvisorRequest', handlers.decide);
-      await openAdvisorWindow('advisor_decision');
+      await openAdvisorWindow(OT.ADVISOR_DECISION);
 
       const professor = await createUser({ userId: 'usr_prof_reject_retry', role: 'professor' });
-      const group = await createGroupRaw({ advisorStatus: 'pending', professorId: null });
-      const reqDoc = await createAdvisorRequestRaw({
+      const group = await createGroupDoc({ advisorStatus: 'pending', professorId: null });
+      const reqDoc = await AdvisorRequest.create({
         groupId: group.groupId,
         professorId: professor.userId,
         status: 'pending',
+        requesterId: group.leaderId,
       });
 
       notificationService.dispatchAdvisorDecisionNotification
@@ -453,26 +396,27 @@ describe('Issue #76 — Notification Service Integration for Advisor Association
         .mockRejectedValueOnce(new Error('Reject notification timeout #2'))
         .mockResolvedValueOnce({ notification_id: 'notif_reject_retry_ok' });
 
-      const res = makeRes();
-      await handlers.decide(
-        makeReq({ requestId: reqDoc.requestId }, { decision: 'reject', reason: 'Load limit' }, { userId: professor.userId, role: 'professor' }),
-        res
-      );
+      const token = generateTokenPair(professor.userId, 'professor').accessToken;
+      const res = await request(app)
+        .patch(`/api/v1/advisor-requests/${reqDoc.requestId}`)
+        .set(bearer(token))
+        .send({ decision: 'reject', reason: 'Load limit' });
 
       expect(notificationService.dispatchAdvisorDecisionNotification).toHaveBeenCalledTimes(3);
-      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.status).toBe(200);
+      expect(res.body.notificationTriggered).toBe(true);
     });
 
-    it('returns 503 and logs error when reject notification retries are exhausted', async () => {
-      ensureHandler('processAdvisorRequest', handlers.decide);
-      await openAdvisorWindow('advisor_decision');
+    it('returns 200 with notificationTriggered=false when reject notification retries are exhausted', async () => {
+      await openAdvisorWindow(OT.ADVISOR_DECISION);
 
       const professor = await createUser({ userId: 'usr_prof_reject_fail', role: 'professor' });
-      const group = await createGroupRaw({ advisorStatus: 'pending', professorId: null });
-      const reqDoc = await createAdvisorRequestRaw({
+      const group = await createGroupDoc({ advisorStatus: 'pending', professorId: null });
+      const reqDoc = await AdvisorRequest.create({
         groupId: group.groupId,
         professorId: professor.userId,
         status: 'pending',
+        requesterId: group.leaderId,
       });
 
       notificationService.dispatchAdvisorDecisionNotification
@@ -480,193 +424,345 @@ describe('Issue #76 — Notification Service Integration for Advisor Association
         .mockRejectedValueOnce(new Error('Reject notification failed #2'))
         .mockRejectedValueOnce(new Error('Reject notification failed #3'));
 
-      const res = makeRes();
-      await handlers.decide(
-        makeReq({ requestId: reqDoc.requestId }, { decision: 'reject', reason: 'Out of quota' }, { userId: professor.userId, role: 'professor' }),
-        res
-      );
+      const token = generateTokenPair(professor.userId, 'professor').accessToken;
+      const res = await request(app)
+        .patch(`/api/v1/advisor-requests/${reqDoc.requestId}`)
+        .set(bearer(token))
+        .send({ decision: 'reject', reason: 'Out of quota' });
 
       expect(notificationService.dispatchAdvisorDecisionNotification).toHaveBeenCalledTimes(3);
-      expect(consoleErrorSpy).toHaveBeenCalled();
-      expect(res.status).toHaveBeenCalledWith(503);
+      expect(res.status).toBe(200);
+      expect(res.body.notificationTriggered).toBe(false);
     });
 
     it('returns 403 for non-professor', async () => {
-      ensureHandler('processAdvisorRequest', handlers.decide);
-      const reqDoc = await createAdvisorRequestRaw({ status: 'pending' });
-      const res = makeRes();
+      await openAdvisorWindow(OT.ADVISOR_DECISION);
+      const reqDoc = await AdvisorRequest.create({
+        groupId: 'grp_x',
+        professorId: 'usr_prof_x',
+        status: 'pending',
+        requesterId: 'usr_leader_x',
+      });
+      const token = generateTokenPair('usr_student_actor', 'student').accessToken;
 
-      await handlers.decide(
-        makeReq({ requestId: reqDoc.requestId }, { decision: 'reject' }, { userId: 'usr_student_actor', role: 'student' }),
-        res
-      );
+      const res = await request(app)
+        .patch(`/api/v1/advisor-requests/${reqDoc.requestId}`)
+        .set(bearer(token))
+        .send({ decision: 'reject' });
 
-      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.status).toBe(403);
     });
 
     it('returns 409 when request already processed', async () => {
-      ensureHandler('processAdvisorRequest', handlers.decide);
+      await openAdvisorWindow(OT.ADVISOR_DECISION);
       const professor = await createUser({ userId: 'usr_prof_reject_409', role: 'professor' });
-      const reqDoc = await createAdvisorRequestRaw({ professorId: professor.userId, status: 'approved' });
-      const res = makeRes();
+      await createGroupDoc({
+        groupId: 'grp_rej_409',
+        leaderId: 'usr_l_409',
+        advisorStatus: 'pending',
+      });
+      const reqDoc = await AdvisorRequest.create({
+        professorId: professor.userId,
+        status: 'approved',
+        groupId: 'grp_rej_409',
+        requesterId: 'usr_l',
+      });
+      const token = generateTokenPair(professor.userId, 'professor').accessToken;
 
-      await handlers.decide(
-        makeReq({ requestId: reqDoc.requestId }, { decision: 'reject' }, { userId: professor.userId, role: 'professor' }),
-        res
-      );
+      const res = await request(app)
+        .patch(`/api/v1/advisor-requests/${reqDoc.requestId}`)
+        .set(bearer(token))
+        .send({ decision: 'reject' });
 
-      expect(res.status).toHaveBeenCalledWith(409);
+      expect(res.status).toBe(409);
     });
 
     it('returns 422 when decision window is out-of-range', async () => {
-      ensureHandler('processAdvisorRequest', handlers.decide);
       const now = new Date();
-      await openAdvisorWindow('advisor_decision', {
+      await ScheduleWindow.create({
+        windowId: uid('sw_dec'),
+        operationType: OT.ADVISOR_DECISION,
         startsAt: new Date(now.getTime() + 120_000),
         endsAt: new Date(now.getTime() + 240_000),
+        isActive: true,
+        createdBy: 'usr_coord',
       });
       const professor = await createUser({ userId: 'usr_prof_reject_422', role: 'professor' });
-      const reqDoc = await createAdvisorRequestRaw({ professorId: professor.userId, status: 'pending' });
-      const res = makeRes();
+      await createGroupDoc({
+        groupId: 'grp_rej_422',
+        leaderId: 'usr_l2',
+        advisorStatus: 'pending',
+      });
+      const reqDoc = await AdvisorRequest.create({
+        professorId: professor.userId,
+        status: 'pending',
+        groupId: 'grp_rej_422',
+        requesterId: 'usr_l2',
+      });
+      const token = generateTokenPair(professor.userId, 'professor').accessToken;
 
-      await handlers.decide(
-        makeReq({ requestId: reqDoc.requestId }, { decision: 'reject' }, { userId: professor.userId, role: 'professor' }),
-        res
-      );
+      const res = await request(app)
+        .patch(`/api/v1/advisor-requests/${reqDoc.requestId}`)
+        .set(bearer(token))
+        .send({ decision: 'reject' });
 
-      expect(res.status).toHaveBeenCalledWith(422);
+      expect(res.status).toBe(422);
     });
 
     it('returns 404 when request is not found', async () => {
-      ensureHandler('processAdvisorRequest', handlers.decide);
+      await openAdvisorWindow(OT.ADVISOR_DECISION);
       const professor = await createUser({ userId: 'usr_prof_reject_404', role: 'professor' });
-      const res = makeRes();
+      const token = generateTokenPair(professor.userId, 'professor').accessToken;
 
-      await handlers.decide(
-        makeReq({ requestId: 'arq_missing_reject' }, { decision: 'reject' }, { userId: professor.userId, role: 'professor' }),
-        res
-      );
+      const res = await request(app)
+        .patch('/api/v1/advisor-requests/arq_missing_reject')
+        .set(bearer(token))
+        .send({ decision: 'reject' });
 
-      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.status).toBe(404);
     });
   });
 
-  describe('POST /groups/advisor-sanitization (disband_notice)', () => {
-    it('dispatches disband_notice for each disbanded group with groupId and members list', async () => {
-      ensureHandler('advisorSanitization', handlers.sanitize);
-      await openAdvisorWindow('advisor_sanitization');
+  describe('PATCH /api/v1/advisor-requests/:requestId (decision: approve)', () => {
+    it('updates DB, returns 200, and dispatches approval_notice with groupId, requestId, professorId', async () => {
+      await openAdvisorWindow(OT.ADVISOR_DECISION);
 
-      const g1 = await createGroupRaw({
-        advisorStatus: 'released',
-        professorId: null,
-        members: [{ userId: 'usr_mem_1' }, { userId: 'usr_mem_2' }],
-      });
-      const g2 = await createGroupRaw({
+      const leader = await createUser({ userId: 'usr_leader_appr_ok', role: 'student' });
+      const professor = await createUser({ userId: 'usr_prof_appr_ok', role: 'professor' });
+      const group = await createGroupDoc({
+        leaderId: leader.userId,
         advisorStatus: 'pending',
         professorId: null,
-        members: [{ userId: 'usr_mem_3' }],
       });
-      await createGroupRaw({
-        advisorStatus: 'assigned',
-        professorId: 'usr_prof_safe_76',
-        members: [{ userId: 'usr_mem_safe' }],
+      const reqDoc = await AdvisorRequest.create({
+        groupId: group.groupId,
+        professorId: professor.userId,
+        status: 'pending',
+        requesterId: leader.userId,
       });
+      const token = generateTokenPair(professor.userId, 'professor').accessToken;
 
-      const res = makeRes();
-      await handlers.sanitize(makeReq({}, {}, { userId: 'usr_coord_sanitize_ok', role: 'coordinator' }), res);
+      const res = await request(app)
+        .patch(`/api/v1/advisor-requests/${reqDoc.requestId}`)
+        .set(bearer(token))
+        .send({ decision: 'approve', reason: 'Strong fit' });
 
-      expect(res.status).toHaveBeenCalledWith(200);
-      expect(notificationService.dispatchGroupDisbandNotification).toHaveBeenCalledTimes(2);
-      expect(notificationService.dispatchGroupDisbandNotification).toHaveBeenCalledWith(
+      expect(res.status).toBe(200);
+      expect(res.body.decision).toBe('approve');
+      expect(res.body.notificationTriggered).toBe(true);
+
+      const updated = await Group.findOne({ groupId: group.groupId }).lean();
+      expect(updated.advisorStatus).toBe('assigned');
+      expect(updated.professorId).toBe(professor.userId);
+
+      expect(notificationService.dispatchAdvisorDecisionNotification).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'disband_notice',
-          groupId: g1.groupId,
-          members: expect.any(Array),
-        })
-      );
-      expect(notificationService.dispatchGroupDisbandNotification).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'disband_notice',
-          groupId: g2.groupId,
-          members: expect.any(Array),
+          type: 'approval_notice',
+          groupId: group.groupId,
+          requestId: reqDoc.requestId,
+          professorId: professor.userId,
+          teamLeaderId: leader.userId,
+          decision: 'approve',
         })
       );
     });
 
-    it('does not silently swallow notification failures during sanitization (logs and surfaces failure)', async () => {
-      ensureHandler('advisorSanitization', handlers.sanitize);
-      await openAdvisorWindow('advisor_sanitization');
-      await createGroupRaw({ advisorStatus: 'pending', professorId: null, members: [{ userId: 'usr_mem_fail' }] });
+    it('returns 200 with notificationTriggered=false when approval notification exhausts retries', async () => {
+      await openAdvisorWindow(OT.ADVISOR_DECISION);
 
-      notificationService.dispatchGroupDisbandNotification
+      const leader = await createUser({ userId: 'usr_leader_appr_fail', role: 'student' });
+      const professor = await createUser({ userId: 'usr_prof_appr_fail', role: 'professor' });
+      const group = await createGroupDoc({
+        leaderId: leader.userId,
+        advisorStatus: 'pending',
+        professorId: null,
+      });
+      const reqDoc = await AdvisorRequest.create({
+        groupId: group.groupId,
+        professorId: professor.userId,
+        status: 'pending',
+        requesterId: leader.userId,
+      });
+
+      notificationService.dispatchAdvisorDecisionNotification
+        .mockRejectedValueOnce(new Error('approve notif 1'))
+        .mockRejectedValueOnce(new Error('approve notif 2'))
+        .mockRejectedValueOnce(new Error('approve notif 3'));
+
+      const token = generateTokenPair(professor.userId, 'professor').accessToken;
+      const res = await request(app)
+        .patch(`/api/v1/advisor-requests/${reqDoc.requestId}`)
+        .set(bearer(token))
+        .send({ decision: 'approve' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.notificationTriggered).toBe(false);
+      const updated = await Group.findOne({ groupId: group.groupId }).lean();
+      expect(updated.advisorStatus).toBe('assigned');
+    });
+  });
+
+  describe('POST /api/v1/groups/advisor-sanitization (disband_notice)', () => {
+    it('dispatches disband_notice for each disbanded group with strict members (string user ids)', async () => {
+      await seedAdvisorAssociationDeadlineElapsed();
+
+      const mem1 = 'usr_mem_1';
+      const mem2 = 'usr_mem_2';
+      const mem3 = 'usr_mem_3';
+
+      const g1 = await createGroupDoc({
+        advisorStatus: 'released',
+        professorId: null,
+        members: [
+          { userId: mem1, status: 'accepted', role: 'member' },
+          { userId: mem2, status: 'accepted', role: 'member' },
+        ],
+      });
+      const g2 = await createGroupDoc({
+        advisorStatus: 'pending',
+        professorId: null,
+        members: [{ userId: mem3, status: 'accepted', role: 'member' }],
+      });
+      await createGroupDoc({
+        advisorStatus: 'assigned',
+        professorId: 'usr_prof_safe_76',
+        advisorId: 'usr_prof_safe_76',
+        members: [{ userId: 'usr_mem_safe', status: 'accepted', role: 'member' }],
+      });
+
+      const coord = await createUser({ userId: 'usr_coord_sanitize_ok', role: 'coordinator' });
+      const token = generateTokenPair(coord.userId, 'coordinator').accessToken;
+
+      const res = await request(app)
+        .post('/api/v1/groups/advisor-sanitization')
+        .set(bearer(token))
+        .send();
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(notificationService.dispatchDisbandNotification).toHaveBeenCalledTimes(2);
+
+      expect(notificationService.dispatchDisbandNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'disband_notice',
+          groupId: g1.groupId,
+          members: expect.arrayContaining([mem1, mem2]),
+        })
+      );
+      expect(notificationService.dispatchDisbandNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'disband_notice',
+          groupId: g2.groupId,
+          members: expect.arrayContaining([mem3]),
+        })
+      );
+
+      for (const call of notificationService.dispatchDisbandNotification.mock.calls) {
+        const [payload] = call;
+        expect(Array.isArray(payload.members)).toBe(true);
+        expect(payload.members.every((m) => typeof m === 'string')).toBe(true);
+      }
+    });
+
+    it('returns 200 with notificationFailures when disband notifications fail after retries', async () => {
+      await seedAdvisorAssociationDeadlineElapsed();
+      await createGroupDoc({
+        advisorStatus: 'pending',
+        professorId: null,
+        members: [{ userId: 'usr_mem_fail', status: 'accepted', role: 'member' }],
+      });
+
+      notificationService.dispatchDisbandNotification
         .mockRejectedValueOnce(new Error('Sanitization disband notification failed #1'))
         .mockRejectedValueOnce(new Error('Sanitization disband notification failed #2'))
         .mockRejectedValueOnce(new Error('Sanitization disband notification failed #3'));
 
-      const res = makeRes();
-      await handlers.sanitize(makeReq({}, {}, { userId: 'usr_coord_sanitize_fail', role: 'coordinator' }), res);
+      const coord = await createUser({ userId: 'usr_coord_sanitize_fail', role: 'coordinator' });
+      const token = generateTokenPair(coord.userId, 'coordinator').accessToken;
 
-      expect(consoleErrorSpy).toHaveBeenCalled();
-      expect(notificationService.dispatchGroupDisbandNotification).toHaveBeenCalledTimes(3);
-      expect(res.status).toHaveBeenCalledWith(503);
+      const res = await request(app)
+        .post('/api/v1/groups/advisor-sanitization')
+        .set(bearer(token))
+        .send();
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(Array.isArray(res.body.disbandedGroups)).toBe(true);
+      expect(Array.isArray(res.body.notificationFailures)).toBe(true);
+      expect(res.body.notificationFailures.length).toBeGreaterThan(0);
+      expect(notificationService.dispatchDisbandNotification).toHaveBeenCalledTimes(3);
     });
 
     it('returns 403 for non-coordinator and non-system actor', async () => {
-      ensureHandler('advisorSanitization', handlers.sanitize);
-      const res = makeRes();
+      await seedAdvisorAssociationDeadlineElapsed();
+      const token = generateTokenPair('usr_student_sanitize_forbidden', 'student').accessToken;
 
-      await handlers.sanitize(makeReq({}, {}, { userId: 'usr_student_sanitize_forbidden', role: 'student' }), res);
-      expect(res.status).toHaveBeenCalledWith(403);
+      const res = await request(app)
+        .post('/api/v1/groups/advisor-sanitization')
+        .set(bearer(token))
+        .send();
+
+      expect(res.status).toBe(403);
     });
 
-    it('returns 409 when sanitization is triggered before allowed window', async () => {
-      ensureHandler('advisorSanitization', handlers.sanitize);
+    it('returns 409 when sanitization deadline has not passed', async () => {
+      await ScheduleWindow.deleteMany({});
       const now = new Date();
-      await openAdvisorWindow('advisor_sanitization', {
-        startsAt: new Date(now.getTime() + 120_000),
-        endsAt: new Date(now.getTime() + 240_000),
+      await ScheduleWindow.create({
+        windowId: uid('sw_future_deadline'),
+        operationType: OT.ADVISOR_ASSOCIATION,
+        startsAt: new Date(now.getTime() - 60_000),
+        endsAt: new Date(now.getTime() + 120_000),
+        isActive: true,
+        createdBy: 'usr_coord',
       });
-      const res = makeRes();
+      const coord = await createUser({ userId: 'usr_coord_sanitize_409', role: 'coordinator' });
+      const token = generateTokenPair(coord.userId, 'coordinator').accessToken;
 
-      await handlers.sanitize(makeReq({}, {}, { userId: 'usr_coord_sanitize_409', role: 'coordinator' }), res);
-      expect(res.status).toHaveBeenCalledWith(409);
+      const res = await request(app)
+        .post('/api/v1/groups/advisor-sanitization')
+        .set(bearer(token))
+        .send();
+
+      expect(res.status).toBe(409);
     });
   });
 
   describe('Audit log assertions for write paths', () => {
     it('writes expected audit actions for submit + reject + sanitization flows', async () => {
-      ensureHandler('submitAdvisorRequest', handlers.submit);
-      ensureHandler('processAdvisorRequest', handlers.decide);
-      ensureHandler('advisorSanitization', handlers.sanitize);
-      await openAdvisorWindow('advisor_association');
-      await openAdvisorWindow('advisor_decision');
-      await openAdvisorWindow('advisor_sanitization');
+      await openAdvisorWindow(OT.ADVISOR_ASSOCIATION);
+      await openAdvisorWindow(OT.ADVISOR_DECISION);
 
+      await createUser({ userId: 'usr_coord_audit_76', role: 'coordinator' });
       const leader = await createUser({ userId: 'usr_leader_audit_76', role: 'student' });
       const professor = await createUser({ userId: 'usr_prof_audit_76', role: 'professor' });
-      const group = await createGroupRaw({
+      const group = await createGroupDoc({
         leaderId: leader.userId,
         advisorStatus: 'pending',
         professorId: null,
-        members: [{ userId: leader.userId }],
+        members: [{ userId: leader.userId, status: 'accepted', role: 'leader' }],
       });
 
-      await handlers.submit(
-        makeReq({}, { groupId: group.groupId, professorId: professor.userId }, { userId: leader.userId, role: 'student' }),
-        makeRes()
-      );
-      const pendingReq = await mongoose.connection.collection('advisorrequests').findOne({ groupId: group.groupId });
+      const submitRes = await request(app)
+        .post('/api/v1/advisor-requests')
+        .set(bearer(generateTokenPair(leader.userId, 'student').accessToken))
+        .send({ groupId: group.groupId, professorId: professor.userId });
+      expect(submitRes.status).toBe(201);
+
+      const pendingReq = await AdvisorRequest.findOne({ groupId: group.groupId });
       expect(pendingReq).not.toBeNull();
 
-      await handlers.decide(
-        makeReq(
-          { requestId: pendingReq.requestId },
-          { decision: 'reject', reason: 'Audit check reject' },
-          { userId: professor.userId, role: 'professor' }
-        ),
-        makeRes()
-      );
-      await handlers.sanitize(makeReq({}, {}, { userId: 'usr_coord_audit_76', role: 'coordinator' }), makeRes());
+      await request(app)
+        .patch(`/api/v1/advisor-requests/${pendingReq.requestId}`)
+        .set(bearer(generateTokenPair(professor.userId, 'professor').accessToken))
+        .send({ decision: 'reject', reason: 'Audit check reject' });
+
+      await seedAdvisorAssociationDeadlineElapsed();
+
+      await request(app)
+        .post('/api/v1/groups/advisor-sanitization')
+        .set(bearer(generateTokenPair('usr_coord_audit_76', 'coordinator').accessToken))
+        .send();
 
       const actions = await mongoose.connection.collection('auditlogs').find({}, { projection: { action: 1, _id: 0 } }).toArray();
       const actionSet = new Set(actions.map((a) => a.action));

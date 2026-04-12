@@ -105,21 +105,36 @@ const dispatchCommitteePublishNotification = async ({
 };
 
 /**
- * Advisor and Group Management Notifications (From your branch).
+ * Advisor request — advisee submits interest in a professor (Process 3.x).
  */
-const dispatchAdvisorDecisionNotification = async ({ groupId, professorId, decision, requestId }) => {
-  const group = await Group.findOne({ groupId }).lean();
-  if (!group) return null;
-  if (decision === 'reject') {
-    // Note: Ensure dispatchRejectionNotification is defined if used
-    return typeof dispatchRejectionNotification !== 'undefined' 
-      ? dispatchRejectionNotification({ groupId, groupName: group.groupName, teamLeaderId: group.leaderId, professorId, requestId: requestId || group.groupId, reason: null })
-      : null;
-  }
-  // Note: Ensure dispatchAdvisorStatusNotification is defined if used
-  return typeof dispatchAdvisorStatusNotification !== 'undefined'
-    ? dispatchAdvisorStatusNotification({ groupId, groupName: group.groupName, professorId, professorName: '', status: 'assigned', recipientId: group.leaderId, message: null })
-    : null;
+const dispatchAdvisorRequestNotification = async ({
+  type = 'advisee_request',
+  groupId,
+  professorId,
+  teamLeaderId,
+}) => {
+  const response = await axios.post(
+    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+    { type, groupId, professorId, teamLeaderId },
+    { timeout: 5000 }
+  );
+  return response.data;
+};
+
+/**
+ * Professor approve / reject — payload includes explicit notice types for the external service.
+ */
+const dispatchAdvisorDecisionNotification = async (payload) => {
+  const response = await axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications`, payload, { timeout: 5000 });
+  return response.data;
+};
+
+/**
+ * Group disband (sanitization / admin) — members are user id strings.
+ */
+const dispatchDisbandNotification = async (payload) => {
+  const response = await axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications`, payload, { timeout: 5000 });
+  return response.data;
 };
 
 const dispatchAdvisorTransferNotification = async ({ groupId, oldProfessorId, newProfessorId }) => {
@@ -138,13 +153,18 @@ const dispatchAdvisorTransferNotification = async ({ groupId, oldProfessorId, ne
 const dispatchGroupDisbandNotification = async ({ groupId, reason }) => {
   const group = await Group.findOne({ groupId }).lean();
   if (!group) return null;
-  const recipients = (group.members || []).map((m) => m.userId).filter(Boolean);
-  if (recipients.length === 0 && group.leaderId) recipients.push(group.leaderId);
-  
-  // Note: Ensure dispatchDisbandNotification is defined if used
-  return typeof dispatchDisbandNotification !== 'undefined'
-    ? dispatchDisbandNotification({ groupId, groupName: group.groupName, recipients, reason: reason || 'No advisor assigned' })
-    : null;
+  const accepted = (group.members || [])
+    .filter((m) => m.status === 'accepted')
+    .map((m) => m.userId);
+  const members = accepted.length > 0 ? accepted : (group.leaderId ? [group.leaderId] : []);
+  if (members.length === 0) return null;
+  return dispatchDisbandNotification({
+    type: 'disband_notice',
+    groupId: group.groupId,
+    groupName: group.groupName,
+    members,
+    reason: reason || 'No advisor assigned',
+  });
 };
 
 module.exports = {
@@ -153,13 +173,9 @@ module.exports = {
   dispatchGroupCreationNotification,
   dispatchBatchInvitationNotification,
   dispatchCommitteePublishNotification,
+  dispatchAdvisorRequestNotification,
   dispatchAdvisorDecisionNotification,
   dispatchAdvisorTransferNotification,
   dispatchGroupDisbandNotification,
-  // Added missing exports if they exist in your local code:
-  ...(typeof dispatchAdvisorRequestNotification !== 'undefined' && { dispatchAdvisorRequestNotification }),
-  ...(typeof dispatchRejectionNotification !== 'undefined' && { dispatchRejectionNotification }),
-  ...(typeof dispatchAdvisorStatusNotification !== 'undefined' && { dispatchAdvisorStatusNotification }),
-  ...(typeof dispatchDisbandNotification !== 'undefined' && { dispatchDisbandNotification }),
-  ...(typeof isTransientError !== 'undefined' && { isTransientError }),
+  dispatchDisbandNotification,
 };

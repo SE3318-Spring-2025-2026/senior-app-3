@@ -1,7 +1,6 @@
 const express = require('express');
 const { publishCommittee, createCommittee } = require('../controllers/committees');
-const { authMiddleware } = require('../middleware/auth');
-const { roleMiddleware } = require('../middleware/roleMiddleware');
+const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
 

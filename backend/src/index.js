@@ -7,10 +7,9 @@ const authRoutes = require('./routes/auth');
 const onboardingRoutes = require('./routes/onboarding');
 const groupRoutes = require('./routes/groups');
 const advisorRequestRoutes = require('./routes/advisorRequests');
-const committeeRoutes = require('./routes/committees'); // Resolved conflict
+const committeeRoutes = require('./routes/committees');
 const scheduleWindowRoutes = require('./routes/scheduleWindow');
 const auditLogRoutes = require('./routes/auditLogs');
-const committeeRoutes = require('./routes/committees');
 const { errorHandler } = require('./middleware/auth');
 
 const app = express();
@@ -55,10 +54,9 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/onboarding', onboardingRoutes);
 app.use('/api/v1/groups', groupRoutes);
 app.use('/api/v1/advisor-requests', advisorRequestRoutes);
-app.use('/api/v1/committees', committeeRoutes); // Mounted committees middleware
+app.use('/api/v1/committees', committeeRoutes);
 app.use('/api/v1/schedule-window', scheduleWindowRoutes);
 app.use('/api/v1/audit-logs', auditLogRoutes);
-app.use('/api/v1/committees', committeeRoutes);
 
 // 404 Handler
 app.use((req, res) => {

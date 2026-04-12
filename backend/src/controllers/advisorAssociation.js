@@ -6,6 +6,7 @@ const AdvisorRequest = require('../models/AdvisorRequest');
 const ScheduleWindow = require('../models/ScheduleWindow');
 const { createAuditLog } = require('../services/auditService');
 const notificationService = require('../services/notificationService');
+const { retryNotificationWithBackoff } = require('../utils/notificationRetry');
 const OT = require('../utils/operationTypes');
 
 const isActiveSanitizationWindow = async () => {
@@ -155,11 +156,21 @@ const submitAdvisorRequest = async (req, res) => {
 
     await Group.updateOne({ groupId }, { $set: { advisorStatus: 'pending' } });
 
-    try {
-      await notificationService.dispatchAdvisorRequestNotification({ groupId, professorId });
-    } catch (notifyErr) {
-      console.error('dispatchAdvisorRequestNotification:', notifyErr.message);
-    }
+    const notifyResult = await retryNotificationWithBackoff(
+      () =>
+        notificationService.dispatchAdvisorRequestNotification({
+          type: 'advisee_request',
+          groupId,
+          professorId,
+          teamLeaderId: req.user.userId,
+        }),
+      {
+        maxAttempts: 3,
+        identifier: requestDoc.requestId,
+        identifierType: 'requestId',
+      }
+    );
+    const notificationTriggered = notifyResult.success;
 
     await createAuditLog({
       action: 'advisor_request_submitted',
@@ -177,7 +188,7 @@ const submitAdvisorRequest = async (req, res) => {
 
     return res.status(201).json({
       requestId: requestDoc.requestId,
-      notificationTriggered: true,
+      notificationTriggered,
     });
   } catch (err) {
     console.error('submitAdvisorRequest error:', err);
@@ -243,16 +254,23 @@ const processAdvisorRequest = async (req, res) => {
       group.advisorStatus = 'assigned';
       await group.save();
 
-      try {
-        await notificationService.dispatchAdvisorDecisionNotification({
-          groupId: ar.groupId,
-          professorId: ar.professorId,
-          decision: 'approve',
-          requestId: ar.requestId,
-        });
-      } catch (notifyErr) {
-        console.error('dispatchAdvisorDecisionNotification:', notifyErr.message);
-      }
+      const notifyResultApprove = await retryNotificationWithBackoff(
+        () =>
+          notificationService.dispatchAdvisorDecisionNotification({
+            type: 'approval_notice',
+            groupId: ar.groupId,
+            requestId: ar.requestId,
+            professorId: ar.professorId,
+            teamLeaderId: group.leaderId,
+            decision: 'approve',
+          }),
+        {
+          maxAttempts: 3,
+          identifier: ar.requestId,
+          identifierType: 'requestId',
+        }
+      );
+      const notificationTriggeredApprove = notifyResultApprove.success;
 
       await createAuditLog({
         action: 'advisor_approved',
@@ -276,6 +294,7 @@ const processAdvisorRequest = async (req, res) => {
         assignedGroupId: ar.groupId,
         advisorStatus: 'assigned',
         professorId: ar.professorId,
+        notificationTriggered: notificationTriggeredApprove,
       });
     }
 
@@ -284,16 +303,24 @@ const processAdvisorRequest = async (req, res) => {
     ar.processedAt = now;
     await ar.save();
 
-    try {
-      await notificationService.dispatchAdvisorDecisionNotification({
-        groupId: ar.groupId,
-        professorId: ar.professorId,
-        decision: 'reject',
-        requestId: ar.requestId,
-      });
-    } catch (notifyErr) {
-      console.error('dispatchAdvisorDecisionNotification:', notifyErr.message);
-    }
+    const notifyResultReject = await retryNotificationWithBackoff(
+      () =>
+        notificationService.dispatchAdvisorDecisionNotification({
+          type: 'rejection_notice',
+          groupId: ar.groupId,
+          requestId: ar.requestId,
+          professorId: ar.professorId,
+          teamLeaderId: group.leaderId,
+          decision: 'reject',
+          reason: reasonText || undefined,
+        }),
+      {
+        maxAttempts: 3,
+        identifier: ar.requestId,
+        identifierType: 'requestId',
+      }
+    );
+    const notificationTriggeredReject = notifyResultReject.success;
 
     await createAuditLog({
       action: 'advisor_rejected',
@@ -315,6 +342,7 @@ const processAdvisorRequest = async (req, res) => {
       decision: 'reject',
       approvalStatus: ar.status,
       assignedGroupId: null,
+      notificationTriggered: notificationTriggeredReject,
     });
   } catch (err) {
     console.error('processAdvisorRequest error:', err);
