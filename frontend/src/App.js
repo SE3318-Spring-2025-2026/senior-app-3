@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import useAuthStore from './store/authStore';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -21,6 +21,7 @@ import Dashboard from './components/Dashboard';
 import Sidebar from './components/layout/Sidebar';
 import './App.css';
 import './components/layout/Sidebar.css';
+import AdvisorAssociationPanel from './components/AdvisorAssociationPanel';
 
 /**
  * Placeholder components for routes not yet implemented
@@ -33,13 +34,7 @@ const NotFound = () => <div className="page error">Page Not Found</div>;
  * Main App component with routing
  */
 function App() {
-  const { isSessionValid, isAuthenticated } = useAuthStore();
-
-  // Initialize auth on app load (restore from localStorage)
-  useEffect(() => {
-    // Session validation and token refresh logic can be added here
-    console.log('App initialized. Session valid:', isSessionValid());
-  }, [isSessionValid]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { isAuthenticated } = useAuthStore();
 
   return (
     <Router>
@@ -95,8 +90,16 @@ function App() {
               element={<ProtectedRoute component={GroupCreationPage} requiredRoles={['student']} />}
             />
             <Route
+              path="/groups/:group_id/advisor-request"
+              element={<ProtectedRoute component={AdviseeRequestForm} requiredRoles={['student']} />}
+            />
+            <Route
               path="/groups/:group_id"
               element={<ProtectedRoute component={GroupDashboard} />}
+            />
+            <Route
+              path="/groups/:group_id/advisor"
+              element={<ProtectedRoute component={AdvisorAssociationPanel} requiredRoles={['student']} />}
             />
             <Route
               path="/groups/:group_id/coordinator"
