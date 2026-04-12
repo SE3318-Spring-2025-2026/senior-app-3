@@ -78,7 +78,7 @@ const contributionRecordSchema = new mongoose.Schema(
 
 // Indexes for efficient querying
 contributionRecordSchema.index({ contributionRecordId: 1 });
-contributionRecordSchema.index({ sprintId: 1, studentId: 1, groupId: 1 });
+contributionRecordSchema.index({ sprintId: 1, studentId: 1, groupId: 1 }, { unique: true });
 contributionRecordSchema.index({ sprintId: 1, groupId: 1 });
 contributionRecordSchema.index({ studentId: 1, sprintId: 1 });
 

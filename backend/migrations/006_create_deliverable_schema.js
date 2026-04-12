@@ -36,13 +36,12 @@ module.exports = {
     try {
       const collections = await db.connection.db.listCollections({ name: 'deliverables' }).toArray();
 
-      if (collections.length > 0) {
-        console.log('[MIGRATION] Deliverable collection already exists, skipping creation');
-        return;
+      if (collections.length === 0) {
+        await db.connection.db.createCollection('deliverables');
+        console.log('[MIGRATION] Created Deliverable collection');
+      } else {
+        console.log('[MIGRATION] Deliverable collection already exists, skipping creation, syncing indexes instead');
       }
-
-      await db.connection.db.createCollection('deliverables');
-      console.log('[MIGRATION] Created Deliverable collection');
 
       // Create indexes
       const deliverableCollection = db.connection.db.collection('deliverables');

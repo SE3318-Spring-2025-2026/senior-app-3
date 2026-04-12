@@ -58,23 +58,23 @@ module.exports = {
       if (sprintCollections.length === 0) {
         await db.connection.db.createCollection('sprintrecords');
         console.log('[MIGRATION] Created SprintRecord collection');
-
-        const sprintRecordCollection = db.connection.db.collection('sprintrecords');
-
-        await sprintRecordCollection.createIndex({ sprintRecordId: 1 }, { unique: true });
-        console.log('[MIGRATION] Created index: sprintRecordId (unique)');
-
-        await sprintRecordCollection.createIndex({ sprintId: 1, groupId: 1 });
-        console.log('[MIGRATION] Created index: sprintId + groupId');
-
-        await sprintRecordCollection.createIndex({ committeeId: 1, sprintId: 1 });
-        console.log('[MIGRATION] Created index: committeeId + sprintId');
-
-        await sprintRecordCollection.createIndex({ groupId: 1, status: 1 });
-        console.log('[MIGRATION] Created index: groupId + status');
       } else {
         console.log('[MIGRATION] SprintRecord collection already exists, skipping creation');
       }
+
+      const sprintRecordCollection = db.connection.db.collection('sprintrecords');
+
+      await sprintRecordCollection.createIndex({ sprintRecordId: 1 }, { unique: true });
+      console.log('[MIGRATION] Created/synced index: sprintRecordId (unique)');
+
+      await sprintRecordCollection.createIndex({ sprintId: 1, groupId: 1 }, { unique: true });
+      console.log('[MIGRATION] Created/synced index: sprintId + groupId (unique)');
+
+      await sprintRecordCollection.createIndex({ committeeId: 1, sprintId: 1 });
+      console.log('[MIGRATION] Created/synced index: committeeId + sprintId');
+
+      await sprintRecordCollection.createIndex({ groupId: 1, status: 1 });
+      console.log('[MIGRATION] Created/synced index: groupId + status');
 
       // Create ContributionRecord collection
       const contributionCollections = await db.connection.db.listCollections({ name: 'contributionrecords' }).toArray();
@@ -82,30 +82,30 @@ module.exports = {
       if (contributionCollections.length === 0) {
         await db.connection.db.createCollection('contributionrecords');
         console.log('[MIGRATION] Created ContributionRecord collection');
-
-        const contributionRecordCollection = db.connection.db.collection('contributionrecords');
-
-        await contributionRecordCollection.createIndex(
-          { contributionRecordId: 1 },
-          { unique: true }
-        );
-        console.log('[MIGRATION] Created index: contributionRecordId (unique)');
-
-        await contributionRecordCollection.createIndex({
-          sprintId: 1,
-          studentId: 1,
-          groupId: 1,
-        });
-        console.log('[MIGRATION] Created index: sprintId + studentId + groupId');
-
-        await contributionRecordCollection.createIndex({ sprintId: 1, groupId: 1 });
-        console.log('[MIGRATION] Created index: sprintId + groupId');
-
-        await contributionRecordCollection.createIndex({ studentId: 1, sprintId: 1 });
-        console.log('[MIGRATION] Created index: studentId + sprintId');
       } else {
         console.log('[MIGRATION] ContributionRecord collection already exists, skipping creation');
       }
+
+      const contributionRecordCollection = db.connection.db.collection('contributionrecords');
+
+      await contributionRecordCollection.createIndex(
+        { contributionRecordId: 1 },
+        { unique: true }
+      );
+      console.log('[MIGRATION] Created/synced index: contributionRecordId (unique)');
+
+      await contributionRecordCollection.createIndex({
+        sprintId: 1,
+        studentId: 1,
+        groupId: 1,
+      }, { unique: true });
+      console.log('[MIGRATION] Created/synced index: sprintId + studentId + groupId (unique)');
+
+      await contributionRecordCollection.createIndex({ sprintId: 1, groupId: 1 });
+      console.log('[MIGRATION] Created/synced index: sprintId + groupId');
+
+      await contributionRecordCollection.createIndex({ studentId: 1, sprintId: 1 });
+      console.log('[MIGRATION] Created/synced index: studentId + sprintId');
     } catch (error) {
       console.error('[MIGRATION] Error in 008_create_d6_sprint_and_contribution_schema up:', error);
       throw error;

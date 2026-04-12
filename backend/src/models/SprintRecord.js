@@ -60,7 +60,7 @@ const sprintRecordSchema = new mongoose.Schema(
 
 // Indexes for efficient querying
 sprintRecordSchema.index({ sprintRecordId: 1 });
-sprintRecordSchema.index({ sprintId: 1, groupId: 1 });
+sprintRecordSchema.index({ sprintId: 1, groupId: 1 }, { unique: true });
 sprintRecordSchema.index({ committeeId: 1, sprintId: 1 });
 sprintRecordSchema.index({ groupId: 1, status: 1 });
 
