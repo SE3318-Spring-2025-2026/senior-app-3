@@ -31,16 +31,16 @@ const scheduleWindowSchema = new mongoose.Schema(
        * =====================================================================
        * NAMING PATTERN CONSISTENCY:
        * - Field name in Schema: camelCase (operationType)
-       * - Enum values in database: snake_case ('group_creation', 'member_addition', 'advisor_association')
-       * - Field name in API serialization: snake_case (operation_type in JSON responses)
+       * - Enum values in database: snake_case ('group_creation', 'member_addition', etc.)
+       * - Field name in API serialization: snake_case (operation_type in JSON)
        *
        * WHY THIS PATTERN:
-       * JavaScript/Mongoose conventions use camelCase for field names (operationType).
+       * JavaScript/Mongoose conventions use camelCase for field names.
        * Database values and API JSON responses use snake_case enum strings for consistency
        * with REST API naming conventions and DFD process naming.
        *
        * VALIDATION: All enum values are already snake_case strings ✓
-       * All references in code use consistent enum values ✓
+       * All references in code use consistent enum values from VALID_OPERATION_TYPES ✓
        * =====================================================================
        */
     },

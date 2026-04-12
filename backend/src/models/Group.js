@@ -26,7 +26,7 @@ const advisorRequestSchema = new mongoose.Schema(
   {
     requestId: { 
       type: String, 
-      required: true,
+      required: true, 
       default: () => `adv_req_${uuidv4().split('-')[0]}`
     },
     professorId: { type: String, required: true },
@@ -67,21 +67,25 @@ const groupSchema = new mongoose.Schema(
     advisorId: {
       type: String,
       default: null,
+      description: 'ID of the professor assigned as advisor (Process 3.5)',
     },
-    // FIX #2: Added 'disbanded' to advisorStatus for lifecycle tracking.
+    // FIX #2: Combined 'disbanded' and null for lifecycle tracking (Issue #66)
     advisorStatus: {
       type: String,
       enum: ['pending', 'assigned', 'released', 'transferred', 'disbanded', null],
       default: null,
+      description: 'Tracks the state of advisor assignment for this group (Level 2.3)',
     },
     advisorRequestId: {
       type: String,
       default: null,
+      description: 'Reference to the AdvisorRequest record for audit trail',
     },
     advisorRequest: advisorRequestSchema,
     advisorUpdatedAt: {
       type: Date,
-      default: null
+      default: null,
+      description: 'Timestamp of last advisor assignment status change',
     },
     advisorAssignedAt: {
       type: Date,
@@ -118,22 +122,20 @@ const groupSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// --- Indexes ---
+// --- Core Indexes ---
 groupSchema.index({ leaderId: 1 });
 groupSchema.index({ status: 1 });
-groupSchema.index({ advisorId: 1 });
-groupSchema.index({ advisorStatus: 1 });
 groupSchema.index({ groupId: 1 }, { unique: true });
 
-// FIX #3: Enforce global uniqueness on advisor request ID via parent index
+// FIX #3: Global uniqueness for requests without breaking groups without requests
 groupSchema.index({ 'advisorRequest.requestId': 1 }, { unique: true, sparse: true });
 
-// FIX #5: Index Drift Resolution (Optimization for multi-field queries)
+// FIX #5: Index Drift Resolution - High-performance queries for Coordinator View
 groupSchema.index({ advisorId: 1, advisorStatus: 1 });
-
-// Optimization for advisor request tracking & sanitization scans
 groupSchema.index({ 'advisorRequest.professorId': 1 });
 groupSchema.index({ 'advisorRequest.status': 1 });
+
+// Optimization for scanning unassigned groups during sanitization (Process 3.7)
 groupSchema.index({ status: 1, advisorId: 1 });
 
 const Group = mongoose.model('Group', groupSchema);
