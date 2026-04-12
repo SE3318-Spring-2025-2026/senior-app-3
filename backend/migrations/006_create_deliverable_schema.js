@@ -1,5 +1,3 @@
-const mongoose = require('mongoose');
-
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  * Migration 006: Create Deliverable Schema (D4) - IDEMPOTENCY FIX (ISSUE #85)
@@ -38,13 +36,14 @@ const mongoose = require('mongoose');
  */
 
 const up = async (db) => {
+  const mongoDb = db.connection.db;
   console.log('[Migration 006] Creating deliverables collection (Phase 1 + Phase 2)...');
 
   // ═══════════════════════════════════════════════════════════════════════════════════════
   // PHASE 1: COLLECTION CREATION (CONDITIONAL)
   // Create collection only if it doesn't exist. Can have early return here.
   // ═══════════════════════════════════════════════════════════════════════════════════════
-  const collections = await db.listCollections().toArray();
+  const collections = await mongoDb.listCollections().toArray();
   const collectionNames = collections.map((c) => c.name);
 
   if (collectionNames.includes('deliverables')) {
@@ -52,7 +51,7 @@ const up = async (db) => {
   } else {
     // Create collection with JSON schema validation
     // Validation ensures all documents conform to schema (defense-in-depth Layer 2)
-    await db.createCollection('deliverables', {
+    await mongoDb.createCollection('deliverables', {
       validator: {
         $jsonSchema: {
           bsonType: 'object',
@@ -135,7 +134,7 @@ const up = async (db) => {
     }
   };
 
-  const collection = db.collection('deliverables');
+  const collection = mongoDb.collection('deliverables');
 
   // Create all 7 indexes required for D4 deliverables lookup patterns
   // Each index is created unconditionally (Phase 2 always runs - ISSUE #85 fix)
@@ -222,19 +221,20 @@ const up = async (db) => {
 };
 
 const down = async (db) => {
+  const mongoDb = db.connection.db;
   // ROLLBACK: Drop deliverables collection
   // Reversible migration: collection can be recreated via forward migration
   console.log('[Migration 006] Rolling back D4 deliverables schema (dropping collection)...');
 
-  const collections = await db.listCollections().toArray();
+  const collections = await mongoDb.listCollections().toArray();
   const collectionNames = collections.map((c) => c.name);
 
   if (collectionNames.includes('deliverables')) {
-    await db.collection('deliverables').drop();
+    await mongoDb.collection('deliverables').drop();
     console.log('[Migration 006] ✅ deliverables collection dropped (rollback complete)');
   } else {
     console.log('[Migration 006] ℹ️  deliverables collection does not exist (nothing to drop)');
   }
 };
 
-module.exports = { up, down };
+module.exports = { name: '006_create_deliverable_schema', up, down };

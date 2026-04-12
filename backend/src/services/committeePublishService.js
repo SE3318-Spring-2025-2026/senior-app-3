@@ -153,7 +153,7 @@ const publishCommitteeWithTransaction = async ({
             linkedGroupCount: assignedGroupIds?.length || 0,
           },
         },
-        { session }
+        session
       );
 
       if (assignedGroupIds && assignedGroupIds.length > 0) {
@@ -168,7 +168,7 @@ const publishCommitteeWithTransaction = async ({
               linkedGroupCount: assignedGroupIds.length,
             },
           },
-          { session }
+          session
         );
       }
 

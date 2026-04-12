@@ -1,5 +1,5 @@
 ﻿const axios = require('axios');
-const { retryNotificationWithBackoff } = require('./notificationRetry');
+const { retryNotificationWithBackoff, isTransientError } = require('./notificationRetry');
 const Group = require('../models/Group');
 
 const NOTIFICATION_SERVICE_URL =
@@ -100,8 +100,69 @@ const dispatchCommitteePublishNotification = async ({
   };
 
   return await retryNotificationWithBackoff(dispatchFn, {
-    context: { committeeId, operation: 'committee_published', actorId: coordinatorId },
+    context: {
+      committeeId,
+      groupId: committeeId,
+      operation: 'committee_published',
+      actorId: coordinatorId,
+    },
   });
+};
+
+/**
+ * Issue #62: advisee_request with transient-aware retries (used by groups controller).
+ */
+const dispatchAdvisorRequestWithRetry = async ({ groupId, requesterId, message }) => {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await axios.post(
+        `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+        {
+          type: 'advisee_request',
+          groupId,
+          requesterId,
+          message: message || null,
+        },
+        { timeout: 5000 }
+      );
+      return {
+        ok: true,
+        notificationId: response.data.notification_id || response.data.id || response.data.notificationId,
+        attempts: attempt,
+        lastError: null,
+      };
+    } catch (err) {
+      lastError = err.message;
+      if (!isTransientError(err)) {
+        return {
+          ok: false,
+          notificationId: null,
+          attempts: attempt,
+          lastError: `Permanent error (${err.response?.status}): ${lastError}`,
+        };
+      }
+      if (attempt < 3) {
+        await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+      }
+    }
+  }
+
+  return {
+    ok: false,
+    notificationId: null,
+    attempts: 3,
+    lastError: `All 3 retry attempts failed: ${lastError}`,
+  };
+};
+
+/**
+ * Advisor assignment status notice to group leader (Process 3.4).
+ */
+const dispatchAdvisorStatusNotification = async (payload) => {
+  const response = await axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications`, payload, { timeout: 5000 });
+  return response.data;
 };
 
 /**
@@ -174,8 +235,11 @@ module.exports = {
   dispatchBatchInvitationNotification,
   dispatchCommitteePublishNotification,
   dispatchAdvisorRequestNotification,
+  dispatchAdvisorRequestWithRetry,
   dispatchAdvisorDecisionNotification,
+  dispatchAdvisorStatusNotification,
   dispatchAdvisorTransferNotification,
   dispatchGroupDisbandNotification,
   dispatchDisbandNotification,
+  isTransientError,
 };

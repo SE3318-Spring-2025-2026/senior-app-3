@@ -1,5 +1,3 @@
-const mongoose = require('mongoose');
-
 /**
  * Migration 009: D4 Deliverables Storage Schema Enhancement
  * Adds additional indexes and constraints for deliverable storage optimization
@@ -7,9 +5,10 @@ const mongoose = require('mongoose');
  */
 
 const up = async (db) => {
+  const mongoDb = db.connection.db;
   console.log('[Migration 009] Enhancing deliverables collection...');
 
-  const collections = await db.listCollections().toArray();
+  const collections = await mongoDb.listCollections().toArray();
   const collectionNames = collections.map((c) => c.name);
 
   if (!collectionNames.includes('deliverables')) {
@@ -31,7 +30,7 @@ const up = async (db) => {
 
   for (const index of indexesToCreate) {
     try {
-      await db.collection('deliverables').createIndex(index.key, index.options);
+      await mongoDb.collection('deliverables').createIndex(index.key, index.options);
       console.log(`[Migration 009] Created index on deliverables: ${JSON.stringify(index.key)}`);
     } catch (error) {
       // Ignore duplicate index errors
@@ -47,9 +46,10 @@ const up = async (db) => {
 };
 
 const down = async (db) => {
+  const mongoDb = db.connection.db;
   console.log('[Migration 009] Rolling back deliverables collection enhancements...');
 
-  const collections = await db.listCollections().toArray();
+  const collections = await mongoDb.listCollections().toArray();
   const collectionNames = collections.map((c) => c.name);
 
   if (!collectionNames.includes('deliverables')) {
@@ -67,7 +67,7 @@ const down = async (db) => {
 
   for (const indexKey of indexesToDrop) {
     try {
-      await db.collection('deliverables').dropIndex(indexKey);
+      await mongoDb.collection('deliverables').dropIndex(indexKey);
       console.log(`[Migration 009] Dropped index on deliverables: ${JSON.stringify(indexKey)}`);
     } catch (error) {
       // Ignore index not found errors
@@ -81,4 +81,4 @@ const down = async (db) => {
   console.log('[Migration 009] Deliverables collection rollback completed');
 };
 
-module.exports = { up, down };
+module.exports = { name: '009_d4_deliverables_storage_schema', up, down };

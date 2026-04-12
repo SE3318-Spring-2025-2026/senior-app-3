@@ -38,7 +38,7 @@ const {
  * @param {object} res
  * @returns {Promise<void>}
  */
-const publishCommittee = async (req, res) => {
+const publishCommitteeHandler = async (req, res) => {
   try {
     const { committeeId } = req.params;
     const { assignedGroupIds = [] } = req.body;
@@ -107,7 +107,7 @@ const publishCommittee = async (req, res) => {
     }
 
     // Generic database/transaction error
-    console.error('publishCommittee error:', err);
+    console.error('publishCommitteeHandler error:', err);
     return res.status(500).json({
       error: 'Internal Server Error',
       message: err.message,
@@ -407,7 +407,7 @@ const assignJuryHandler = async (req, res) => {
 
 module.exports = {
   createCommittee,
-  publishCommittee,
+  publishCommitteeHandler,
   validateCommitteeHandler,
   assignAdvisorsHandler,
   assignJuryHandler,
