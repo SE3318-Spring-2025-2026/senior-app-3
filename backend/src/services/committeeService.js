@@ -86,7 +86,7 @@ const validateCommittee = async (committeeId, coordinatorId) => {
     await committee.save();
 
     await createAuditLog({
-      action: 'COMMITTEE_VALIDATED',
+      action: 'COMMITTEE_VALIDATION_PASSED',
       actorId: coordinatorId,
       payload: {
         committeeId: committee.committeeId,
