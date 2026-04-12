@@ -152,6 +152,19 @@ export const getGroup = async (groupId) => {
 };
 
 /**
+ * Submit an advisor request (Process 3.2) — team leader only; requires advisor_association schedule window.
+ */
+export const createAdvisorRequest = async ({ groupId, professorId, requesterId, message }) => {
+  const response = await apiClient.post('/advisor-requests', {
+    groupId,
+    professorId,
+    requesterId,
+    ...(message != null && message !== '' ? { message } : {}),
+  });
+  return response.data;
+};
+
+/**
  * Get group members
  * @param {string} groupId - The group ID
  * @returns {Promise} List of group members
@@ -270,6 +283,20 @@ export const getAllGroups = async () => {
  */
 export const coordinatorOverride = async (groupId, payload) => {
   const response = await apiClient.patch(`/groups/${groupId}/override`, payload);
+  return response.data;
+};
+
+/**
+ * Coordinator transfer: reassign group advisor to another professor
+ * @param {string} groupId
+ * @param {{newProfessorId: string, reason?: string}} payload
+ * @returns {Promise<{groupId: string, professorId: string, status: string, updatedAt: string}>}
+ */
+export const transferAdvisor = async (groupId, { newProfessorId, reason }) => {
+  const response = await apiClient.post(`/groups/${groupId}/advisor/transfer`, {
+    newProfessorId,
+    reason: reason || undefined,
+  });
   return response.data;
 };
 
