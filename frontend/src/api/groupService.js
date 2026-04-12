@@ -379,3 +379,11 @@ export const configureJira = async (groupId, { host, email, api_token, project_k
     throw error;
   }
 };
+
+/**
+ * Coordinator/system: run post-deadline advisor sanitization (Process 3.7)
+ */
+export const advisorSanitization = async () => {
+  const response = await apiClient.post('/groups/advisor-sanitization');
+  return response.data;
+};

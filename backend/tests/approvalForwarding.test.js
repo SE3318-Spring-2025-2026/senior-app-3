@@ -25,7 +25,7 @@ describe('POST /groups/:groupId/approval-results — forwardApprovalResults', ()
   const makeReq = (params = {}, body = {}) => ({
     params,
     body,
-    user: { userId: 'usr_test', role: 'committee_member' },
+    user: { userId: 'usr_test', role: 'professor' },
     ip: '127.0.0.1',
     headers: { 'user-agent': 'test-agent' },
   });

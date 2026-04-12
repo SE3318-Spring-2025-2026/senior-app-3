@@ -61,7 +61,7 @@ components:
           example: "alice@university.edu"
         role:
           type: string
-          enum: [student, professor, admin, committee_member]
+          enum: [student, professor, admin, coordinator]
         githubUsername:
           type: string
           description: Linked GitHub username; present after process 1.3 completes.

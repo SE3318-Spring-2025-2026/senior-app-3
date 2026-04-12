@@ -82,7 +82,7 @@ const checkAdvisorOperationWindow = (operationType = 'advisor_association') => a
 
     if (!activeWindow) {
       return res.status(422).json({
-        code: 'SCHEDULE_WINDOW_CLOSED',
+        code: 'OUTSIDE_SCHEDULE_WINDOW',
         message: `${operationType.replace('_', ' ')} schedule is closed`,
       });
     }

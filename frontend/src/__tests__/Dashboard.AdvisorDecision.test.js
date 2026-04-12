@@ -8,9 +8,9 @@ jest.mock('../store/authStore', () => jest.fn());
 jest.mock('../api/groupService', () => ({
   getMyPendingInvitation: jest.fn(),
 }));
-jest.mock('../api/advisorRequestService', () => ({
-  getProfessorAdvisorRequests: jest.fn(),
-  decideAdvisorRequest: jest.fn(),
+jest.mock('../api/advisorService', () => ({
+  getMyAdvisorRequests: jest.fn(),
+  decideOnAdvisorRequest: jest.fn(),
 }));
 jest.mock('react-router-dom', () => ({
   ...jest.requireActual('react-router-dom'),
@@ -18,7 +18,7 @@ jest.mock('react-router-dom', () => ({
 }));
 
 const useAuthStore = require('../store/authStore').default;
-const { getProfessorAdvisorRequests, decideAdvisorRequest } = require('../api/advisorRequestService');
+const { getMyAdvisorRequests, decideOnAdvisorRequest } = require('../api/advisorService');
 
 describe('Dashboard advisor decision panel', () => {
   beforeEach(() => {
@@ -32,16 +32,14 @@ describe('Dashboard advisor decision panel', () => {
       })
     );
 
-    getProfessorAdvisorRequests.mockResolvedValue({
-      requests: [
-        {
-          requestId: 'arq_1',
-          groupId: 'grp_1',
-          requesterId: 'usr_student_1',
-          message: 'Please guide us.',
-        },
-      ],
-    });
+    getMyAdvisorRequests.mockResolvedValue([
+      {
+        requestId: 'arq_1',
+        groupId: 'grp_1',
+        requesterId: 'usr_student_1',
+        message: 'Please guide us.',
+      },
+    ]);
 
     render(<Dashboard />);
 
@@ -60,18 +58,16 @@ describe('Dashboard advisor decision panel', () => {
       })
     );
 
-    getProfessorAdvisorRequests.mockResolvedValue({
-      requests: [
-        {
-          requestId: 'arq_approve',
-          groupId: 'grp_approve',
-          requesterId: 'usr_student_2',
-          message: '',
-        },
-      ],
-    });
+    getMyAdvisorRequests.mockResolvedValue([
+      {
+        requestId: 'arq_approve',
+        groupId: 'grp_approve',
+        requesterId: 'usr_student_2',
+        message: '',
+      },
+    ]);
 
-    decideAdvisorRequest.mockResolvedValue({
+    decideOnAdvisorRequest.mockResolvedValue({
       requestId: 'arq_approve',
       assignedGroupId: 'grp_approve',
     });
@@ -83,10 +79,11 @@ describe('Dashboard advisor decision panel', () => {
     await user.click(screen.getByText('Approve'));
 
     await waitFor(() => {
-      expect(decideAdvisorRequest).toHaveBeenCalledWith('arq_approve', {
-        decision: 'approve',
-        reason: 'I can supervise this project',
-      });
+      expect(decideOnAdvisorRequest).toHaveBeenCalledWith(
+        'arq_approve',
+        'approve',
+        'I can supervise this project'
+      );
     });
   });
 
@@ -98,18 +95,16 @@ describe('Dashboard advisor decision panel', () => {
       })
     );
 
-    getProfessorAdvisorRequests.mockResolvedValue({
-      requests: [
-        {
-          requestId: 'arq_closed',
-          groupId: 'grp_closed',
-          requesterId: 'usr_student_3',
-          message: '',
-        },
-      ],
-    });
+    getMyAdvisorRequests.mockResolvedValue([
+      {
+        requestId: 'arq_closed',
+        groupId: 'grp_closed',
+        requesterId: 'usr_student_3',
+        message: '',
+      },
+    ]);
 
-    decideAdvisorRequest.mockRejectedValue({
+    decideOnAdvisorRequest.mockRejectedValue({
       response: { status: 422 },
     });
 

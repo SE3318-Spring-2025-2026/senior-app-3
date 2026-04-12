@@ -46,6 +46,9 @@ export const searchProfessors = async (query = '') => {
   return response.data.professors || response.data;
 };
 
+export const getProfessors = searchProfessors;
+export const checkAdvisorWindow = getAdvisorAssociationWindow;
+
 /**
  * Release the currently assigned advisor from the group (Process 3.5)
  * Available to Team Leader or Coordinator.
@@ -67,6 +70,25 @@ export const transferAdvisor = async (groupId, { newProfessorId, reason }) => {
   const response = await apiClient.post(`/groups/${groupId}/advisor/transfer`, {
     newProfessorId,
     reason: reason?.trim()
+  });
+  return response.data;
+};
+
+/**
+ * Professor inbox: list all advisor requests for the authenticated professor.
+ */
+export const getMyAdvisorRequests = async () => {
+  const response = await apiClient.get('/advisor-requests/mine');
+  return response.data.requests || [];
+};
+
+/**
+ * Professor inbox: approve or reject a pending advisor request.
+ */
+export const decideOnAdvisorRequest = async (requestId, decision, reason) => {
+  const response = await apiClient.patch(`/advisor-requests/${requestId}`, {
+    decision,
+    reason: reason ?? undefined,
   });
   return response.data;
 };

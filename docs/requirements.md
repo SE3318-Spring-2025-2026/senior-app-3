@@ -116,7 +116,7 @@ Below is the atomic breakdown of each isolated process. Each row represents a sp
 
 | PROCESS STEP | SYSTEM COMPONENT | DATA REQUIRED |
 | :--- | :--- | :--- |
-| Committee members open and read the submitted deliverable | Frontend + Backend | `deliverable_id`, `committee_member_id` |
+| Committee members open and read the submitted deliverable | Frontend + Backend | `deliverable_id`, `reviewer_user_id` |
 | Committee members leave comments and request clarifications | Frontend + Backend + DB | `deliverable_id`, `comment_markdown`, `author_id` |
 | Committee members mark specific sections as 'needs clarification' or 'ok' | Frontend + Backend + DB | `deliverable_id`, `section_id`, `status` |
 | Coordinator/Team receives clarification requests and can resubmit | Frontend + Backend + Storage | `deliverable_id`, `resubmission_flag` |
@@ -127,7 +127,7 @@ Below is the atomic breakdown of each isolated process. Each row represents a sp
 | PROCESS STEP | SYSTEM COMPONENT | DATA REQUIRED |
 | :--- | :--- | :--- |
 | Coordinator-created rubric is referenced for scoring | Frontend (Committee UI) + Backend + DB | `rubric_id`, `rubric_definition` |
-| Committee members assign rubric scores to the deliverable | Frontend + Backend + DB | `deliverable_id`, `rubric_scores`, `committee_member_id` |
+| Committee members assign rubric scores to the deliverable | Frontend + Backend + DB | `deliverable_id`, `rubric_scores`, `reviewer_user_id` |
 | System aggregates rubric scores and computes final score for that deliverable | Backend + DB | `deliverable_id`, `aggregated_score` |
 
 ### 8. Sprint Tracking (Story Points Retrieval)

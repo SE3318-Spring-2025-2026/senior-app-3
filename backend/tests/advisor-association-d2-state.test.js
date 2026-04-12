@@ -162,7 +162,7 @@ describe('Issue #75 — Advisor Association Endpoints & D2 State (contract)', ()
         groupId: group.groupId,
         professorId: professor.userId,
         status: 'pending',
-        createdBy: 'usr_leader',
+        requesterId: 'usr_leader',
       });
       const token = generateTokenPair('usr_leader', 'student').accessToken;
 
@@ -242,7 +242,7 @@ describe('Issue #75 — Advisor Association Endpoints & D2 State (contract)', ()
         groupId: group.groupId,
         professorId: professor.userId,
         status: 'pending',
-        createdBy: 'usr_leader',
+        requesterId: 'usr_leader',
       });
       const token = generateTokenPair(professor.userId, 'professor').accessToken;
 
@@ -262,7 +262,7 @@ describe('Issue #75 — Advisor Association Endpoints & D2 State (contract)', ()
         professorId: professor.userId,
         status: 'pending',
         groupId: (await createGroupDoc()).groupId,
-        createdBy: 'usr_leader',
+        requesterId: 'usr_leader',
       });
       const token = generateTokenPair(professor.userId, 'professor').accessToken;
 
@@ -280,7 +280,7 @@ describe('Issue #75 — Advisor Association Endpoints & D2 State (contract)', ()
         professorId: 'usr_prof_x',
         status: 'pending',
         groupId: (await createGroupDoc()).groupId,
-        createdBy: 'usr_leader',
+        requesterId: 'usr_leader',
       });
       const token = generateTokenPair('usr_student', 'student').accessToken;
 
@@ -301,7 +301,7 @@ describe('Issue #75 — Advisor Association Endpoints & D2 State (contract)', ()
         groupId: group.groupId,
         professorId: professorA.userId,
         status: 'pending',
-        createdBy: 'usr_leader',
+        requesterId: 'usr_leader',
       });
       const tokenB = generateTokenPair(professorB.userId, 'professor').accessToken;
 
@@ -323,7 +323,7 @@ describe('Issue #75 — Advisor Association Endpoints & D2 State (contract)', ()
         professorId: professor.userId,
         status: 'approved',
         groupId: (await createGroupDoc()).groupId,
-        createdBy: 'usr_leader',
+        requesterId: 'usr_leader',
       });
       const token = generateTokenPair(professor.userId, 'professor').accessToken;
 
@@ -346,7 +346,7 @@ describe('Issue #75 — Advisor Association Endpoints & D2 State (contract)', ()
         professorId: professor.userId,
         status: 'pending',
         groupId: (await createGroupDoc()).groupId,
-        createdBy: 'usr_leader',
+        requesterId: 'usr_leader',
       });
       const token = generateTokenPair(professor.userId, 'professor').accessToken;
 
@@ -624,7 +624,7 @@ describe('Issue #75 — Advisor Association Endpoints & D2 State (contract)', ()
         groupId: group.groupId,
         professorId: professor.userId,
         status: 'pending',
-        createdBy: 'usr_leader',
+        requesterId: 'usr_leader',
       });
       const token = generateTokenPair(professor.userId, 'professor').accessToken;
 
@@ -757,7 +757,7 @@ describe('Issue #75 — Advisor Association Endpoints & D2 State (contract)', ()
         groupId: group.groupId,
         professorId: professor.userId,
         status: 'pending',
-        createdBy: 'usr_leader',
+        requesterId: 'usr_leader',
       });
       const spy = jest.spyOn(notificationService, 'dispatchAdvisorDecisionNotification');
 
@@ -783,7 +783,7 @@ describe('Issue #75 — Advisor Association Endpoints & D2 State (contract)', ()
         groupId: group.groupId,
         professorId: professor.userId,
         status: 'pending',
-        createdBy: 'usr_leader',
+        requesterId: 'usr_leader',
       });
       const spy = jest.spyOn(notificationService, 'dispatchAdvisorDecisionNotification');
 
@@ -836,7 +836,7 @@ describe('Issue #75 — Advisor Association Endpoints & D2 State (contract)', ()
         groupId: group.groupId,
         professorId: professor.userId,
         status: 'pending',
-        createdBy: 'usr_leader',
+        requesterId: 'usr_leader',
       });
 
       const res = await request(app)

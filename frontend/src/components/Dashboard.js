@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
 import { getMyPendingInvitation } from '../api/groupService';
-import { getProfessorAdvisorRequests, decideAdvisorRequest } from '../api/advisorRequestService';
+import { getMyAdvisorRequests, decideOnAdvisorRequest } from '../api/advisorService';
 import './Dashboard.css';
 
 const Dashboard = () => {
@@ -45,8 +45,8 @@ const Dashboard = () => {
       setAdvisorLoading(true);
       setAdvisorError('');
       try {
-        const data = await getProfessorAdvisorRequests();
-        setAdvisorRequests(data.requests || []);
+        const data = await getMyAdvisorRequests();
+        setAdvisorRequests(Array.isArray(data) ? data : []);
       } catch (error) {
         setAdvisorError('Could not load advisor requests. Please refresh.');
       } finally {
@@ -77,10 +77,11 @@ const Dashboard = () => {
     const draft = decisionState[requestId] || {};
 
     try {
-      const response = await decideAdvisorRequest(requestId, {
+      const response = await decideOnAdvisorRequest(
+        requestId,
         decision,
-        reason: draft.reason || '',
-      });
+        draft.reason || ''
+      );
 
       setAdvisorRequests((prev) => prev.filter((item) => item.requestId !== requestId));
       updateDecisionDraft(requestId, {

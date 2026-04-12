@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ========================================
  * Issue #67, #69 & #70: Post-Deadline Sanitization Service
  * ========================================
@@ -9,7 +9,7 @@
 const Group = require('../models/Group');
 const ScheduleWindow = require('../models/ScheduleWindow');
 const SyncErrorLog = require('../models/SyncErrorLog');
-const { createAuditLog } = require('../utils/auditLogger');
+const { createAuditLog } = require('../services/auditService');
 
 /**
  * Custom error class for sanitization service operations.

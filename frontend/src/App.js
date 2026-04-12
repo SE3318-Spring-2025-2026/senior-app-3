@@ -16,6 +16,7 @@ import GroupDashboard from './components/GroupDashboard';
 import GroupCreationPage from './components/GroupCreationPage';
 import AdviseeRequestForm from './components/AdviseeRequestForm';
 import CoordinatorPanel from './components/CoordinatorPanel';
+import ProfessorInbox from './components/ProfessorInbox';
 import CommitteeCreationForm from './components/CommitteeCreationForm';
 import JuryAssignmentForm from './components/JuryAssignmentForm';
 import Dashboard from './components/Dashboard';
@@ -24,16 +25,10 @@ import './App.css';
 import './components/layout/Sidebar.css';
 import AdvisorAssociationPanel from './components/AdvisorAssociationPanel';
 
-/**
- * Placeholder components for routes not yet implemented
- */
 const Profile = () => <div className="page">Profile - Coming Soon</div>;
 const Unauthorized = () => <div className="page error">Unauthorized Access</div>;
 const NotFound = () => <div className="page error">Page Not Found</div>;
 
-/**
- * Main App component with routing
- */
 function App() {
   const { isAuthenticated } = useAuthStore();
 
@@ -45,7 +40,6 @@ function App() {
         </div>
         <div className="app-layout-content" style={{ marginLeft: isAuthenticated ? '250px' : '0' }}>
           <Routes>
-            {/* Public Routes */}
             <Route path="/" element={<Navigate to="/auth/method-selection" replace />} />
             <Route path="/auth/method-selection" element={<AuthMethodSelection />} />
             <Route path="/auth/login" element={<LoginForm />} />
@@ -55,13 +49,15 @@ function App() {
             <Route path="/auth/github/callback" element={<GitHubCallbackHandler />} />
             <Route path="/onboarding" element={<OnboardingStepper />} />
 
-            {/* Professor first-login: dedicated route, protected */}
             <Route
               path="/professor/setup"
               element={<ProtectedRoute component={ProfessorOnboardModal} />}
             />
+            <Route
+              path="/professor/inbox"
+              element={<ProtectedRoute component={ProfessorInbox} requiredRoles={['professor']} />}
+            />
 
-            {/* Admin Routes */}
             <Route
               path="/admin/password-reset"
               element={<ProtectedRoute component={AdminPasswordReset} requiredRoles={['admin']} />}
@@ -71,11 +67,12 @@ function App() {
               element={<ProtectedRoute component={AdminProfessorCreation} requiredRoles={['admin']} />}
             />
 
-            {/* Coordinator Routes */}
             <Route
               path="/coordinator"
               element={<ProtectedRoute component={CoordinatorPanel} requiredRoles={['coordinator', 'admin']} />}
             />
+            
+            {/* Committee Routes from main */}
             <Route
               path="/coordinator/committees/new"
               element={<ProtectedRoute component={CommitteeCreationForm} requiredRoles={['coordinator']} />}
@@ -85,7 +82,6 @@ function App() {
               element={<ProtectedRoute component={JuryAssignmentForm} requiredRoles={['coordinator']} />}
             />
 
-            {/* Protected Routes */}
             <Route
               path="/dashboard"
               element={<ProtectedRoute component={Dashboard} />}
@@ -111,15 +107,10 @@ function App() {
               element={<ProtectedRoute component={CoordinatorPanel} requiredRoles={['coordinator', 'admin']} />}
             />
             <Route
-              path="/groups/:group_id/advisor-request"
-              element={<ProtectedRoute component={AdviseeRequestForm} requiredRoles={['student']} />}
-            />
-            <Route
               path="/profile"
               element={<ProtectedRoute component={Profile} />}
             />
 
-            {/* Error Routes */}
             <Route path="/unauthorized" element={<Unauthorized />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
@@ -130,4 +121,3 @@ function App() {
 }
 
 export default App;
-

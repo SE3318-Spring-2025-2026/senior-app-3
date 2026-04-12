@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+﻿const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 
 /**
@@ -69,7 +69,10 @@ const groupSchema = new mongoose.Schema(
       default: null,
       description: 'ID of the professor assigned as advisor (Process 3.5)',
     },
-    // FIX #2: Combined 'disbanded' and null for lifecycle tracking (Issue #66)
+    professorId: {
+      type: String,
+      default: null,
+    },
     advisorStatus: {
       type: String,
       enum: ['pending', 'assigned', 'released', 'transferred', 'disbanded', null],

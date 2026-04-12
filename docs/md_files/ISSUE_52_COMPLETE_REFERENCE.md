@@ -167,7 +167,7 @@ router.get('/:groupId/status', authMiddleware, getStatus);
 router.patch(
   '/:groupId/status', 
   authMiddleware, 
-  roleMiddleware(['coordinator', 'committee_member', 'professor', 'admin']), 
+  roleMiddleware(['coordinator', 'professor', 'admin']), 
   transitionStatus
 );
 ```

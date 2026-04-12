@@ -28,6 +28,87 @@ const hasFutureSanitizationWindow = async () => {
 };
 
 /**
+ * GET /api/v1/advisor-requests/mine
+ * All advisor requests for the authenticated professor (inbox), with group context.
+ */
+const listProfessorAdvisorRequests = async (req, res) => {
+  try {
+    const professorId = req.user.userId;
+    const requests = await AdvisorRequest.find({ professorId }).sort({ createdAt: -1 });
+
+    const groupIds = [...new Set(requests.map((r) => r.groupId))];
+    const groups = await Group.find({ groupId: { $in: groupIds } });
+    const groupMap = new Map(groups.map((g) => [g.groupId, g]));
+
+    const leadersMap = new Map();
+    for (const group of groups) {
+      const leader = await User.findOne({ userId: group.leaderId }).select('email');
+      if (leader) {
+        leadersMap.set(group.leaderId, leader.email);
+      }
+    }
+
+    const enriched = requests.map((doc) => {
+      const plain = doc.toObject();
+      const g = groupMap.get(doc.groupId);
+      return {
+        ...plain,
+        groupName: g?.groupName || 'Unknown Group',
+        leaderEmail: leadersMap.get(g?.leaderId) || 'Unknown',
+        decision:
+          plain.status === 'approved'
+            ? 'approve'
+            : plain.status === 'rejected'
+              ? 'reject'
+              : null,
+      };
+    });
+
+    return res.status(200).json({ requests: enriched });
+  } catch (err) {
+    console.error('listProfessorAdvisorRequests error:', err);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: 'Unable to retrieve requests.',
+    });
+  }
+};
+
+/**
+ * GET /api/v1/advisor-requests/pending
+ * Pending requests only (compact payload for dashboards).
+ */
+const listProfessorPendingRequests = async (req, res) => {
+  try {
+    const professorId = req.user.userId;
+    const requests = await AdvisorRequest.find({
+      professorId,
+      status: 'pending',
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return res.status(200).json({
+      requests: requests.map((item) => ({
+        requestId: item.requestId,
+        groupId: item.groupId,
+        professorId: item.professorId,
+        requesterId: item.requesterId,
+        status: item.status,
+        message: item.message || '',
+        createdAt: item.createdAt,
+      })),
+    });
+  } catch (error) {
+    console.error('listProfessorPendingRequests error:', error);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: 'An unexpected error occurred',
+    });
+  }
+};
+
+/**
  * POST /api/v1/advisor-requests
  */
 const submitAdvisorRequest = async (req, res) => {
@@ -69,12 +150,16 @@ const submitAdvisorRequest = async (req, res) => {
     const requestDoc = await AdvisorRequest.create({
       groupId,
       professorId,
-      createdBy: req.user.userId,
+      requesterId: req.user.userId,
     });
 
     await Group.updateOne({ groupId }, { $set: { advisorStatus: 'pending' } });
 
-    await notificationService.dispatchAdvisorRequestNotification({ groupId, professorId });
+    try {
+      await notificationService.dispatchAdvisorRequestNotification({ groupId, professorId });
+    } catch (notifyErr) {
+      console.error('dispatchAdvisorRequestNotification:', notifyErr.message);
+    }
 
     await createAuditLog({
       action: 'advisor_request_submitted',
@@ -106,7 +191,7 @@ const submitAdvisorRequest = async (req, res) => {
 const processAdvisorRequest = async (req, res) => {
   try {
     const { requestId } = req.params;
-    const { decision } = req.body;
+    const { decision, reason } = req.body;
 
     if (!decision || !['approve', 'reject'].includes(decision)) {
       return res.status(400).json({
@@ -120,7 +205,7 @@ const processAdvisorRequest = async (req, res) => {
       return res.status(404).json({ code: 'NOT_FOUND', message: 'Advisor request not found' });
     }
 
-    if (ar.professorId !== req.user.userId) {
+    if (ar.professorId !== req.user.userId && req.user.role !== 'admin') {
       return res.status(403).json({
         code: 'FORBIDDEN',
         message: 'This request is assigned to another professor',
@@ -136,8 +221,21 @@ const processAdvisorRequest = async (req, res) => {
       return res.status(404).json({ code: 'NOT_FOUND', message: 'Group not found' });
     }
 
+    const now = new Date();
+    const reasonText =
+      typeof reason === 'string' ? reason.trim().slice(0, 1000) : '';
+
     if (decision === 'approve') {
+      if (group.advisorId && group.advisorId !== ar.professorId) {
+        return res.status(409).json({
+          code: 'GROUP_ALREADY_HAS_ADVISOR',
+          message: 'Group already has an assigned advisor',
+        });
+      }
+
       ar.status = 'approved';
+      ar.reason = reasonText || null;
+      ar.processedAt = now;
       await ar.save();
 
       group.professorId = ar.professorId;
@@ -145,11 +243,16 @@ const processAdvisorRequest = async (req, res) => {
       group.advisorStatus = 'assigned';
       await group.save();
 
-      await notificationService.dispatchAdvisorDecisionNotification({
-        groupId: ar.groupId,
-        professorId: ar.professorId,
-        decision: 'approve',
-      });
+      try {
+        await notificationService.dispatchAdvisorDecisionNotification({
+          groupId: ar.groupId,
+          professorId: ar.professorId,
+          decision: 'approve',
+          requestId: ar.requestId,
+        });
+      } catch (notifyErr) {
+        console.error('dispatchAdvisorDecisionNotification:', notifyErr.message);
+      }
 
       await createAuditLog({
         action: 'advisor_approved',
@@ -167,6 +270,9 @@ const processAdvisorRequest = async (req, res) => {
       });
 
       return res.status(200).json({
+        requestId: ar.requestId,
+        decision: 'approve',
+        approvalStatus: ar.status,
         assignedGroupId: ar.groupId,
         advisorStatus: 'assigned',
         professorId: ar.professorId,
@@ -174,13 +280,20 @@ const processAdvisorRequest = async (req, res) => {
     }
 
     ar.status = 'rejected';
+    ar.reason = reasonText || null;
+    ar.processedAt = now;
     await ar.save();
 
-    await notificationService.dispatchAdvisorDecisionNotification({
-      groupId: ar.groupId,
-      professorId: ar.professorId,
-      decision: 'reject',
-    });
+    try {
+      await notificationService.dispatchAdvisorDecisionNotification({
+        groupId: ar.groupId,
+        professorId: ar.professorId,
+        decision: 'reject',
+        requestId: ar.requestId,
+      });
+    } catch (notifyErr) {
+      console.error('dispatchAdvisorDecisionNotification:', notifyErr.message);
+    }
 
     await createAuditLog({
       action: 'advisor_rejected',
@@ -197,7 +310,12 @@ const processAdvisorRequest = async (req, res) => {
       userAgent: req.get('user-agent'),
     });
 
-    return res.status(200).json({ ok: true });
+    return res.status(200).json({
+      requestId: ar.requestId,
+      decision: 'reject',
+      approvalStatus: ar.status,
+      assignedGroupId: null,
+    });
   } catch (err) {
     console.error('processAdvisorRequest error:', err);
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred.' });
@@ -377,6 +495,8 @@ const advisorSanitization = async (req, res) => {
 };
 
 module.exports = {
+  listProfessorAdvisorRequests,
+  listProfessorPendingRequests,
   submitAdvisorRequest,
   processAdvisorRequest,
   releaseAdvisor,

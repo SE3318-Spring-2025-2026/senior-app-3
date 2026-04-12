@@ -30,7 +30,6 @@ const {
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
 const { releaseAdvisor } = require('../controllers/advisorAssociation');
-const { decideAdvisorRequest } = require('../controllers/advisorDecision');
 const { advisorSanitization } = require('../controllers/sanitizationController');
 
 // ============================================================================
@@ -87,7 +86,7 @@ router.get('/:groupId/approvals', authMiddleware, getApprovals);
 router.post(
   '/:groupId/approval-results',
   authMiddleware,
-  roleMiddleware(['committee_member', 'professor', 'admin']),
+  roleMiddleware(['professor', 'admin']),
   forwardApprovalResults
 );
 
@@ -115,7 +114,7 @@ router.get('/:groupId/status', authMiddleware, getStatus);
 router.patch(
   '/:groupId/status',
   authMiddleware,
-  roleMiddleware(['coordinator', 'committee_member', 'professor', 'admin']),
+  roleMiddleware(['coordinator', 'professor', 'admin']),
   transitionStatus
 );
 
@@ -139,17 +138,6 @@ router.post(
   roleMiddleware(['coordinator']), 
   checkAdvisorOperationWindow(OPERATION_TYPES.ADVISOR_TRANSFER),
   transferAdvisor
-);
-
-/**
- * PATCH /api/v1/groups/advisor-requests/:requestId — Process 3.4: Professor decision
- */
-router.patch(
-  '/advisor-requests/:requestId',
-  authMiddleware,
-  roleMiddleware(['professor', 'admin']),
-  checkScheduleWindow(OPERATION_TYPES.ADVISOR_ASSOCIATION),
-  decideAdvisorRequest
 );
 
 module.exports = router;

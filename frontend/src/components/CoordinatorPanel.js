@@ -10,8 +10,8 @@ import {
   getGroupStatus,
   transitionGroupStatus,
 } from '../api/groupService';
-import { listCommittees } from '../api/committeeService';
 import useAuthStore from '../store/authStore';
+import { listCommittees } from '../api/committeeService';
 
 const OPERATION_TYPES = [
   { value: 'group_creation', label: 'Group Creation' },
@@ -40,7 +40,7 @@ const CoordinatorPanel = () => {
   const user = useAuthStore((state) => state.user);
 
   // Tab management
-  const [activeTab, setActiveTab] = useState('groups'); // groups | overrides | transfer | schedule | health | committees
+  const [activeTab, setActiveTab] = useState('groups');
 
   // Groups data
   const [groups, setGroups] = useState([]);
@@ -121,7 +121,6 @@ const CoordinatorPanel = () => {
     }
   }, []);
 
-  // Load committees
   const loadCommittees = useCallback(async () => {
     setCommitteesLoading(true);
     setCommitteesError(null);

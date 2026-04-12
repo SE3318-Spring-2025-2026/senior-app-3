@@ -28,7 +28,7 @@ const createUser = (overrides = {}) =>
 const createAdvisorWindow = async () => {
   const now = new Date();
   return ScheduleWindow.create({
-    operationType: 'advisor_association',
+    operationType: 'advisor_decision',
     startsAt: new Date(now.getTime() - 10 * 60 * 1000),
     endsAt: new Date(now.getTime() + 60 * 60 * 1000),
     isActive: true,

@@ -206,7 +206,7 @@ Response (200):
 - `userId`: Unique identifier (auto-generated)
 - `email`: User email (unique, lowercase)
 - `hashedPassword`: Bcrypt hashed password
-- `role`: student | professor | admin | committee_member
+- `role`: student | professor | admin | coordinator
 - `githubUsername`: Optional GitHub username
 - `githubId`: Optional GitHub user ID
 - `emailVerified`: Boolean flag
