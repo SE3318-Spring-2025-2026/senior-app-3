@@ -560,7 +560,7 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
       expect(log.actorId).toBe(leader.userId);
       expect(log.attempts).toBe(3);
       expect(log.lastError).toContain('Timeout');
-    });
+    });;
 
     it('should return 400 when required JIRA fields are missing', async () => {
       // Missing host
@@ -614,7 +614,7 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
 
       expect(res.status).toBe(403);
       expect(res.body.code).toBe('FORBIDDEN');
-    });
+    });;
   });
 
   describe('JIRA Status (GET /groups/:groupId/jira)', () => {
@@ -637,10 +637,9 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
         .set('Authorization', `Bearer ${leaderToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.group_id).toBe(group.groupId);
-      expect(res.body.jira_url).toBe('https://jira.company.com');
-      expect(res.body.jira_project_key).toBe('PROJ');
-      expect(res.body.validated).toBe(true);
+      expect(res.body.connected).toBe(true);
+      expect(res.body.project_key).toBe('PROJ');
+      expect(res.body.board_url).toBe('https://jira.company.com/jira/software/projects/PROJ/boards');
     });
 
     it('should return connected:false before JIRA setup', async () => {
@@ -649,9 +648,9 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
         .set('Authorization', `Bearer ${leaderToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.group_id).toBe(group.groupId);
-      expect(res.body.jira_url).toBeNull();
-      expect(res.body.validated).toBe(false);
+      expect(res.body.connected).toBe(false);
+      expect(res.body.project_key).toBeUndefined();
+      expect(res.body.board_url).toBeUndefined();
     });
 
     it('should return 404 for non-existent group', async () => {
@@ -687,8 +686,8 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
         .set('Authorization', `Bearer ${leaderToken}`);
 
       expect(getRes.status).toBe(200);
-      expect(getRes.body.validated).toBe(false);
-      expect(getRes.body.jira_url).toBeNull();
+      expect(getRes.body.connected).toBe(false);
+      expect(getRes.body.project_key).toBeUndefined();
     });
   });
 
@@ -1151,8 +1150,8 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
         .set('Authorization', `Bearer ${leaderToken}`);
 
       expect(getRes.status).toBe(200);
-      expect(getRes.body.validated).toBe(true);
-      expect(getRes.body.jira_project_key).toBe('INTEG');
+      expect(getRes.body.connected).toBe(true);
+      expect(getRes.body.project_key).toBe('INTEG');
     });
 
     it('should handle JIRA setup failure with proper error recovery', async () => {
@@ -1188,7 +1187,7 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
         .set('Authorization', `Bearer ${leaderToken}`);
 
       expect(getRes.status).toBe(200);
-      expect(getRes.body.validated).toBe(false);
+      expect(getRes.body.connected).toBe(false);
     });
   });
 

@@ -1,128 +1,147 @@
 const Group = require('../models/Group');
-const { approveAdvisorRequest, releaseAdvisor, transferAdvisor, AdvisorServiceError } = require('../services/advisorService');
-const { dispatchAdvisorRequestNotification } = require('../services/notificationService');
+const User = require('../models/User');
+const SyncErrorLog = require('../models/SyncErrorLog');
 const { createAuditLog } = require('../services/auditService');
+const {
+  approveAdvisorRequest,
+  releaseAdvisor,
+  transferAdvisor,
+  AdvisorServiceError,
+} = require('../services/advisorService');
+const { dispatchAdvisorStatusNotification } = require('../services/notificationService');
 
 /**
- * Helper: Validate advisor decision input
+ * Helper to validate advisor request and professor status.
+ * * Issue #64 Fix #1: CRITICAL - Query professor from database BEFORE evaluating 
+ * account status to prevent assignment to inactive/invalid accounts.
  */
-function validateAdvisorDecisionInputs(body) {
-  const { decision, reason } = body;
+const validateAdvisorDecisionInputs = async (requestId, professorId) => {
+  const group = await Group.findOne({ 'advisorRequest.requestId': requestId });
 
-  if (!decision || !['approve', 'reject'].includes(decision)) {
-    const err = new Error('Decision must be "approve" or "reject"');
-    err.status = 400;
-    err.code = 'INVALID_DECISION';
-    throw err;
+  if (!group) {
+    return {
+      group: null,
+      error: { status: 404, code: 'REQUEST_NOT_FOUND', message: 'Advisor request not found' },
+    };
   }
 
-  return { decision, reason: reason || '' };
-}
+  const { advisorRequest } = group;
+
+  // Authorization: only the requested professor can decide
+  if (advisorRequest.professorId !== professorId) {
+    return {
+      group: null,
+      error: { status: 403, code: 'NOT_REQUESTED_PROFESSOR', message: 'Only the requested professor can respond' },
+    };
+  }
+
+  if (advisorRequest.status !== 'pending') {
+    return {
+      group: null,
+      error: { status: 409, code: 'REQUEST_ALREADY_PROCESSED', message: `Already ${advisorRequest.status}` },
+    };
+  }
+
+  // Issue #64 Fix #1: Verify professor exists and is active
+  const professor = await User.findOne({ userId: professorId });
+  if (!professor || professor.accountStatus !== 'active') {
+    return {
+      group: null,
+      error: { status: 409, code: 'PROFESSOR_ACCOUNT_INACTIVE', message: 'Professor account is not active' },
+    };
+  }
+
+  return { group, professor, error: null };
+};
 
 /**
- * Helper: Dispatch approval notification with retry logic
+ * Helper to dispatch notification with retry logic (non-fatal).
  */
-async function dispatchApprovalNotification(group, professorId, requesterId) {
-  const result = await dispatchAdvisorRequestNotification({
-    groupId: group.groupId,
-    groupName: group.groupName,
-    professorId: requesterId,
-    requesterId: professorId,
-    message: 'Your advisee request has been approved',
-  });
-
-  return result.success;
-}
+const dispatchApprovalNotification = async (group, professor, professorId) => {
+  let notifLastError = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await dispatchAdvisorStatusNotification({
+        groupId: group.groupId,
+        groupName: group.groupName,
+        professorId,
+        professorName: professor.firstName ? `${professor.firstName} ${professor.lastName}` : professor.email,
+        status: 'assigned',
+        recipientId: group.leaderId,
+        message: 'Your advisor request has been approved',
+      });
+      notifLastError = null;
+      break;
+    } catch (err) {
+      notifLastError = err;
+    }
+  }
+  return notifLastError;
+};
 
 /**
- * advisorApproveRequest(req, res)
- *
- * PATCH /advisor-requests/:requestId
- * Process 3.4 (Advisor Decision) → 3.5 (Assignment)
- *
- * Professor approves or rejects an advisee request.
- * On approval: group is assigned to advisor, audit log + AdvisorAssignment record created.
- * On rejection: request status updated, no assignment made.
- *
- * Authorization: Only the professor named in the request can respond (403 otherwise).
- * Schedule: Subject to advisor_association window enforcement (422 if outside).
+ * PATCH /api/v1/advisor-requests/:requestId
+ * Process 3.4: Professor approves or rejects advisee request.
  */
-async function advisorApproveRequest(req, res) {
+const advisorApproveRequest = async (req, res) => {
   try {
     const { requestId } = req.params;
-    const { decision, reason } = validateAdvisorDecisionInputs(req.body);
-    const professorId = req.user?.id;
+    const { decision, reason } = req.body;
+    const professorId = req.user.userId;
 
-    if (!professorId) {
-      return res.status(401).json({ code: 'UNAUTHORIZED', message: 'Authentication required' });
+    if (!decision || !['approve', 'reject'].includes(decision)) {
+      return res.status(400).json({ code: 'INVALID_DECISION', message: 'Decision must be approve/reject' });
     }
 
-    // Find group with matching request
-    const group = await Group.findOne({ 'advisorRequest.requestId': requestId });
-    if (!group) {
-      return res.status(404).json({ code: 'REQUEST_NOT_FOUND', message: 'Advisor request not found' });
-    }
+    const { group, professor, error: vErr } = await validateAdvisorDecisionInputs(requestId, professorId);
+    if (vErr) return res.status(vErr.status).json({ code: vErr.code, message: vErr.message });
 
-    // Verify professor is the recipient of the request
-    if (group.advisorRequest.professorId !== professorId) {
-      return res.status(403).json({
-        code: 'FORBIDDEN',
-        message: 'Only the requested professor can respond to this request',
-      });
-    }
-
-    // Verify request is still pending
-    if (group.advisorRequest.status !== 'pending') {
-      return res.status(409).json({
-        code: 'REQUEST_ALREADY_PROCESSED',
-        message: `Request has already been ${group.advisorRequest.status}`,
-      });
-    }
-
-    let result;
+    const now = new Date();
 
     if (decision === 'approve') {
-      // Process 3.5: Approve
       try {
-        result = await approveAdvisorRequest(group.groupId, requestId, professorId, professorId);
-      } catch (err) {
-        if (err instanceof AdvisorServiceError) {
-          return res.status(err.status).json({ code: err.code, message: err.message });
+        await approveAdvisorRequest(group.groupId, requestId, professorId, professorId, {
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+
+        const notifErr = await dispatchApprovalNotification(group, professor, professorId);
+        if (notifErr) {
+          await SyncErrorLog.create({
+            service: 'notification',
+            groupId: group.groupId,
+            actorId: professorId,
+            attempts: 3,
+            lastError: notifErr.message,
+          }).catch(e => console.error('SyncLog failed:', e.message));
         }
-        throw err;
+
+        return res.status(200).json({
+          requestId,
+          groupId: group.groupId,
+          decision: 'approve',
+          status: 'approved',
+          advisorId: professorId,
+          assignedAt: now.toISOString(),
+        });
+      } catch (serviceErr) {
+        if (serviceErr instanceof AdvisorServiceError) {
+          return res.status(serviceErr.status).json({ code: serviceErr.code, message: serviceErr.message });
+        }
+        throw serviceErr;
       }
-
-      // Dispatch approval notification to group leader (non-fatal)
-      const notificationTriggered = await dispatchApprovalNotification(
-        group,
-        professorId,
-        group.advisorRequest.requestedBy
-      );
-
-      return res.status(200).json({
-        requestId,
-        groupId: group.groupId,
-        decision: 'approve',
-        status: 'assigned',
-        professorId,
-        notificationTriggered,
-        assignedAt: result.updatedAt,
-      });
     } else {
-      // Reject
+      // Rejection logic
       group.advisorRequest.status = 'rejected';
       await group.save();
 
-      // Create audit log
       await createAuditLog({
         action: 'advisor_request_rejected',
-        userId: professorId,
-        resourceType: 'advisor_request',
-        resourceId: requestId,
-        changeDetails: {
-          groupId: group.groupId,
-          reason,
-        },
+        actorId: professorId,
+        groupId: group.groupId,
+        payload: { requestId, reason: reason || null },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
       });
 
       return res.status(200).json({
@@ -130,121 +149,92 @@ async function advisorApproveRequest(req, res) {
         groupId: group.groupId,
         decision: 'reject',
         status: 'rejected',
-        rejectedAt: new Date(),
+        professorId,
+        rejectedAt: now.toISOString(),
       });
     }
-  } catch (err) {
-    console.error('[advisorApproveRequest]', err);
-    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
+  } catch (error) {
+    console.error('[advisorApproveRequest] Error:', error);
+    return res.status(500).json({ code: 'SERVER_ERROR', message: 'Internal server error' });
   }
-}
+};
 
 /**
- * releaseAdvisorHandler(req, res)
- *
- * DELETE /groups/:groupId/advisor
- * Process 3.5 (Release Path)
- *
- * Team Leader or Advisor releases the current advisor from the group.
- * Group becomes available for new advisor request.
- *
- * Authorization: Team Leader or current Advisor only (403 otherwise).
- * Schedule: Subject to advisor_association window enforcement (422 if outside).
+ * DELETE /api/v1/groups/:groupId/advisor
+ * Process 3.5: Release an assigned advisor.
+ * * Issue #64 Fix #3: CRITICAL - Updated authorization to only allow Team Leader or Coordinator.
+ * Current advisor should NOT have power to unilaterally release themselves per Issue #59.
  */
-async function releaseAdvisorHandler(req, res) {
+const releaseAdvisorHandler = async (req, res) => {
   try {
     const { groupId } = req.params;
     const { reason } = req.body;
-    const userId = req.user?.id;
-
-    if (!userId) {
-      return res.status(401).json({ code: 'UNAUTHORIZED', message: 'Authentication required' });
-    }
+    const releasedBy = req.user.userId;
 
     const group = await Group.findOne({ groupId });
-    if (!group) {
-      return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
-    }
+    if (!group) return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
 
-    // Authorization: Team Leader or current Advisor
-    const isTeamLeader = group.leaderId === userId;
-    const isCurrentAdvisor = group.advisorId === userId;
+    // Authorization Check (Fix #3)
+    const isLeader = group.leaderId === releasedBy;
+    const user = await User.findOne({ userId: releasedBy });
+    const isCoordinator = user?.role === 'coordinator' || user?.role === 'admin';
 
-    if (!isTeamLeader && !isCurrentAdvisor) {
+    if (!isLeader && !isCoordinator) {
       return res.status(403).json({
-        code: 'FORBIDDEN',
-        message: 'Only the Team Leader or current Advisor can release the advisor',
+        code: 'UNAUTHORIZED_RELEASE',
+        message: 'Only the group leader or coordinator can release the advisor',
       });
     }
 
-    // Release advisor
     try {
-      const result = await releaseAdvisor(groupId, userId, reason || '');
+      const result = await releaseAdvisor(groupId, releasedBy, reason || null, {
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
       return res.status(200).json(result);
-    } catch (err) {
-      if (err instanceof AdvisorServiceError) {
-        return res.status(err.status).json({ code: err.code, message: err.message });
+    } catch (serviceErr) {
+      if (serviceErr instanceof AdvisorServiceError) {
+        return res.status(serviceErr.status).json({ code: serviceErr.code, message: serviceErr.message });
       }
-      throw err;
+      throw serviceErr;
     }
-  } catch (err) {
-    console.error('[releaseAdvisorHandler]', err);
-    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
+  } catch (error) {
+    console.error('[releaseAdvisorHandler] Error:', error);
+    return res.status(500).json({ code: 'SERVER_ERROR', message: 'Internal server error' });
   }
-}
+};
 
 /**
- * transferAdvisorHandler(req, res)
- *
- * POST /groups/:groupId/advisor/transfer
- * Process 3.6 (Coordinator Transfer) → 3.5 (Assignment)
- *
- * Coordinator transfers group from current advisor to new professor.
- * Bypasses standard advisee request flow.
- *
- * Authorization: Coordinator only (403 otherwise).
- * Schedule: Subject to advisor_association window enforcement (422 if outside).
+ * POST /api/v1/groups/:groupId/advisor/transfer
+ * Process 3.6: Coordinator transfers group to a new professor.
  */
-async function transferAdvisorHandler(req, res) {
+const transferAdvisorHandler = async (req, res) => {
   try {
     const { groupId } = req.params;
     const { newProfessorId, reason } = req.body;
-    const coordinatorId = req.user?.id;
-
-    if (!coordinatorId) {
-      return res.status(401).json({ code: 'UNAUTHORIZED', message: 'Authentication required' });
-    }
-
-    // Verify role is coordinator
-    if (req.user?.role !== 'coordinator' && req.user?.role !== 'admin') {
-      return res.status(403).json({
-        code: 'FORBIDDEN',
-        message: 'Only coordinators can transfer advisors',
-      });
-    }
+    const coordinatorId = req.user.userId;
 
     if (!newProfessorId) {
-      return res.status(400).json({
-        code: 'MISSING_FIELD',
-        message: 'newProfessorId is required',
-      });
+      return res.status(400).json({ code: 'MISSING_PROFESSOR_ID', message: 'newProfessorId is required' });
     }
 
-    // Transfer advisor
     try {
-      const result = await transferAdvisor(groupId, newProfessorId, coordinatorId, reason || '');
+      const result = await transferAdvisor(groupId, newProfessorId, coordinatorId, reason || null, {
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
       return res.status(200).json(result);
-    } catch (err) {
-      if (err instanceof AdvisorServiceError) {
-        return res.status(err.status).json({ code: err.code, message: err.message });
+    } catch (serviceErr) {
+      if (serviceErr instanceof AdvisorServiceError) {
+        return res.status(serviceErr.status).json({ code: serviceErr.code, message: serviceErr.message });
       }
-      throw err;
+      throw serviceErr;
     }
-  } catch (err) {
-    console.error('[transferAdvisorHandler]', err);
-    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
+  } catch (error) {
+    console.error('[transferAdvisorHandler] Error:', error);
+    return res.status(500).json({ code: 'SERVER_ERROR', message: 'Internal server error' });
   }
-}
+};
 
 module.exports = {
   advisorApproveRequest,

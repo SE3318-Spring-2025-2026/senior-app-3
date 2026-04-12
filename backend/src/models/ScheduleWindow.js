@@ -1,13 +1,14 @@
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
+const { VALID_OPERATION_TYPES } = require('../utils/operationTypes');
 
 /**
  * ScheduleWindow — stores coordinator-defined schedule windows per operation type.
  *
  * Each window is scoped to an operationType:
- *   - 'group_creation': bounds POST /groups (Process 2.1)
- *   - 'member_addition': bounds POST /groups/:groupId/members (Process 2.3)
- *   - 'advisor_association': bounds advisor request/approval/release/transfer (Process 3.1-3.6)
+ * - 'group_creation': bounds POST /groups (Process 2.1)
+ * - 'member_addition': bounds POST /groups/:groupId/members (Process 2.3)
+ * - 'advisor_association': bounds advisor request/approval/release/transfer (Process 3.1-3.6)
  *
  * Only one active window per operationType may cover a given point in time.
  * Boundary checks in middleware reject requests outside an active window for their respective operationType.
@@ -22,7 +23,7 @@ const scheduleWindowSchema = new mongoose.Schema(
     },
     operationType: {
       type: String,
-      enum: ['group_creation', 'member_addition', 'advisor_association'],
+      enum: VALID_OPERATION_TYPES,
       required: true,
       /**
        * =====================================================================
@@ -40,13 +41,6 @@ const scheduleWindowSchema = new mongoose.Schema(
        *
        * VALIDATION: All enum values are already snake_case strings ✓
        * All references in code use consistent enum values ✓
-       * No field renaming needed ✓
-       *
-       * CONSISTENCY CHECK PASSED:
-       * ✓ middleware/scheduleWindow.js: Uses 'group_creation', 'member_addition', 'advisor_association'
-       * ✓ routes/groups.js: Matches process boundaries defined in DFD
-       * ✓ controllers: All instantiate with consistent enum values
-       * ✓ Frontend API calls: All pass correct snake_case values
        * =====================================================================
        */
     },

@@ -1,119 +1,169 @@
-const { checkDeadlineElapsed, fetchUnassignedGroups, disbandGroupBatch, SanitizationServiceError } = require('../services/sanitizationService');
+/**
+ * ========================================
+ * Issue #67, #69 & #70: Post-Deadline Sanitization & Notification Protocol
+ * ========================================
+ * * Implements Process 3.7: Disband unassigned groups and notify members.
+ * * Uses "Fire-and-Forget" pattern with background notification dispatch.
+ */
+
+const {
+  fetchUnassignedGroups,
+  disbandGroupBatch,
+  SanitizationServiceError,
+  checkScheduleWindowDeadline, // Fix #1: Authoritative DB check
+} = require('../services/sanitizationService');
+const { retryNotificationWithBackoff } = require('../utils/notificationRetry');
 const { dispatchDisbandNotification } = require('../services/notificationService');
+const { markNotificationTriggered } = require('../repositories/AdvisorAssignmentRepository');
+const Group = require('../models/Group');
+const SyncErrorLog = require('../models/SyncErrorLog');
+const pLimit = require('p-limit'); // Fix #4: Concurrency control
 
 /**
- * dispatchDisbandNotifications(disbandedGroups)
- *
- * Helper: Dispatch disband notifications for each disbanded group.
- * Non-fatal: individual notification failures don't block others.
+ * FIX #2 & #4: ASYNC FIRE-AND-FORGET NOTIFICATION DISPATCH
+ * * Helper function to dispatch disband notifications using parallel processing
+ * with a concurrency cap (max 3) and retry logic.
  */
-async function dispatchDisbandNotifications(disbandedGroups) {
-  for (const group of disbandedGroups) {
-    try {
-      await dispatchDisbandNotification({
-        groupId: group.groupId,
-        groupName: group.groupName,
-        recipients: group.membersNotified,
-        reason: 'Your group has been disbanded due to unassigned advisor deadline.',
-      });
-    } catch (err) {
-      console.error(`[Sanitization] Failed to dispatch disband notification for ${group.groupId}:`, err.message);
-      // Non-fatal: continue with next group
-    }
-  }
-}
+const dispatchDisbandNotificationsInBackground = async (disbandedGroupsIds) => {
+  const limit = pLimit(3); // Fix #4: Max 3 concurrent operations
 
-/**
- * advisorSanitization(req, res)
- *
- * POST /groups/advisor-sanitization
- * Process 3.7 (Disband Unassigned Groups)
- *
- * Coordinator-initiated sanitization: disband all active groups without an advisor
- * after the configured deadline. Dispatch disband notices to group members.
- *
- * Authorization: Coordinator or System only (403 otherwise).
- * Note: NOT subject to schedule middleware (uses deadline-based gating instead).
- *
- * @param {Date|string} req.body.scheduleDeadline — ISO date string (required)
- * @param {string[]} req.body.groupIds — Optional: specific group IDs to disband
- */
-async function advisorSanitization(req, res) {
-  try {
-    const { scheduleDeadline, groupIds } = req.body;
-    const coordinatorId = req.user?.id;
+  const notificationPromises = disbandedGroupsIds.map((groupId) =>
+    limit(async () => {
+      try {
+        // Re-fetch group (lean) to get latest member list and request ID
+        const group = await Group.findOne({ groupId })
+          .select('groupId groupName members advisorRequest.requestId')
+          .lean();
 
-    if (!coordinatorId) {
-      return res.status(401).json({ code: 'UNAUTHORIZED', message: 'Authentication required' });
-    }
+        if (!group) return;
 
-    // Verify role is coordinator or system
-    if (req.user?.role !== 'coordinator' && req.user?.role !== 'admin' && req.user?.role !== 'system') {
-      return res.status(403).json({
-        code: 'FORBIDDEN',
-        message: 'Only coordinators can trigger sanitization',
-      });
-    }
+        const recipients = group.members
+          .filter((m) => m.status === 'accepted')
+          .map((m) => m.userId);
 
-    // Input validation
-    if (!scheduleDeadline) {
-      return res.status(400).json({
-        code: 'MISSING_FIELD',
-        message: 'scheduleDeadline is required (ISO date string)',
-      });
-    }
+        if (recipients.length === 0) return;
 
-    // Validate deadline has elapsed
-    try {
-      checkDeadlineElapsed(scheduleDeadline);
-    } catch (err) {
-      if (err instanceof SanitizationServiceError) {
-        return res.status(err.status).json({ code: err.code, message: err.message });
+        // Use unified retry utility (3 attempts with backoff)
+        const notificationResult = await retryNotificationWithBackoff(
+          () =>
+            dispatchDisbandNotification({
+              groupId: group.groupId,
+              groupName: group.groupName,
+              recipients,
+              reason: 'advisor_association_deadline_missed',
+            }),
+          {
+            maxAttempts: 3,
+            initialBackoffMs: 200,
+            context: { groupId: group.groupId, operation: 'group_disband' }
+          }
+        );
+
+        // Fix #3: Persist successful dispatch flag if request ID exists
+        if (notificationResult.success && group.advisorRequest?.requestId) {
+          try {
+            await markNotificationTriggered(group.advisorRequest.requestId);
+          } catch (flagErr) {
+            console.warn(`[Sanitization] Failed to flag request ${group.advisorRequest.requestId}:`, flagErr.message);
+          }
+        } else if (!notificationResult.success) {
+          // Log permanent failure in SyncErrorLog
+          await SyncErrorLog.create({
+            service: 'notification',
+            groupId: group.groupId,
+            actorId: 'system_sanitizer',
+            attempts: 3,
+            lastError: `Disband notification failed: ${notificationResult.error?.message}`,
+          });
+        }
+      } catch (err) {
+        console.error(`[Sanitization Background] Error processing group ${groupId}:`, err.message);
       }
-      throw err;
+    })
+  );
+
+  await Promise.allSettled(notificationPromises);
+};
+
+/**
+ * POST /api/v1/groups/advisor-sanitization
+ * Process 3.7: Main entry point for disbanding unassigned groups.
+ */
+const advisorSanitization = async (req, res) => {
+  try {
+    const { groupIds } = req.body;
+    const coordinatorId = req.user?.id || req.user?.userId;
+
+    // Fix #5: Input Validation for groupIds (Safety boundary)
+    if (groupIds !== undefined) {
+      if (!Array.isArray(groupIds) || groupIds.length > 500) {
+        return res.status(400).json({
+          code: 'INVALID_INPUT',
+          message: 'groupIds must be an array (max 500 items)',
+        });
+      }
     }
 
-    // Fetch unassigned groups
-    const unassignedGroups = await fetchUnassignedGroups(groupIds);
-    const groupIdsToDisband = unassignedGroups.map((g) => g.groupId);
+    // Fix #1: SECURITY - Fetch deadline from ScheduleWindow DB (not from request body)
+    const deadlineCheckResult = await checkScheduleWindowDeadline();
+    if (!deadlineCheckResult.allowed) {
+      return res.status(409).json({
+        code: 'DEADLINE_NOT_REACHED',
+        message: deadlineCheckResult.message,
+        deadlineAt: deadlineCheckResult.deadlineAt,
+      });
+    }
 
-    if (groupIdsToDisband.length === 0) {
+    // Fetch unassigned groups meeting criteria (active + no advisor)
+    const unassignedGroups = await fetchUnassignedGroups(groupIds);
+
+    if (unassignedGroups.length === 0) {
       return res.status(200).json({
         disbandedGroups: [],
         checkedAt: new Date().toISOString(),
-        message: 'No unassigned groups found for disband',
-        details: { groupsChecked: 0, groupsDisbanded: 0, failedGroups: 0 },
+        message: 'No unassigned groups found for sanitization',
       });
     }
 
-    // Batch disband operation
-    const { disbandedGroups, failedGroups } = await disbandGroupBatch(groupIdsToDisband, coordinatorId, {
-      reason: 'Advisor assignment deadline elapsed',
+    // Process DB Updates (Disband Batch via service bulkWrite)
+    const disbandResult = await disbandGroupBatch(unassignedGroups, coordinatorId, {
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      reason: 'advisor_association_deadline_missed'
     });
 
-    // Dispatch disband notifications (non-fatal)
-    await dispatchDisbandNotifications(disbandedGroups);
-
-    return res.status(200).json({
-      disbandedGroups: disbandedGroups.map((g) => ({
-        groupId: g.groupId,
-        groupName: g.groupName,
-        membersNotified: g.membersNotified.length,
-      })),
-      failedGroups,
+    // Fix #2: FIRE-AND-FORGET
+    // Return 200 OK response immediately to the caller (coordinator/cron)
+    res.status(200).json({
+      disbandedGroups: disbandResult.disbanded_ids,
       checkedAt: new Date().toISOString(),
-      message: `Sanitization completed: ${disbandedGroups.length} groups disbanded, ${failedGroups.length} failed`,
+      message: `Sanitization complete: ${disbandResult.disbanded_count} group(s) disbanded`,
       details: {
-        groupsChecked: unassignedGroups.length,
-        groupsDisbanded: disbandedGroups.length,
-        failedGroups: failedGroups.length,
+        total_checked: unassignedGroups.length,
+        errors: disbandResult.errors,
       },
     });
+
+    // Dispatch notifications in background via setImmediate
+    setImmediate(async () => {
+      if (disbandResult.disbanded_ids.length > 0) {
+        await dispatchDisbandNotificationsInBackground(disbandResult.disbanded_ids);
+      }
+    });
+
   } catch (err) {
-    console.error('[advisorSanitization]', err);
-    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
+    // Handle custom service errors
+    if (err instanceof SanitizationServiceError) {
+      return res.status(err.status).json({ code: err.code, message: err.message });
+    }
+    
+    console.error('[Advisor Sanitization] Unexpected error:', err);
+    return res.status(500).json({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'An unexpected error occurred during sanitization',
+    });
   }
-}
+};
 
 module.exports = {
   advisorSanitization,
