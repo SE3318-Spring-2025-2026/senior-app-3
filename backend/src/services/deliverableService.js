@@ -35,9 +35,33 @@ const validateCommitteeAssignment = async (committeeId, groupId) => {
 };
 
 /**
- * Store deliverable in D4
+ * Store deliverable in D4 (Flow f12: 4.5 → D4)
+ * 
+ * ISSUE #86 ATOMICITY FIX - Orphan Record Bug:
+ * ────────────────────────────────────────────────────────────────────────────────
+ * BEFORE: Function signature had NO session parameter
+ *         await deliverable.save() executed without session
+ *         Result: D4 write isolated from D6 transaction → orphan records if D6 fails
+ * 
+ * AFTER: Function now accepts session parameter and passes it to save()
+ *        await deliverable.save({ session })
+ *        Result: D4 write bound to active transaction → atomic with D6 ✓
+ * 
+ * How It Works:
+ * - If session = null → Standalone write (not transactional)
+ * - If session exists → Write bound to active MongoDB transaction
+ * - MongoDB guarantee: All writes in session either commit together or rollback together
+ * 
+ * Impact: D4 and D6 are now guaranteed to stay in sync
+ *         No orphan D4 records even if D6 update fails
+ *         Full atomicity across D4→D6 cross-reference ✓
+ * ────────────────────────────────────────────────────────────────────────────────
+ * 
+ * @param {object} deliverableData - Submission data (committeeId, groupId, studentId, type, storageRef)
+ * @param {object} session - MongoDB session for transaction binding (ISSUE #86: REQUIRED for atomicity)
+ * @returns {Promise<object>} Stored deliverable document
  */
-const storeDeliverableInD4 = async (deliverableData) => {
+const storeDeliverableInD4 = async (deliverableData, session = null) => {
   const deliverableId = `DEL_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
   const deliverable = new Deliverable({
@@ -46,7 +70,10 @@ const storeDeliverableInD4 = async (deliverableData) => {
     status: 'submitted',
   });
 
-  await deliverable.save();
+  // ISSUE #86 FIX: Pass session to bind D4 write to active transaction
+  // Before: await deliverable.save() → isolated write → orphan if D6 fails
+  // After: await deliverable.save({ session }) → atomic with D6 ✓
+  await deliverable.save({ session });
   return deliverable;
 };
 
@@ -114,27 +141,35 @@ const submitDeliverable = async (submissionData) => {
 
   try {
     // Flow f12: 4.5 → D4 - Store deliverable in D4
+    // ISSUE #86 FIX: Pass session to storeDeliverableInD4 to bind D4 write to transaction
+    // This ensures D4 write is part of the same atomic transaction as D6 writes
     const deliverable = await storeDeliverableInD4({
       committeeId,
       groupId,
       studentId,
       type,
       storageRef,
-    });
+    }, session);  // ✅ ISSUE #86: Session passed - D4 write now atomic with D6
 
     // Flow f13: 4.5 → D6 - Create or update sprint record
+    // Session passed → write bound to transaction
     await createOrUpdateSprintRecord(sprintId, groupId, committeeId, session);
 
     // Flow f14: D4 → D6 - Link D4 to D6 cross-reference
+    // Session passed → link bound to transaction
     await linkD4ToD6(deliverable.deliverableId, sprintId, groupId, type, session);
 
+    // ISSUE #86 FIX: Pass session to createAuditLog to ensure audit log is atomic
+    // Before: createAuditLog called without session → audit outside transaction
+    // After: createAuditLog called with session → audit part of transaction ✓
+    // Impact: If transaction fails, audit log is also rolled back (no orphan audit entries)
     await createAuditLog({
       event: 'DELIVERABLE_SUBMITTED',
       userId: submittedBy,
       entityType: 'Deliverable',
       entityId: deliverable.deliverableId,
       changes: { committeeId, groupId, type, status: 'submitted' },
-    });
+    }, { session });  // ✅ ISSUE #86: Session passed - audit log now atomic
 
     await session.commitTransaction();
     session.endSession();

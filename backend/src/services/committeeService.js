@@ -120,13 +120,23 @@ const updateSprintRecordsOnPublish = async (committeeId, session = null) => {
     }
   }
 
+  // ISSUE #86 FIX: Pass session to createAuditLog to ensure audit log atomicity
+  // Before: createAuditLog called without session → audit outside transaction
+  // After: createAuditLog called with session → audit part of transaction ✓
+  // 
+  // Why This Matters:
+  // - Function is inside updateSprintRecordsOnPublish which receives session parameter
+  // - All D6 writes (sprintRecord.save({ session })) are bound to transaction
+  // - Audit log MUST also be bound to same transaction
+  // - Without session: audit succeeds but transaction fails → inconsistent state
+  // - With session: both succeed or both fail → consistent state ✓
   await createAuditLog({
     event: 'SPRINT_RECORDS_UPDATED',
     userId: committee.publishedBy,
     entityType: 'Committee',
     entityId: committeeId,
     changes: { committeeAssignedAt: new Date(), recordsUpdated: updatedRecords.length },
-  });
+  }, { session });  // ✅ ISSUE #86: Session passed - audit now atomic with D6 writes
 
   return { updatedCount: updatedRecords.length, recordIds: updatedRecords };
 };
