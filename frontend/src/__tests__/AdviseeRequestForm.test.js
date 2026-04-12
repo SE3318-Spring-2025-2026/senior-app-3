@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 import AdviseeRequestForm from '../components/AdviseeRequestForm';
@@ -45,6 +45,21 @@ describe('AdviseeRequestForm', () => {
     expect(screen.getByRole('button', { name: /Submit Request/i })).toBeDisabled();
   });
 
+  it('does not call the API when the form is submitted without a selected professor', async () => {
+    checkAdvisorWindow.mockResolvedValue({ open: true });
+
+    render(<AdviseeRequestForm />);
+
+    await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument());
+
+    const form = document.querySelector('form.advisor-form');
+    await act(async () => {
+      fireEvent.submit(form);
+    });
+
+    expect(submitAdvisorRequest).not.toHaveBeenCalled();
+  });
+
   it('submits advisor request with selected professor and message', async () => {
     checkAdvisorWindow.mockResolvedValue({ open: true });
     submitAdvisorRequest.mockResolvedValue({ requestId: 'req_123', notificationTriggered: true });
@@ -56,7 +71,9 @@ describe('AdviseeRequestForm', () => {
     await userEvent.selectOptions(screen.getByRole('combobox'), 'usr_prof_1');
     await userEvent.type(screen.getByLabelText(/Message \(Optional\)/i), 'We would love your guidance.');
 
-    fireEvent.click(screen.getByRole('button', { name: /Submit Request/i }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Submit Request/i }));
+    });
 
     await waitFor(() => {
       expect(submitAdvisorRequest).toHaveBeenCalledWith({
@@ -78,7 +95,7 @@ describe('AdviseeRequestForm', () => {
     expect(screen.getByRole('button', { name: /Submit Request/i })).toBeDisabled();
   });
 
-  it('displays a 422 error message when the advisor request submission is rejected by schedule boundary', async () => {
+  it('displays a 422 error message when the advisor request submission is rejected by schedule boundary and disables the form', async () => {
     checkAdvisorWindow.mockResolvedValue({ open: true });
     submitAdvisorRequest.mockRejectedValue({ response: { status: 422 } });
 
@@ -86,10 +103,14 @@ describe('AdviseeRequestForm', () => {
 
     await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument());
     await userEvent.selectOptions(screen.getByRole('combobox'), 'usr_prof_1');
-    fireEvent.click(screen.getByRole('button', { name: /Submit Request/i }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Submit Request/i }));
+    });
 
     await waitFor(() => {
       expect(screen.getByText(/The advisor request window is currently closed./i)).toBeInTheDocument();
     });
+    expect(screen.getByRole('button', { name: /Submit Request/i })).toBeDisabled();
+    expect(screen.getByRole('combobox')).toBeDisabled();
   });
 });

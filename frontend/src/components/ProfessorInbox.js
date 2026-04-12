@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './ProfessorInbox.css';
-import { getMyAdvisorRequests, decideOnAdvisorRequest } from '../api/advisorService';
+import { getMyAdvisorRequests, decideOnAdvisorRequest, checkAdvisorWindow } from '../api/advisorService';
 
 const ProfessorInbox = () => {
   const [requests, setRequests] = useState([]);
@@ -10,6 +10,8 @@ const ProfessorInbox = () => {
   const [expandedId, setExpandedId] = useState(null);
   const [rejectReason, setRejectReason] = useState({});
   const [processingId, setProcessingId] = useState(null);
+  const [associationWindowOpen, setAssociationWindowOpen] = useState(null);
+  const [associationWindowLocked, setAssociationWindowLocked] = useState(false);
 
   useEffect(() => {
     loadRequests();
@@ -19,11 +21,16 @@ const ProfessorInbox = () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await getMyAdvisorRequests();
+      const [data, winStatus] = await Promise.all([
+        getMyAdvisorRequests(),
+        checkAdvisorWindow(),
+      ]);
       setRequests(data);
+      setAssociationWindowOpen(winStatus?.open !== false);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load requests');
       console.error('Load requests error:', err);
+      setAssociationWindowOpen(false);
     } finally {
       setLoading(false);
     }
@@ -50,6 +57,7 @@ const ProfessorInbox = () => {
         setError(`Request already processed: ${err.response.data.details?.decision}`);
       } else if (err.response?.status === 422) {
         setError('Advisor association window is currently closed.');
+        setAssociationWindowLocked(true);
       } else {
         setError(err.response?.data?.message || 'Failed to approve request');
       }
@@ -95,6 +103,7 @@ const ProfessorInbox = () => {
         setError(`Request already processed: ${err.response.data.details?.decision}`);
       } else if (err.response?.status === 422) {
         setError('Advisor association window is currently closed.');
+        setAssociationWindowLocked(true);
       } else {
         setError(err.response?.data?.message || 'Failed to reject request');
       }
@@ -122,6 +131,11 @@ const ProfessorInbox = () => {
     approved: requests.filter((r) => r.status === 'approved').length,
     rejected: requests.filter((r) => r.status === 'rejected').length,
   };
+
+  const decisionsDisabledFor = (request) =>
+    associationWindowOpen === false ||
+    associationWindowLocked ||
+    processingId === request.requestId;
 
   if (loading) {
     return <div className="professor-inbox loading">Loading requests...</div>;
@@ -217,7 +231,7 @@ const ProfessorInbox = () => {
                       <button
                         className="btn btn-approve"
                         onClick={() => handleApprove(request)}
-                        disabled={processingId === request.requestId}
+                        disabled={decisionsDisabledFor(request)}
                       >
                         {processingId === request.requestId ? 'Processing...' : 'Approve'}
                       </button>
@@ -233,11 +247,12 @@ const ProfessorInbox = () => {
                             }))
                           }
                           className="reject-textarea"
+                          disabled={decisionsDisabledFor(request)}
                         />
                         <button
                           className="btn btn-reject"
                           onClick={() => handleReject(request)}
-                          disabled={processingId === request.requestId}
+                          disabled={decisionsDisabledFor(request)}
                         >
                           {processingId === request.requestId ? 'Processing...' : 'Reject'}
                         </button>

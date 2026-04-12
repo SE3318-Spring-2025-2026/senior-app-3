@@ -1,14 +1,29 @@
 import React from 'react';
-import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 import ProfessorInbox from '../components/ProfessorInbox';
 
 jest.mock('../store/authStore');
-jest.mock('../api/advisorService');
+
+jest.mock('../api/apiClient', () => ({
+  __esModule: true,
+  default: {
+    patch: jest.fn(() => Promise.resolve({ data: {} })),
+    post: jest.fn(() => Promise.resolve({ data: {} })),
+    get: jest.fn(() => Promise.resolve({ data: {} })),
+  },
+}));
+
+jest.mock('../api/advisorService', () => ({
+  ...jest.requireActual('../api/advisorService'),
+  getMyAdvisorRequests: jest.fn(),
+  checkAdvisorWindow: jest.fn(),
+}));
 
 const useAuthStore = require('../store/authStore').default;
-const { getMyAdvisorRequests, decideOnAdvisorRequest } = require('../api/advisorService');
+const { getMyAdvisorRequests, checkAdvisorWindow } = require('../api/advisorService');
+const apiClient = require('../api/apiClient').default;
 
 describe('ProfessorInbox', () => {
   beforeEach(() => {
@@ -16,6 +31,8 @@ describe('ProfessorInbox', () => {
     useAuthStore.mockImplementation((selector) =>
       selector({ user: { userId: 'usr_prof_1', role: 'professor' } })
     );
+    checkAdvisorWindow.mockResolvedValue({ open: true });
+    apiClient.patch.mockImplementation(() => Promise.resolve({ data: {} }));
   });
 
   it('renders pending advisor requests with approve and reject buttons', async () => {
@@ -39,9 +56,10 @@ describe('ProfessorInbox', () => {
       expect(screen.getByText('Team Apollo')).toBeInTheDocument();
       expect(screen.getByText('pending')).toBeInTheDocument();
     });
+    expect(checkAdvisorWindow).toHaveBeenCalled();
   });
 
-  it('approves a pending request with the correct payload', async () => {
+  it('approves a pending request and sends PATCH with decision payload', async () => {
     const user = userEvent.setup();
     getMyAdvisorRequests.mockResolvedValue([
       {
@@ -53,20 +71,27 @@ describe('ProfessorInbox', () => {
         message: 'We need your expertise.',
       },
     ]);
-    decideOnAdvisorRequest.mockResolvedValue({ requestId: 'req_approve', assignedGroupId: 'grp_approve' });
 
     render(<ProfessorInbox />);
 
     await waitFor(() => expect(screen.getByText('Team Orion')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByText('Team Orion'));
+    await act(async () => {
+      fireEvent.click(screen.getByText('Team Orion'));
+    });
     const requestCard = screen.getByText('Team Orion').closest('.request-card');
     const approveButton = within(requestCard).getByRole('button', { name: /Approve/i });
     await user.click(approveButton);
 
     await waitFor(() => {
-      expect(decideOnAdvisorRequest).toHaveBeenCalledWith('req_approve', 'approve', null);
+      expect(apiClient.patch).toHaveBeenCalledWith(
+        expect.stringContaining('/advisor-requests/req_approve'),
+        expect.objectContaining({ decision: 'approve' })
+      );
     });
+    const patchCalls = apiClient.patch.mock.calls;
+    const body = patchCalls[patchCalls.length - 1][1];
+    expect(body).toMatchObject({ decision: 'approve' });
   });
 
   it('rejects a pending request only after a reason is provided', async () => {
@@ -81,13 +106,14 @@ describe('ProfessorInbox', () => {
         message: 'Please consider our request.',
       },
     ]);
-    decideOnAdvisorRequest.mockResolvedValue({ requestId: 'req_reject', decision: 'reject' });
 
     render(<ProfessorInbox />);
 
     await waitFor(() => expect(screen.getByText('Team Phoenix')).toBeInTheDocument());
 
-    fireEvent.click(screen.getByText('Team Phoenix'));
+    await act(async () => {
+      fireEvent.click(screen.getByText('Team Phoenix'));
+    });
     const requestCard = screen.getByText('Team Phoenix').closest('.request-card');
     const textarea = within(requestCard).getByPlaceholderText(/Reason for rejection/i);
     await user.type(textarea, 'My capacity is limited.');
@@ -95,11 +121,39 @@ describe('ProfessorInbox', () => {
     await user.click(rejectButton);
 
     await waitFor(() => {
-      expect(decideOnAdvisorRequest).toHaveBeenCalledWith('req_reject', 'reject', 'My capacity is limited.');
+      expect(apiClient.patch).toHaveBeenCalledWith(
+        expect.stringContaining('/advisor-requests/req_reject'),
+        { decision: 'reject', reason: 'My capacity is limited.' }
+      );
     });
   });
 
-  it('shows schedule closed error when decision endpoint returns 422', async () => {
+  it('disables approve and reject when the advisor association schedule window is closed', async () => {
+    checkAdvisorWindow.mockResolvedValue({ open: false });
+    getMyAdvisorRequests.mockResolvedValue([
+      {
+        requestId: 'req_closed_win',
+        groupId: 'grp_w',
+        groupName: 'Team ClosedWin',
+        requesterId: 'usr_leader_x',
+        status: 'pending',
+        message: 'Hi',
+      },
+    ]);
+
+    render(<ProfessorInbox />);
+
+    await waitFor(() => expect(screen.getByText('Team ClosedWin')).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByText('Team ClosedWin'));
+    });
+    const requestCard = screen.getByText('Team ClosedWin').closest('.request-card');
+    expect(within(requestCard).getByRole('button', { name: /Approve/i })).toBeDisabled();
+    expect(within(requestCard).getByRole('button', { name: /Reject/i })).toBeDisabled();
+    expect(within(requestCard).getByPlaceholderText(/Reason for rejection/i)).toBeDisabled();
+  });
+
+  it('shows schedule closed error when decision endpoint returns 422 and locks decision controls', async () => {
     getMyAdvisorRequests.mockResolvedValue([
       {
         requestId: 'req_closed',
@@ -110,19 +164,26 @@ describe('ProfessorInbox', () => {
         message: 'Looking forward to your feedback.',
       },
     ]);
-    decideOnAdvisorRequest.mockRejectedValue({ response: { status: 422 } });
+    apiClient.patch.mockRejectedValueOnce({ response: { status: 422 } });
 
     render(<ProfessorInbox />);
 
     await waitFor(() => expect(screen.getByText('Team Atlas')).toBeInTheDocument());
-    fireEvent.click(screen.getByText('Team Atlas'));
+    await act(async () => {
+      fireEvent.click(screen.getByText('Team Atlas'));
+    });
     const requestCard = screen.getByText('Team Atlas').closest('.request-card');
     const approveButton = within(requestCard).getByRole('button', { name: /Approve/i });
-    fireEvent.click(approveButton);
+    await act(async () => {
+      fireEvent.click(approveButton);
+    });
 
     await waitFor(() => {
       expect(screen.getByText(/Advisor association window is currently closed/i)).toBeInTheDocument();
     });
+    expect(within(requestCard).getByRole('button', { name: /Approve/i })).toBeDisabled();
+    expect(within(requestCard).getByRole('button', { name: /Reject/i })).toBeDisabled();
+    expect(within(requestCard).getByPlaceholderText(/Reason for rejection/i)).toBeDisabled();
   });
 
   it('shows already processed error when server returns 409', async () => {
@@ -136,17 +197,21 @@ describe('ProfessorInbox', () => {
         message: 'Please approve our request.',
       },
     ]);
-    decideOnAdvisorRequest.mockRejectedValue({
+    apiClient.patch.mockRejectedValueOnce({
       response: { status: 409, data: { details: { decision: 'approve' } } },
     });
 
     render(<ProfessorInbox />);
 
     await waitFor(() => expect(screen.getByText('Team Voyager')).toBeInTheDocument());
-    fireEvent.click(screen.getByText('Team Voyager'));
+    await act(async () => {
+      fireEvent.click(screen.getByText('Team Voyager'));
+    });
     const requestCard = screen.getByText('Team Voyager').closest('.request-card');
     const approveButton = within(requestCard).getByRole('button', { name: /Approve/i });
-    fireEvent.click(approveButton);
+    await act(async () => {
+      fireEvent.click(approveButton);
+    });
 
     await waitFor(() => {
       expect(screen.getByText(/Request already processed: approve/i)).toBeInTheDocument();

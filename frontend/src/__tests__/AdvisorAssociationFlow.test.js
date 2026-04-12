@@ -1,14 +1,20 @@
 import React from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import AdviseeRequestForm from '../components/AdviseeRequestForm';
 import ProfessorInbox from '../components/ProfessorInbox';
+import GroupDashboard from '../components/GroupDashboard';
 
 jest.mock('../store/authStore');
+jest.mock('../store/groupStore');
 jest.mock('../api/advisorService');
-jest.mock('../api/groupService');
+jest.mock('../api/groupService', () => ({
+  ...jest.requireActual('../api/groupService'),
+  getGroup: jest.fn(),
+  getMyPendingInvitation: jest.fn(() => Promise.resolve(null)),
+}));
 jest.mock('react-router-dom', () => ({
   ...jest.requireActual('react-router-dom'),
   useParams: jest.fn(),
@@ -16,20 +22,30 @@ jest.mock('react-router-dom', () => ({
 }));
 
 const useAuthStore = require('../store/authStore').default;
-const { getProfessors, submitAdvisorRequest, getMyAdvisorRequests, decideOnAdvisorRequest, checkAdvisorWindow } = require('../api/advisorService');
-const { getGroup } = require('../api/groupService');
+const useGroupStore = require('../store/groupStore').default;
+const {
+  getProfessors,
+  submitAdvisorRequest,
+  getMyAdvisorRequests,
+  decideOnAdvisorRequest,
+  checkAdvisorWindow,
+} = require('../api/advisorService');
+const groupServiceApi = require('../api/groupService');
+const { getGroup } = groupServiceApi;
 const { useParams, useNavigate } = require('react-router-dom');
 
 describe('Advisor association flow', () => {
   const navigateMock = jest.fn();
 
   beforeEach(() => {
-    jest.clearAllMocks();
     useNavigate.mockReturnValue(navigateMock);
     useParams.mockReturnValue({ group_id: 'grp_flow' });
+    groupServiceApi.getMyPendingInvitation.mockResolvedValue(null);
   });
 
-  it('lets a team leader submit an advisor request and then a professor approve it', async () => {
+  it('completes leader request, professor approval, and shows assigned advisor on the group dashboard', async () => {
+    const user = userEvent.setup();
+
     useAuthStore.mockImplementation((selector) =>
       selector({ user: { userId: 'usr_leader', role: 'student' } })
     );
@@ -39,7 +55,7 @@ describe('Advisor association flow', () => {
     checkAdvisorWindow.mockResolvedValue({ open: true });
     submitAdvisorRequest.mockResolvedValue({ requestId: 'req_flow', notificationTriggered: true });
 
-    render(
+    const { unmount: unmountForm } = render(
       <MemoryRouter initialEntries={['/groups/grp_flow/advisor-request']}>
         <Routes>
           <Route path="/groups/:group_id/advisor-request" element={<AdviseeRequestForm />} />
@@ -49,16 +65,19 @@ describe('Advisor association flow', () => {
 
     await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument());
 
-    const comboBox = screen.getByRole('combobox');
-    await userEvent.selectOptions(comboBox, 'usr_prof_e2e');
-    await userEvent.type(screen.getByLabelText(/Message \(Optional\)/i), 'This project fits my area.');
-    await userEvent.click(screen.getByRole('button', { name: /Submit Request/i }));
+    await user.selectOptions(screen.getByRole('combobox'), 'usr_prof_e2e');
+    await user.type(screen.getByLabelText(/Message \(Optional\)/i), 'This project fits my area.');
+    await user.click(screen.getByRole('button', { name: /Submit Request/i }));
 
     await waitFor(() => expect(screen.getByText(/Request Submitted!/i)).toBeInTheDocument());
     expect(submitAdvisorRequest).toHaveBeenCalledWith({
       groupId: 'grp_flow',
       professorId: 'usr_prof_e2e',
       message: 'This project fits my area.',
+    });
+
+    await act(async () => {
+      unmountForm();
     });
 
     useAuthStore.mockImplementation((selector) =>
@@ -74,9 +93,14 @@ describe('Advisor association flow', () => {
         message: 'This project fits my area.',
       },
     ]);
-    decideOnAdvisorRequest.mockResolvedValue({ requestId: 'req_flow', assignedGroupId: 'grp_flow' });
+    checkAdvisorWindow.mockResolvedValue({ open: true });
+    decideOnAdvisorRequest.mockResolvedValue({
+      requestId: 'req_flow',
+      assignedGroupId: 'grp_flow',
+      advisorName: 'Smith',
+    });
 
-    render(
+    const { unmount: unmountInbox } = render(
       <MemoryRouter initialEntries={['/professor/inbox']}>
         <Routes>
           <Route path="/professor/inbox" element={<ProfessorInbox />} />
@@ -85,13 +109,55 @@ describe('Advisor association flow', () => {
     );
 
     await waitFor(() => expect(screen.getByText('Team Flow')).toBeInTheDocument());
-    await userEvent.click(screen.getByText('Team Flow'));
+    await user.click(screen.getByText('Team Flow'));
     const requestCard = screen.getByText('Team Flow').closest('.request-card');
     const approveButton = within(requestCard).getByRole('button', { name: /Approve/i });
-    await userEvent.click(approveButton);
+    await user.click(approveButton);
 
     await waitFor(() => {
       expect(decideOnAdvisorRequest).toHaveBeenCalledWith('req_flow', 'approve', null);
     });
+
+    await act(async () => {
+      unmountInbox();
+    });
+
+    useAuthStore.mockImplementation((selector) =>
+      selector({ user: { userId: 'usr_leader', role: 'student' } })
+    );
+    useParams.mockReturnValue({ group_id: 'grp_flow' });
+    useGroupStore.mockReturnValue({
+      groupData: {
+        groupId: 'grp_flow',
+        groupName: 'Team Flow',
+        leaderId: 'usr_leader',
+        status: 'active',
+        advisorId: 'usr_prof_e2e',
+        advisorName: 'Smith',
+      },
+      members: [],
+      github: { connected: false, repo_url: null, last_synced: null },
+      jira: { connected: false, project_key: null, board_url: null },
+      pendingApprovalsCount: 0,
+      isLoading: false,
+      error: null,
+      lastUpdated: new Date().toISOString(),
+      fetchGroupDashboard: jest.fn(),
+      startPolling: jest.fn(() => 1),
+      stopPolling: jest.fn(),
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/groups/grp_flow']}>
+        <Routes>
+          <Route path="/groups/:group_id" element={<GroupDashboard />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Dr\.\s*Smith/i)).toBeInTheDocument();
+    });
+    expect(screen.getByText('Team Flow')).toBeInTheDocument();
   });
 });
