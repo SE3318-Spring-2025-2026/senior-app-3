@@ -162,33 +162,8 @@ export const getGroup = async (groupId) => {
  *   2. Call GET /committees/{committeeId} to fetch published committee data
  */
 export const getGroupCommitteeStatus = async (groupId) => {
-  try {
-    const response = await apiClient.get(`/groups/${groupId}`);
-    const group = response.data;
-
-    if (!group.committeeId) {
-      return {
-        groupId,
-        committeeId: null,
-        committee: null,
-      };
-    }
-
-    // TODO: Backend Implementation (Issue #75 or related GET endpoint requirement)
-    // Once backend implements GET /committees/{committeeId}, uncomment below:
-    // const committeeResponse = await apiClient.get(`/committees/${group.committeeId}`);
-    // return committeeResponse.data;
-
-    // Temporary: Return placeholder response structure
-    return {
-      groupId,
-      committeeId: group.committeeId,
-      committee: null, // Awaiting backend GET /committees/{committeeId} implementation
-    };
-  } catch (error) {
-    console.error('Error fetching committee status:', error);
-    throw error;
-  }
+  const response = await apiClient.get(`/groups/${groupId}/committee-status`);
+  return response.data;
 };
 
 /**

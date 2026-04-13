@@ -46,13 +46,13 @@ const CommitteeStatusCard = ({ committeeStatus, user }) => {
             <div className="info-row">
               <span className="info-label">Advisors</span>
               <span className="info-value">
-                {committee.advisorIds.length > 0 ? committee.advisorIds.join(', ') : 'None assigned'}
+                {committee.advisorIds?.length > 0 ? committee.advisorIds.join(', ') : 'None assigned'}
               </span>
             </div>
             <div className="info-row">
               <span className="info-label">Jury</span>
               <span className="info-value">
-                {committee.juryIds.length > 0 ? committee.juryIds.join(', ') : 'None assigned'}
+                {committee.juryIds?.length > 0 ? committee.juryIds.join(', ') : 'None assigned'}
               </span>
             </div>
             {isAdvisor && (

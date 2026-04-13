@@ -5,7 +5,7 @@ const router = express.Router();
 
 const { deliverableAuthMiddleware, roleMiddleware } = require('../middleware/auth');
 const { uploadSingle } = require('../middleware/upload');
-const { validateGroup } = require('../controllers/deliverableController');
+const { validateGroup, submitDeliverable } = require('../controllers/deliverableController');
 
 // All deliverable routes require a valid JWT; req.user = { userId, role, groupId }
 router.use(deliverableAuthMiddleware);
@@ -18,6 +18,20 @@ router.use(deliverableAuthMiddleware);
 router.post('/validate-group', roleMiddleware(['student']), validateGroup);
 
 /**
+ * POST /api/deliverables/submit
+ * Process 5.2 — Accept file upload and create a staging record.
+ * Requires: JWT (student), multipart/form-data with file field,
+ * and a valid Authorization-Validation token from Process 5.1.
+ * Returns 202 with stagingId on success.
+ */
+router.post(
+  '/submit',
+  roleMiddleware(['student']),
+  uploadSingle('file'),
+  submitDeliverable
+);
+
+/**
  * POST /api/deliverables/:stagingId/submit
  * Accepted role: student
  * Parses multipart upload (field: "file") before reaching the controller.
@@ -27,7 +41,7 @@ router.post(
   '/:stagingId/submit',
   roleMiddleware(['student']),
   uploadSingle('file'),
-  (req, res) => {
+  (_req, res) => {
     res.status(501).json({ code: 'NOT_IMPLEMENTED', message: 'Submit endpoint not yet implemented' });
   }
 );
@@ -40,7 +54,7 @@ router.post(
 router.delete(
   '/:deliverableId/retract',
   roleMiddleware(['coordinator']),
-  (req, res) => {
+  (_req, res) => {
     res.status(501).json({ code: 'NOT_IMPLEMENTED', message: 'Retract endpoint not yet implemented' });
   }
 );
