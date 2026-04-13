@@ -1032,14 +1032,15 @@ const getAllGroups = async (req, res) => {
           .sort({ createdAt: -1 })
           .limit(5)
           .lean();
+        const members = Array.isArray(group.members) ? group.members : [];
 
         return {
           groupId: group.groupId,
           groupName: group.groupName,
           leaderId: group.leaderId,
           status: group.status,
-          memberCount: group.members.length,
-          members: group.members.map((m) => ({
+          memberCount: members.length,
+          members: members.map((m) => ({
             userId: m.userId,
             role: m.role,
             status: m.status,

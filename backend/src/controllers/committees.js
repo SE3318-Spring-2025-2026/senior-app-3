@@ -344,6 +344,24 @@ const getCommitteeHandler = async (req, res) => {
   }
 };
 
+const listCommitteesHandler = async (req, res) => {
+  try {
+    const committees = await Committee.find()
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return res.status(200).json({
+      committees,
+      total: committees.length,
+    });
+  } catch (err) {
+    console.error('listCommittees error:', err);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: 'An error occurred while listing committees',
+    });
+  }
+};
 const getGroupCommitteeStatus = async (req, res) => {
   try {
     const { groupId } = req.params;
@@ -358,7 +376,6 @@ const getGroupCommitteeStatus = async (req, res) => {
     const group = await Group.findOne({ groupId }).select(
       'groupId groupName committeeId committeePublishedAt'
     );
-
     if (!group) {
       return res.status(404).json({
         code: 'GROUP_NOT_FOUND',
@@ -413,5 +430,6 @@ module.exports = {
   validateCommitteeHandler,
   publishCommitteeHandler,
   getCommitteeHandler,
+  listCommitteesHandler,
   getGroupCommitteeStatus,
 };
