@@ -1,4 +1,5 @@
 const { verifyAccessToken } = require('../utils/jwt');
+const Group = require('../models/Group');
 
 /**
  * Middleware to verify JWT access token in Authorization header
@@ -257,6 +258,49 @@ const serviceOrBearerAuth = (req, res, next) => {
   return authMiddleware(req, res, next);
 };
 
+/**
+ * Auth middleware for /api/deliverables/* routes.
+ * Validates Bearer JWT and enriches req.user with groupId looked up from the Group collection.
+ * Sets req.user = { userId, role, groupId } on success.
+ * Returns 401 if token is missing or invalid.
+ */
+const deliverableAuthMiddleware = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        code: 'UNAUTHORIZED',
+        message: 'Missing or invalid authorization header',
+      });
+    }
+
+    let decoded;
+    try {
+      decoded = verifyAccessToken(authHeader.substring(7));
+    } catch {
+      return res.status(401).json({
+        code: 'INVALID_TOKEN',
+        message: 'Invalid or expired token',
+      });
+    }
+
+    const { userId, role } = decoded;
+
+    const group = await Group.findOne({
+      members: { $elemMatch: { userId, status: 'accepted' } },
+    }).select('groupId').lean();
+
+    req.user = { userId, role, groupId: group ? group.groupId : null };
+    next();
+  } catch (error) {
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Authentication check failed',
+    });
+  }
+};
+
 module.exports = {
   authMiddleware,
   roleMiddleware,
@@ -265,4 +309,5 @@ module.exports = {
   flexibleSystemOrRoleAuth,
   errorHandler,
   serviceOrBearerAuth,
+  deliverableAuthMiddleware,
 };
