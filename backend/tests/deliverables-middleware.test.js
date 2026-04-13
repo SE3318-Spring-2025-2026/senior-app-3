@@ -92,7 +92,7 @@ describe('Process 5 — deliverables middleware smoke tests', () => {
   describe('deliverableAuthMiddleware', () => {
     it('returns 401 when Authorization header is absent', async () => {
       const res = await request(app)
-        .post('/api/deliverables/any-staging-id/submit')
+        .post('/api/v1/deliverables/any-staging-id/submit')
         .field('dummy', 'value');
 
       expect(res.status).toBe(401);
@@ -101,7 +101,7 @@ describe('Process 5 — deliverables middleware smoke tests', () => {
 
     it('returns 401 when token is malformed / invalid', async () => {
       const res = await request(app)
-        .post('/api/deliverables/any-staging-id/submit')
+        .post('/api/v1/deliverables/any-staging-id/submit')
         .set('Authorization', 'Bearer not.a.real.token');
 
       expect(res.status).toBe(401);
@@ -110,7 +110,7 @@ describe('Process 5 — deliverables middleware smoke tests', () => {
 
     it('returns 401 when retract route has no token', async () => {
       const res = await request(app).delete(
-        '/api/deliverables/del-123/retract'
+        '/api/v1/deliverables/del-123/retract'
       );
 
       expect(res.status).toBe(401);
@@ -127,7 +127,7 @@ describe('Process 5 — deliverables middleware smoke tests', () => {
       const pdfPath = makeTempFile('test.pdf', 512, '%PDF-1.4 smoke');
 
       const res = await request(app)
-        .post('/api/deliverables/staging-abc/submit')
+        .post('/api/v1/deliverables/staging-abc/submit')
         .set('Authorization', `Bearer ${coordToken}`)
         .attach('file', pdfPath, { contentType: 'application/pdf' });
 
@@ -139,7 +139,7 @@ describe('Process 5 — deliverables middleware smoke tests', () => {
       const pdfPath = makeTempFile('test2.pdf', 512, '%PDF-1.4 smoke');
 
       const res = await request(app)
-        .post('/api/deliverables/staging-abc/submit')
+        .post('/api/v1/deliverables/staging-abc/submit')
         .set('Authorization', `Bearer ${advisorToken}`)
         .attach('file', pdfPath, { contentType: 'application/pdf' });
 
@@ -156,7 +156,7 @@ describe('Process 5 — deliverables middleware smoke tests', () => {
       const studentToken = makeToken(studentId, 'student');
 
       const res = await request(app)
-        .delete('/api/deliverables/del-999/retract')
+        .delete('/api/v1/deliverables/del-999/retract')
         .set('Authorization', `Bearer ${studentToken}`);
 
       expect(res.status).toBe(403);
@@ -173,7 +173,7 @@ describe('Process 5 — deliverables middleware smoke tests', () => {
       const imgPath = makeTempFile('photo.png', 512);
 
       const res = await request(app)
-        .post('/api/deliverables/staging-xyz/submit')
+        .post('/api/v1/deliverables/staging-xyz/submit')
         .set('Authorization', `Bearer ${studentToken}`)
         .attach('file', imgPath, { contentType: 'image/png' });
 
@@ -187,7 +187,7 @@ describe('Process 5 — deliverables middleware smoke tests', () => {
       const txtPath = makeTempFile('readme.txt', 64, 'hello world');
 
       const res = await request(app)
-        .post('/api/deliverables/staging-xyz/submit')
+        .post('/api/v1/deliverables/staging-xyz/submit')
         .set('Authorization', `Bearer ${studentToken}`)
         .attach('file', txtPath, { contentType: 'text/plain' });
 
@@ -218,7 +218,7 @@ describe('Process 5 — deliverables middleware smoke tests', () => {
         const filePath = makeTempFile(filename, 0, content);
 
         const res = await request(app)
-          .post('/api/deliverables/staging-ok/submit')
+          .post('/api/v1/deliverables/staging-ok/submit')
           .set('Authorization', `Bearer ${studentToken}`)
           .attach('file', filePath, { contentType: mime });
 
@@ -237,7 +237,7 @@ describe('Process 5 — deliverables middleware smoke tests', () => {
       const coordToken = makeToken(unique('coord'), 'coordinator');
 
       const res = await request(app)
-        .delete('/api/deliverables/del-abc/retract')
+        .delete('/api/v1/deliverables/del-abc/retract')
         .set('Authorization', `Bearer ${coordToken}`);
 
       expect(res.status).toBe(501);

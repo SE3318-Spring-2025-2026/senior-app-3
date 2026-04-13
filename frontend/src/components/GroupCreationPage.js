@@ -68,14 +68,20 @@ const GroupCreationPage = () => {
       navigate(`/groups/${result.groupId}`);
     } catch (err) {
       const data = err.response?.data;
+      // err.code is set by the apiClient 403 interceptor (which strips err.response)
+      const code = data?.code || err.code;
+      const message = data?.message || err.message;
+
       if (data?.code === 'GROUP_NAME_TAKEN') {
         setFieldErrors({ groupName: 'A group with this name already exists. Please choose a different name.' });
-      } else if (data?.code === 'OUTSIDE_SCHEDULE_WINDOW') {
+      } else if (code === 'OUTSIDE_SCHEDULE_WINDOW') {
         setSubmitError('Group creation is currently closed. Please check the coordinator-defined schedule.');
-      } else if (data?.code === 'STUDENT_ALREADY_IN_GROUP' || data?.code === 'STUDENT_ALREADY_LEADER') {
+      } else if (code === 'STUDENT_ALREADY_IN_GROUP' || code === 'STUDENT_ALREADY_LEADER') {
         setSubmitError('You already belong to an active group and cannot create another.');
+      } else if (code === 'FORBIDDEN') {
+        setSubmitError(message || 'You do not have permission to create a group.');
       } else {
-        setSubmitError(data?.message || 'An unexpected error occurred. Please try again.');
+        setSubmitError(message || 'An unexpected error occurred. Please try again.');
       }
     } finally {
       setLoading(false);

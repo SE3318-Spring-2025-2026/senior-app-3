@@ -58,7 +58,7 @@ app.use('/api/v1/advisor-requests', advisorRequestRoutes); // From main
 app.use('/api/v1/committees', committeeRoutes);           // From main
 app.use('/api/v1/schedule-window', scheduleWindowRoutes);
 app.use('/api/v1/audit-logs', auditLogRoutes);
-app.use('/api/deliverables', deliverableRoutes);
+app.use('/api/v1/deliverables', deliverableRoutes);
 
 // 404 Handler
 app.use((req, res) => {

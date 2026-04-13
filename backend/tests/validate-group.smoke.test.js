@@ -31,7 +31,7 @@ const { generateAccessToken } = require('../src/utils/jwt');
 const Group = require('../src/models/Group');
 const Committee = require('../src/models/Committee');
 
-const ENDPOINT = '/api/deliverables/validate-group';
+const ENDPOINT = '/api/v1/deliverables/validate-group';
 
 let mongod;
 let app;

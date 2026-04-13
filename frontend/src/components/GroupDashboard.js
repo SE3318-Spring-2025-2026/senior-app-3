@@ -272,7 +272,7 @@ const GroupDashboard = () => {
             isLeader={isLeader}
             userId={user?.userId}
             members={members}
-            committeeStatus={groupData?.committee?.status || groupData?.committeeStatus}
+            committeeStatus={committeeStatus?.committee?.status}
             onSuccess={() => fetchGroupDashboard(groupId)}
           />
 

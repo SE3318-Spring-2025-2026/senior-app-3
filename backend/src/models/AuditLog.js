@@ -90,6 +90,9 @@ const auditLogSchema = new mongoose.Schema(
         'GROUP_VALIDATION_SUCCESS',
         'GROUP_VALIDATION_FAILED',
 
+        // --- Deliverable Staging (Process 5.2) ---
+        'DELIVERABLE_STAGING_CREATED',
+
         // --- System & Test ---
         'TEST_ACTION',
       ],
