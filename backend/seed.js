@@ -48,6 +48,11 @@ const committeeMemberSchema = new mongoose.Schema(
 
 const groupSchema = new mongoose.Schema(
   {
+    groupId: {
+      type: String,
+      unique: true,
+      default: () => `grp_${new mongoose.Types.ObjectId().toHexString()}`,
+    },
     groupName: { type: String, required: true, unique: true, trim: true },
     projectTitle: { type: String, required: true, trim: true },
     advisor: { type: mongoose.Schema.Types.ObjectId, ref: 'Advisor', required: true },
