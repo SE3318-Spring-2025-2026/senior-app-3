@@ -40,6 +40,7 @@ async function run() {
     await Group.deleteOne({ leaderId: existing.userId });
     await User.deleteOne({ email: TEST_EMAIL });
   }
+  await Group.deleteOne({ groupName: 'Test Group' });
   await Committee.deleteOne({ committeeName: 'Test Committee' });
   await ScheduleWindow.deleteMany({ createdBy: 'seed-test-student' });
 
