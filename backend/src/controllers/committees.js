@@ -1,4 +1,6 @@
 const { publishCommitteeWithTransaction } = require('../services/committeePublishService');
+const Group = require('../models/Group');
+const Committee = require('../models/Committee');
 const {
   createCommitteeDraft,
   validateCommittee,
@@ -342,6 +344,68 @@ const getCommitteeHandler = async (req, res) => {
   }
 };
 
+const getGroupCommitteeStatus = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+
+    if (!groupId) {
+      return res.status(400).json({
+        code: 'MISSING_GROUP_ID',
+        message: 'Group ID is required',
+      });
+    }
+
+    const group = await Group.findOne({ groupId }).select(
+      'groupId groupName committeeId committeePublishedAt'
+    );
+
+    if (!group) {
+      return res.status(404).json({
+        code: 'GROUP_NOT_FOUND',
+        message: `Group ${groupId} not found`,
+      });
+    }
+
+    if (!group.committeeId) {
+      return res.status(200).json({
+        groupId: group.groupId,
+        groupName: group.groupName,
+        assigned: false,
+        committee: null,
+      });
+    }
+
+    const committee = await Committee.findOne({ committeeId: group.committeeId }).select(
+      'committeeId committeeName status publishedAt validatedAt'
+    );
+
+    return res.status(200).json({
+      groupId: group.groupId,
+      groupName: group.groupName,
+      assigned: true,
+      committee: committee
+        ? {
+            committeeId: committee.committeeId,
+            committeeName: committee.committeeName,
+            status: committee.status,
+            validatedAt: committee.validatedAt,
+            publishedAt: committee.publishedAt,
+          }
+        : {
+            committeeId: group.committeeId,
+            status: 'unknown',
+            publishedAt: group.committeePublishedAt,
+          },
+    });
+  } catch (err) {
+    console.error('getGroupCommitteeStatus error:', err);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: 'Failed to fetch group committee status',
+    });
+  }
+};
+
 module.exports = {
   createCommitteeHandler,
   assignAdvisorsHandler,
@@ -349,4 +413,5 @@ module.exports = {
   validateCommitteeHandler,
   publishCommitteeHandler,
   getCommitteeHandler,
+  getGroupCommitteeStatus,
 };
