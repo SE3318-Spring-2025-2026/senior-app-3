@@ -86,6 +86,10 @@ const auditLogSchema = new mongoose.Schema(
         'JURY_ASSIGNED',
         'ADVISOR_RELEASED',
 
+        // --- Deliverable Validation (Process 5.1) ---
+        'GROUP_VALIDATION_SUCCESS',
+        'GROUP_VALIDATION_FAILED',
+
         // --- System & Test ---
         'TEST_ACTION',
       ],
