@@ -93,6 +93,14 @@ const auditLogSchema = new mongoose.Schema(
         // --- Deliverable Staging (Process 5.2) ---
         'DELIVERABLE_STAGING_CREATED',
 
+        // --- Deliverable Format Validation (Process 5.3) ---
+        'DELIVERABLE_FORMAT_VALIDATION_SUCCESS',
+        'DELIVERABLE_FORMAT_VALIDATION_FAILED',
+
+        // --- Deliverable Deadline Validation (Process 5.4) ---
+        'DELIVERABLE_DEADLINE_VALIDATION_SUCCESS',
+        'DELIVERABLE_DEADLINE_VALIDATION_FAILED',
+
         // --- System & Test ---
         'TEST_ACTION',
       ],
