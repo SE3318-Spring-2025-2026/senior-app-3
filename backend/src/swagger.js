@@ -31,6 +31,7 @@ const options = {
       { name: 'Committees', description: 'Committee creation & publishing' },
       { name: 'Deliverables', description: 'Deliverable submission & validation' },
       { name: 'Schedule Windows', description: 'Operation schedule management' },
+      { name: 'Audit Logs', description: 'Audit trail & logging' },
     ],
     paths: {
       // ── AUTH ──────────────────────────────────────────────────────────────
@@ -750,6 +751,127 @@ const options = {
             },
             400: { description: 'Validation failed — bad format or size exceeded' },
             404: { description: 'Staging record not found or expired' },
+          },
+        },
+      },
+      '/deliverables/{stagingId}/submit': {
+        post: {
+          tags: ['Deliverables'],
+          summary: 'Process 5.2 — Submit deliverable (finalize staging)',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'stagingId', in: 'path', required: true, schema: { type: 'string', example: 'stg_5e8a9c2f1b' } }],
+          requestBody: {
+            required: false,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    comment: { type: 'string', description: 'Optional submission comment' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: { description: 'Deliverable submitted successfully' },
+            400: { description: 'Validation failed or invalid request' },
+            404: { description: 'Staging record not found' },
+          },
+        },
+      },
+      '/deliverables/{deliverableId}/retract': {
+        delete: {
+          tags: ['Deliverables'],
+          summary: 'Retract a submitted deliverable',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'deliverableId', in: 'path', required: true, schema: { type: 'string', example: 'del_abc123' } }],
+          requestBody: {
+            required: false,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    reason: { type: 'string', description: 'Reason for retraction' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: { description: 'Deliverable retracted successfully' },
+            400: { description: 'Cannot retract — deadline passed or status prevents retraction' },
+            404: { description: 'Deliverable not found' },
+          },
+        },
+      },
+
+      // ── AUDIT LOGS ────────────────────────────────────────────────────────
+      '/audit-logs': {
+        get: {
+          tags: ['Audit Logs'],
+          summary: 'Get audit logs (admin/coordinator)',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: 'groupId',
+              in: 'query',
+              required: false,
+              schema: { type: 'string' },
+              description: 'Filter by group ID',
+            },
+            {
+              name: 'action',
+              in: 'query',
+              required: false,
+              schema: { type: 'string' },
+              description: 'Filter by action type',
+            },
+            {
+              name: 'limit',
+              in: 'query',
+              required: false,
+              schema: { type: 'integer', default: 50 },
+              description: 'Number of logs to return',
+            },
+            {
+              name: 'skip',
+              in: 'query',
+              required: false,
+              schema: { type: 'integer', default: 0 },
+              description: 'Number of logs to skip (pagination)',
+            },
+          ],
+          responses: {
+            200: {
+              description: 'Audit logs retrieved',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      logs: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            _id: { type: 'string' },
+                            action: { type: 'string' },
+                            actorId: { type: 'string' },
+                            groupId: { type: 'string' },
+                            payload: { type: 'object' },
+                            timestamp: { type: 'string', format: 'date-time' },
+                          },
+                        },
+                      },
+                      total: { type: 'integer' },
+                    },
+                  },
+                },
+              },
+            },
+            401: { description: 'Unauthorized' },
           },
         },
       },
