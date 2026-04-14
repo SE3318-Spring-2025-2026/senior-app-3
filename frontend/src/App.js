@@ -21,10 +21,12 @@ import ProfessorInbox from './components/ProfessorInbox';
 import CommitteeCreationForm from './components/CommitteeCreationForm';
 import JuryAssignmentForm from './components/JuryAssignmentForm';
 import Dashboard from './components/Dashboard';
-import Sidebar from './components/layout/Sidebar';
+import Sidebar from './components/layout/Sidebar.jsx';
 import './App.css';
 import './components/layout/Sidebar.css';
 import AdvisorAssociationPanel from './components/AdvisorAssociationPanel';
+import DeliverableSubmissionForm from './components/DeliverableSubmissionForm.jsx';
+
 
 const Profile = () => <div className="page">Profile - Coming Soon</div>;
 const Unauthorized = () => <div className="page error">Unauthorized Access</div>;
@@ -77,7 +79,7 @@ function App() {
               path="/coordinator"
               element={<ProtectedRoute component={CoordinatorPanel} requiredRoles={['coordinator', 'admin']} />}
             />
-            
+
             {/* Committee Routes from main */}
             <Route
               path="/coordinator/committees/new"
@@ -111,6 +113,10 @@ function App() {
             <Route
               path="/groups/:group_id/coordinator"
               element={<ProtectedRoute component={CoordinatorPanel} requiredRoles={['coordinator', 'admin']} />}
+            />
+            <Route
+              path="/groups/:group_id/deliverables/submit"
+              element={<ProtectedRoute component={DeliverableSubmissionForm} requiredRoles={['student']} />}
             />
             <Route
               path="/jury/committees"
