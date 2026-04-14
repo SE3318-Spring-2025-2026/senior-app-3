@@ -5,7 +5,7 @@ const router = express.Router();
 
 const { deliverableAuthMiddleware, roleMiddleware } = require('../middleware/auth');
 const { uploadSingle } = require('../middleware/upload');
-const { validateGroup, submitDeliverable } = require('../controllers/deliverableController');
+const { validateGroup, submitDeliverable, validateFormatHandler } = require('../controllers/deliverableController');
 
 // All deliverable routes require a valid JWT; req.user = { userId, role, groupId }
 router.use(deliverableAuthMiddleware);
@@ -29,6 +29,16 @@ router.post(
   roleMiddleware(['student']),
   uploadSingle('file'),
   submitDeliverable
+);
+
+/**
+ * POST /api/deliverables/:stagingId/validate-format
+ * Process 5.3 — Validate staged file format and size.
+ */
+router.post(
+  '/:stagingId/validate-format',
+  roleMiddleware(['student']),
+  validateFormatHandler
 );
 
 /**

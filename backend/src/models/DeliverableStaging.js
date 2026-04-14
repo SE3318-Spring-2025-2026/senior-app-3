@@ -59,7 +59,7 @@ const deliverableStagingSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['staging'],
+      enum: ['staging', 'format_validated', 'validation_failed'],
       default: 'staging',
     },
     expiresAt: {
