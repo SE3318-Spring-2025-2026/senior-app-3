@@ -208,7 +208,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
 
   describe('Authentication & Authorization', () => {
     it('401 — no Authorization header', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const res = await request(app)
         .post(ENDPOINT)
         .send({ groupId: 'grp_x' });
@@ -218,7 +218,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
     });
 
     it('401 — invalid/expired JWT token', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const res = await request(app)
         .post(ENDPOINT)
         .set('Authorization', 'Bearer invalid.token.here')
@@ -229,7 +229,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
     });
 
     it('403 — coordinator cannot validate group', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const coordToken = makeCoordinatorToken(generateUniqueId('coord'));
       const res = await request(app)
         .post(ENDPOINT)
@@ -240,7 +240,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
     });
 
     it('403 — professor cannot validate group', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const profToken = generateAccessToken(generateUniqueId('prof'), 'professor');
       const res = await request(app)
         .post(ENDPOINT)
@@ -251,7 +251,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
     });
 
     it('401 — student without group (req.user.groupId is null)', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const studentId = generateUniqueId('stu');
       const token = makeStudentToken(studentId);
 
@@ -271,7 +271,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
 
   describe('Request Validation', () => {
     it('400 — missing groupId in body', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const { token } = await seedGroup();
 
       const res = await request(app)
@@ -284,7 +284,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
     });
 
     it('400 — empty groupId string', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const { token } = await seedGroup();
 
       const res = await request(app)
@@ -302,7 +302,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
 
   describe('Group ID Mismatch (403)', () => {
     it('403 — groupId in body ≠ req.user.groupId', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const { group, token } = await seedGroup();
       const otherGroupId = generateUniqueId('grp');
 
@@ -316,7 +316,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
     });
 
     it('403 — student tries to validate different group', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const { group: group1, token: token1 } = await seedGroup();
       const { group: group2 } = await seedGroup();
 
@@ -336,7 +336,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
 
   describe('Group Not Found (404)', () => {
     it('REST_GROUP_NOT_FOUND (KNOWN LIMITATION)', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       
       // ARCHITECTURE LIMITATION:
       // The deliverableAuthMiddleware looks up groupId from the database based on the user's
@@ -369,7 +369,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
 
   describe('Group Status Validation (409)', () => {
     it('409 — group status is "inactive"', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const { group, token } = await seedGroup({ status: 'inactive' });
 
       const res = await request(app)
@@ -382,7 +382,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
     });
 
     it('409 — group status is "pending_validation"', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const { group, token } = await seedGroup({ status: 'pending_validation' });
 
       const res = await request(app)
@@ -395,7 +395,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
     });
 
     it('409 — group status is "archived"', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const { group, token } = await seedGroup({ status: 'archived' });
 
       const res = await request(app)
@@ -408,7 +408,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
     });
 
     it('409 — group status is "rejected"', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const { group, token } = await seedGroup({ status: 'rejected' });
 
       const res = await request(app)
@@ -427,7 +427,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
 
   describe('Committee Assignment Validation (409)', () => {
     it('409 — NO_COMMITTEE_ASSIGNED: group has no committeeId', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const { group, token } = await seedGroup({ 
         status: 'active',
         committeeId: null 
@@ -443,7 +443,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
     });
 
     it('409 — NO_COMMITTEE_ASSIGNED: committeeId set but committee not found', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const ghostCommitteeId = generateUniqueId('cmt');
       const { group, token } = await seedGroup({ 
         status: 'active',
@@ -460,7 +460,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
     });
 
     it('409 — NO_COMMITTEE_ASSIGNED: committee exists but has no members', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const emptyCommittee = createInvalidCommittee('no_advisors', {
         juryIds: []
       });
@@ -481,7 +481,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
     });
 
     it('409 — NO_COMMITTEE_ASSIGNED: committee has only empty advisor/jury arrays', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const committee = createCommittee({ 
         advisorIds: [], 
         juryIds: [] 
@@ -509,7 +509,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
 
   describe('Successful Validation (200)', () => {
     it('200 — active group + committee with advisors → returns validationToken', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const { committee } = await seedCommittee({
         advisorIds: [generateUniqueId('adv'), generateUniqueId('adv')]
       });
@@ -533,7 +533,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
     });
 
     it('200 — validationToken is valid JWT with groupId and committeeId', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const { committee } = await seedCommittee();
       const { group, token } = await seedGroup({ 
         status: 'active',
@@ -553,7 +553,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
     });
 
     it('200 — validationToken expires in 15 minutes', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const { committee } = await seedCommittee();
       const { group, token } = await seedGroup({ 
         status: 'active',
@@ -580,7 +580,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
     });
 
     it('200 — active group + committee with jury members only', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const { committee } = await seedCommittee({
         advisorIds: [],
         juryIds: [generateUniqueId('jury')]
@@ -600,7 +600,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
     });
 
     it('200 — active group + committee with both advisors and jury', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const { committee } = await seedCommittee({
         advisorIds: [generateUniqueId('adv')],
         juryIds: [generateUniqueId('jury')]
@@ -626,7 +626,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
 
   describe('Audit Logging', () => {
     it('logs GROUP_VALIDATION_SUCCESS on successful validation', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const { committee } = await seedCommittee();
       const { group, studentId, token } = await seedGroup({ 
         status: 'active',
@@ -648,7 +648,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
     });
 
     it('logs GROUP_VALIDATION_FAILED on validation error', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const { token } = await seedGroup({ 
         status: 'inactive',
         committeeId: null
@@ -951,7 +951,7 @@ describe('Format & File Size Validation (Issue #174)', () => {
     const ENDPOINT = '/api/v1/deliverables';
 
     it('404 — staging record not found', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const { token } = await seedGroup();
       const ghostStagingId = generateUniqueId('stg');
 
@@ -964,7 +964,7 @@ describe('Format & File Size Validation (Issue #174)', () => {
     });
 
     it('400 — staging record is not in "staging" status', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const { studentId, token } = await seedGroup();
       const { staging } = await seedDeliverableStaging({
         submittedBy: studentId,
@@ -979,7 +979,7 @@ describe('Format & File Size Validation (Issue #174)', () => {
     });
 
     it('200 — returns validationToken on successful format validation', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const { studentId, token } = await seedGroup();
       
       // Create a valid PDF file
@@ -1009,7 +1009,7 @@ describe('Format & File Size Validation (Issue #174)', () => {
     });
 
     it('400 — returns validation errors on format/size failure', async () => {
-      if (!app) this.skip();
+      if (!app) return;
       const { studentId, token } = await seedGroup();
 
       // Create a spoofed PDF
