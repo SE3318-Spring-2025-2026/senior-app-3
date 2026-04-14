@@ -8,7 +8,7 @@ const Committee = require('../models/Committee');
 const AuditLog = require('../models/AuditLog');
 const DeliverableStaging = require('../models/DeliverableStaging');
 const { hashData } = require('../utils/fileHash');
-const { runFormatValidation } = require('../services/deliverableValidationService');
+const { runFormatValidation, runDeadlineValidation } = require('../services/deliverableValidationService');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
@@ -316,4 +316,29 @@ const validateFormatHandler = async (req, res) => {
   return res.status(status).json(body);
 };
 
-module.exports = { validateGroup, submitDeliverable, validateFormatHandler };
+/**
+ * POST /api/deliverables/:stagingId/validate-deadline
+ *
+ * Process 5.4 — Validate that the submission is within deadline and the group
+ * meets team requirements. Staging record must be in 'format_validated' status.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+const validateDeadlineHandler = async (req, res) => {
+  const { stagingId } = req.params;
+  const { sprintId } = req.body;
+  const actorId = req.user?.userId;
+
+  if (!sprintId) {
+    return res.status(400).json({
+      code: 'INVALID_REQUEST',
+      message: 'sprintId is required',
+    });
+  }
+
+  const { status, body } = await runDeadlineValidation(stagingId, sprintId, actorId);
+  return res.status(status).json(body);
+};
+
+module.exports = { validateGroup, submitDeliverable, validateFormatHandler, validateDeadlineHandler };

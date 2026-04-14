@@ -5,7 +5,7 @@ const router = express.Router();
 
 const { deliverableAuthMiddleware, roleMiddleware } = require('../middleware/auth');
 const { uploadSingle } = require('../middleware/upload');
-const { validateGroup, submitDeliverable, validateFormatHandler } = require('../controllers/deliverableController');
+const { validateGroup, submitDeliverable, validateFormatHandler, validateDeadlineHandler } = require('../controllers/deliverableController');
 
 // All deliverable routes require a valid JWT; req.user = { userId, role, groupId }
 router.use(deliverableAuthMiddleware);
@@ -39,6 +39,17 @@ router.post(
   '/:stagingId/validate-format',
   roleMiddleware(['student']),
   validateFormatHandler
+);
+
+/**
+ * POST /api/deliverables/:stagingId/validate-deadline
+ * Process 5.4 — Validate submission deadline and team requirements.
+ * Staging record must be in 'format_validated' status.
+ */
+router.post(
+  '/:stagingId/validate-deadline',
+  roleMiddleware(['student']),
+  validateDeadlineHandler
 );
 
 /**
