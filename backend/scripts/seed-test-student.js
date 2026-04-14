@@ -27,6 +27,7 @@ const Group          = require('../src/models/Group');
 const Committee      = require('../src/models/Committee');
 const ScheduleWindow = require('../src/models/ScheduleWindow');
 const SprintConfig   = require('../src/models/SprintConfig');
+const Deliverable    = require('../src/models/Deliverable');
 const { hashPassword }        = require('../src/utils/password');
 const { generateAccessToken } = require('../src/utils/jwt');
 
@@ -47,6 +48,7 @@ async function run() {
   await Committee.deleteOne({ committeeName: 'Test Committee' });
   await ScheduleWindow.deleteMany({ createdBy: 'seed-test-student' });
   await SprintConfig.deleteMany({ sprintId: 'sprint_1' });
+  await Deliverable.deleteMany({ groupId: /^grp_test_/ });
 
   // ── Create student user ───────────────────────────────────────────────────
   const userId = `usr_${uuidv4().split('-')[0]}`;
@@ -107,6 +109,49 @@ async function run() {
     description: 'Test sprint — seeded for local dev',
   });
 
+  // ── Seed test Deliverable records (D4) for GET endpoints ─────────────────
+  const deliverableId1 = `DEL-test-${uuidv4().split('-')[0]}`;
+  const deliverableId2 = `DEL-test-${uuidv4().split('-')[0]}`;
+
+  await Deliverable.create([
+    {
+      deliverableId: deliverableId1,
+      committeeId,
+      groupId,
+      studentId: userId,
+      type: 'proposal',
+      sprintId: 'sprint_1',
+      version: 1,
+      storageRef: '/uploads/permanent/test-proposal.pdf',
+      status: 'accepted',
+      submittedAt: new Date(),
+      validationHistory: [
+        { step: 'format_validation',   passed: true,  checkedAt: new Date(), failureReasons: [] },
+        { step: 'deadline_validation', passed: true,  checkedAt: new Date(), failureReasons: [] },
+        { step: 'storage',             passed: true,  checkedAt: new Date(), failureReasons: [] },
+      ],
+    },
+    {
+      deliverableId: deliverableId2,
+      committeeId,
+      groupId,
+      studentId: userId,
+      type: 'proposal',
+      sprintId: 'sprint_1',
+      version: 2,
+      storageRef: '/uploads/permanent/test-proposal-v2.pdf',
+      status: 'submitted',
+      submittedAt: new Date(),
+      validationHistory: [
+        { step: 'format_validation',   passed: true,  checkedAt: new Date(), failureReasons: [] },
+        { step: 'deadline_validation', passed: true,  checkedAt: new Date(), failureReasons: [] },
+      ],
+    },
+  ]);
+
+  // ── Coordinator JWT for retract endpoint ──────────────────────────────────
+  const coordToken = generateAccessToken('coordinator_test', 'coordinator');
+
   // ── Generate a ready-to-use JWT (1 h) ─────────────────────────────────────
   const token = generateAccessToken(userId, 'student');
 
@@ -120,8 +165,11 @@ async function run() {
   console.log(`  email    : ${TEST_EMAIL}`);
   console.log(`  password : ${TEST_PASSWORD}`);
   console.log(`  userId   : ${userId}`);
-  console.log(`  groupId  : ${groupId}`);
-  console.log(`  JWT      : ${token}`);
+  console.log(`  groupId       : ${groupId}`);
+  console.log(`  deliverableId1: ${deliverableId1}  (status: accepted — use this to test retract)`);
+  console.log(`  deliverableId2: ${deliverableId2}  (status: submitted)`);
+  console.log(`  JWT (student) : ${token}`);
+  console.log(`  JWT (coord)   : ${coordToken}`);
   console.log('─────────────────────────────────────────────────────────────');
   console.log(`
 The test student already has an active group (${groupId}).

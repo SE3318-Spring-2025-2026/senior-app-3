@@ -669,6 +669,99 @@ const options = {
       },
 
       // ── DELIVERABLES ──────────────────────────────────────────────────────
+      '/deliverables': {
+        get: {
+          tags: ['Deliverables'],
+          summary: 'List deliverables for a group (paginated)',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'groupId', in: 'query', required: false, schema: { type: 'string' }, description: 'Required for coordinator; defaults to own group for student' },
+            { name: 'sprintId', in: 'query', required: false, schema: { type: 'string' } },
+            { name: 'status', in: 'query', required: false, schema: { type: 'string', enum: ['submitted', 'reviewed', 'accepted', 'rejected', 'retracted'] } },
+            { name: 'page', in: 'query', required: false, schema: { type: 'integer', default: 1 } },
+            { name: 'limit', in: 'query', required: false, schema: { type: 'integer', default: 20, maximum: 100 } },
+          ],
+          responses: {
+            200: {
+              description: 'Paginated deliverable list',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      groupId: { type: 'string' },
+                      total: { type: 'integer' },
+                      page: { type: 'integer' },
+                      limit: { type: 'integer' },
+                      deliverables: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            deliverableId: { type: 'string' },
+                            deliverableType: { type: 'string' },
+                            sprintId: { type: 'string', nullable: true },
+                            status: { type: 'string' },
+                            submittedAt: { type: 'string', format: 'date-time' },
+                            version: { type: 'integer' },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            403: { description: 'Student querying another group' },
+          },
+        },
+      },
+      '/deliverables/{deliverableId}': {
+        get: {
+          tags: ['Deliverables'],
+          summary: 'Get full deliverable details including validation history',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'deliverableId', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: {
+              description: 'Full deliverable record',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      deliverableId: { type: 'string' },
+                      groupId: { type: 'string' },
+                      committeeId: { type: 'string' },
+                      deliverableType: { type: 'string' },
+                      sprintId: { type: 'string', nullable: true },
+                      version: { type: 'integer' },
+                      status: { type: 'string' },
+                      submittedAt: { type: 'string', format: 'date-time' },
+                      storageRef: { type: 'string' },
+                      feedback: { type: 'string', nullable: true },
+                      validationHistory: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            step: { type: 'string', enum: ['format_validation', 'deadline_validation', 'storage'] },
+                            passed: { type: 'boolean' },
+                            checkedAt: { type: 'string', format: 'date-time' },
+                            failureReasons: { type: 'array', items: { type: 'string' } },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            403: { description: 'Student viewing another group deliverable' },
+            404: { description: 'Deliverable not found' },
+          },
+        },
+      },
       '/deliverables/validate-group': {
         post: {
           tags: ['Deliverables'],

@@ -7,6 +7,7 @@ const Group = require('../models/Group');
 const Committee = require('../models/Committee');
 const AuditLog = require('../models/AuditLog');
 const DeliverableStaging = require('../models/DeliverableStaging');
+const Deliverable = require('../models/Deliverable');
 const { hashData } = require('../utils/fileHash');
 const { runFormatValidation, runDeadlineValidation } = require('../services/deliverableValidationService');
 
@@ -341,4 +342,193 @@ const validateDeadlineHandler = async (req, res) => {
   return res.status(status).json(body);
 };
 
-module.exports = { validateGroup, submitDeliverable, validateFormatHandler, validateDeadlineHandler };
+/**
+ * GET /api/deliverables
+ *
+ * List deliverables for a group with optional filters and pagination.
+ * Students may only query their own group. Coordinators may query any group.
+ *
+ * Query params:
+ *   groupId   — required for coordinator; defaults to req.user.groupId for student
+ *   sprintId  — optional filter
+ *   status    — optional filter
+ *   page      — default 1
+ *   limit     — default 20, max 100
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+const listDeliverablesHandler = async (req, res) => {
+  const { role, groupId: userGroupId } = req.user;
+
+  let { groupId, sprintId, status, page, limit } = req.query;
+
+  // Resolve groupId
+  if (!groupId) {
+    if (role === 'student') {
+      groupId = userGroupId;
+    } else {
+      return res.status(400).json({ code: 'INVALID_REQUEST', message: 'groupId query param is required' });
+    }
+  }
+
+  // Students can only query their own group
+  if (role === 'student' && groupId !== userGroupId) {
+    return res.status(403).json({ code: 'FORBIDDEN', message: 'Students can only view their own group deliverables' });
+  }
+
+  // Pagination
+  page = Math.max(1, parseInt(page, 10) || 1);
+  limit = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+  const skip = (page - 1) * limit;
+
+  // Build filter
+  const filter = { groupId };
+  if (sprintId) filter.sprintId = sprintId;
+  if (status) filter.status = status;
+
+  let deliverables, total;
+  try {
+    [deliverables, total] = await Promise.all([
+      Deliverable.find(filter)
+        .select('deliverableId type sprintId status submittedAt version')
+        .sort({ submittedAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Deliverable.countDocuments(filter),
+    ]);
+  } catch (err) {
+    console.error('[listDeliverablesHandler] DB error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Database query failed' });
+  }
+
+  return res.status(200).json({
+    groupId,
+    total,
+    page,
+    limit,
+    deliverables: deliverables.map((d) => ({
+      deliverableId: d.deliverableId,
+      deliverableType: d.type,
+      sprintId: d.sprintId ?? null,
+      status: d.status,
+      submittedAt: d.submittedAt,
+      version: d.version ?? 1,
+    })),
+  });
+};
+
+/**
+ * GET /api/deliverables/:deliverableId
+ *
+ * Return full deliverable record including validationHistory.
+ * Students can only view deliverables belonging to their own group.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+const getDeliverableHandler = async (req, res) => {
+  const { deliverableId } = req.params;
+  const { role, groupId: userGroupId } = req.user;
+
+  let deliverable;
+  try {
+    deliverable = await Deliverable.findOne({ deliverableId }).lean();
+  } catch (err) {
+    console.error('[getDeliverableHandler] DB error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Database query failed' });
+  }
+
+  if (!deliverable) {
+    return res.status(404).json({ code: 'DELIVERABLE_NOT_FOUND', message: 'Deliverable not found' });
+  }
+
+  // Students can only view their own group's deliverables
+  if (role === 'student' && deliverable.groupId !== userGroupId) {
+    return res.status(403).json({ code: 'FORBIDDEN', message: 'Students can only view their own group deliverables' });
+  }
+
+  return res.status(200).json({
+    deliverableId: deliverable.deliverableId,
+    groupId: deliverable.groupId,
+    committeeId: deliverable.committeeId,
+    deliverableType: deliverable.type,
+    sprintId: deliverable.sprintId ?? null,
+    version: deliverable.version ?? 1,
+    status: deliverable.status,
+    submittedAt: deliverable.submittedAt,
+    storageRef: deliverable.storageRef,
+    feedback: deliverable.feedback ?? null,
+    reviewedBy: deliverable.reviewedBy ?? null,
+    reviewedAt: deliverable.reviewedAt ?? null,
+    validationHistory: deliverable.validationHistory ?? [],
+  });
+};
+
+/**
+ * DELETE /api/deliverables/:deliverableId/retract
+ *
+ * Retract a submitted deliverable. Coordinator only.
+ * Only allowed if status === 'accepted' (not yet under review).
+ * Sets status = 'retracted'; does not delete the file from disk.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+const retractDeliverableHandler = async (req, res) => {
+  const { deliverableId } = req.params;
+
+  let deliverable;
+  try {
+    deliverable = await Deliverable.findOne({ deliverableId });
+  } catch (err) {
+    console.error('[retractDeliverableHandler] DB error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Database query failed' });
+  }
+
+  if (!deliverable) {
+    return res.status(404).json({ code: 'DELIVERABLE_NOT_FOUND', message: 'Deliverable not found' });
+  }
+
+  // Already retracted
+  if (deliverable.status === 'retracted') {
+    return res.status(409).json({ code: 'ALREADY_RETRACTED', message: 'Deliverable has already been retracted' });
+  }
+
+  // Only 'accepted' status can be retracted — review already started otherwise
+  if (deliverable.status !== 'accepted') {
+    return res.status(409).json({
+      code: 'REVIEW_ALREADY_STARTED',
+      message: `Cannot retract a deliverable with status '${deliverable.status}' — only 'accepted' submissions may be retracted`,
+    });
+  }
+
+  try {
+    await Deliverable.updateOne({ deliverableId }, { $set: { status: 'retracted' } });
+  } catch (err) {
+    console.error('[retractDeliverableHandler] status update error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Failed to update deliverable status' });
+  }
+
+  AuditLog.create({
+    action: 'DELIVERABLE_RETRACTED',
+    actorId: req.user.userId,
+    groupId: deliverable.groupId,
+    payload: { deliverableId },
+    ipAddress: req.ip ?? null,
+    userAgent: req.headers['user-agent'] ?? null,
+  }).catch((err) => console.error('[retractDeliverableHandler] audit log error:', err.message));
+
+  return res.status(200).json({ deliverableId, status: 'retracted' });
+};
+
+module.exports = {
+  validateGroup,
+  submitDeliverable,
+  validateFormatHandler,
+  validateDeadlineHandler,
+  listDeliverablesHandler,
+  getDeliverableHandler,
+  retractDeliverableHandler,
+};

@@ -5,10 +5,32 @@ const router = express.Router();
 
 const { deliverableAuthMiddleware, roleMiddleware } = require('../middleware/auth');
 const { uploadSingle } = require('../middleware/upload');
-const { validateGroup, submitDeliverable, validateFormatHandler, validateDeadlineHandler } = require('../controllers/deliverableController');
+const {
+  validateGroup,
+  submitDeliverable,
+  validateFormatHandler,
+  validateDeadlineHandler,
+  listDeliverablesHandler,
+  getDeliverableHandler,
+  retractDeliverableHandler,
+} = require('../controllers/deliverableController');
 
 // All deliverable routes require a valid JWT; req.user = { userId, role, groupId }
 router.use(deliverableAuthMiddleware);
+
+/**
+ * GET /api/deliverables
+ * List deliverables for a group with optional filters and pagination.
+ * Students see their own group only; coordinators may query any group.
+ */
+router.get('/', listDeliverablesHandler);
+
+/**
+ * GET /api/deliverables/:deliverableId
+ * Full deliverable record including validationHistory.
+ * Students can only view deliverables belonging to their own group.
+ */
+router.get('/:deliverableId', getDeliverableHandler);
 
 /**
  * POST /api/deliverables/validate-group
@@ -69,16 +91,10 @@ router.post(
 
 /**
  * DELETE /api/deliverables/:deliverableId/retract
- * Accepted role: coordinator
- * Controller to be implemented in subsequent Process 5 issues.
+ * Coordinator only. Allowed only when status === 'accepted'.
+ * Sets status = 'retracted'; does not delete the file from disk.
  */
-router.delete(
-  '/:deliverableId/retract',
-  roleMiddleware(['coordinator']),
-  (_req, res) => {
-    res.status(501).json({ code: 'NOT_IMPLEMENTED', message: 'Retract endpoint not yet implemented' });
-  }
-);
+router.delete('/:deliverableId/retract', roleMiddleware(['coordinator']), retractDeliverableHandler);
 
 /**
  * POST /api/v1/deliverables/:deliverableId/comments

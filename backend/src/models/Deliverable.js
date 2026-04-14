@@ -48,9 +48,35 @@ const deliverableSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    sprintId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    version: {
+      type: Number,
+      default: 1,
+      min: 1,
+    },
+    validationHistory: {
+      type: [
+        {
+          step: {
+            type: String,
+            enum: ['format_validation', 'deadline_validation', 'storage'],
+            required: true,
+          },
+          passed: { type: Boolean, required: true },
+          checkedAt: { type: Date, required: true },
+          failureReasons: { type: [String], default: [] },
+          _id: false,
+        },
+      ],
+      default: [],
+    },
     status: {
       type: String,
-      enum: ['submitted', 'reviewed', 'accepted', 'rejected'],
+      enum: ['submitted', 'reviewed', 'accepted', 'rejected', 'retracted'],
       default: 'submitted',
     },
     feedback: {
