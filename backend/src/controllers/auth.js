@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Group = require('../models/Group');
 const RefreshToken = require('../models/RefreshToken');
 const StudentIdRegistry = require('../models/StudentIdRegistry');
 const { hashPassword, comparePassword, validatePasswordStrength } = require('../utils/password');
@@ -87,6 +88,17 @@ const loginWithPassword = async (req, res) => {
     // Generate tokens
     const tokens = generateTokenPair(user.userId, user.role);
 
+    // Look up groupId for students to populate the session/store
+    let groupId = null;
+    if (user.role === 'student') {
+      const group = await Group.findOne({
+        members: { $elemMatch: { userId: user.userId, status: 'accepted' } },
+      })
+        .select('groupId')
+        .lean();
+      if (group) groupId = group.groupId;
+    }
+
     // Save refresh token to database
     const refreshTokenDoc = new RefreshToken({
       userId: user.userId,
@@ -102,6 +114,7 @@ const loginWithPassword = async (req, res) => {
       userId: user.userId,
       email: user.email,
       role: user.role,
+      groupId,
       emailVerified: user.emailVerified,
       accountStatus: user.accountStatus,
       requiresPasswordChange: user.requiresPasswordChange || false,

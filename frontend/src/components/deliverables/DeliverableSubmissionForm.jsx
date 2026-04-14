@@ -7,7 +7,9 @@ import { validateGroupForSubmission } from '../../api/deliverableService';
  */
 const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
   const user = useAuthStore((state) => state.user);
-  const groupId = user?.group_id;
+  const groupId = user?.groupId;
+
+  console.log(user)
 
   // Form inputs
   const [deliverableType, setDeliverableType] = useState('');

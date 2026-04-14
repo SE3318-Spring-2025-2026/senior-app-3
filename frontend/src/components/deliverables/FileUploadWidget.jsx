@@ -149,11 +149,7 @@ const FileUploadWidget = ({
         <button
           onClick={handleUpload}
           disabled={!file || uploadState === 'uploading'}
-          className={`w-full py-4 rounded-2xl font-bold transition-all shadow-lg active:translate-y-0.5 ${!file || uploadState === 'uploading'
-              ? 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none'
-              : 'bg-indigo-600 text-white shadow-indigo-100 hover:bg-indigo-700'
-            }`}
-        >
+          className={`${!file || uploadState === 'uploading' ? "opacity-50 cursor-not-allowed" : "opacity-100 cursor-pointer"} w-full p-[13px] bg-gradient-to-br from-[#667eea] to-[#764ba2] text-white rounded-md text-base font-semibold transition-opacity duration-200 mt-2`} >
           {uploadState === 'uploading' ? 'Sending to Staging...' : 'Submit Deliverable'}
         </button>
       </div>
