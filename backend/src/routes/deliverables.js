@@ -69,4 +69,30 @@ router.delete(
   }
 );
 
+/**
+ * POST /api/v1/deliverables/:deliverableId/comments
+ * Process 6 — Initiate a review comment on a deliverable.
+ * Accessible by committee_member and coordinator. Students may NOT initiate comments.
+ */
+router.post(
+  '/:deliverableId/comments',
+  roleMiddleware(['committee_member', 'coordinator']),
+  (_req, res) => {
+    res.status(501).json({ code: 'NOT_IMPLEMENTED', message: 'Comment endpoint not yet implemented' });
+  }
+);
+
+/**
+ * POST /api/v1/deliverables/:deliverableId/comments/:commentId/reply
+ * Process 6 — Reply to an existing review comment.
+ * Accessible by committee_member, coordinator, and student.
+ */
+router.post(
+  '/:deliverableId/comments/:commentId/reply',
+  roleMiddleware(['committee_member', 'coordinator', 'student']),
+  (_req, res) => {
+    res.status(501).json({ code: 'NOT_IMPLEMENTED', message: 'Comment reply endpoint not yet implemented' });
+  }
+);
+
 module.exports = router;
