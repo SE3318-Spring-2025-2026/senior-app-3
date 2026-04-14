@@ -1,11 +1,13 @@
 /**
  * Seed a test student user + active group + committee + open schedule windows
  * for manual testing of:
- *   POST /api/v1/deliverables/validate-group  (Process 5.1)
- *   POST /api/v1/deliverables/submit          (Process 5.2)
+ *   POST /api/v1/deliverables/validate-group    (Process 5.1)
+ *   POST /api/v1/deliverables/submit            (Process 5.2)
+ *   POST /api/v1/deliverables/:id/validate-format   (Process 5.3)
+ *   POST /api/v1/deliverables/:id/validate-deadline (Process 5.4)
  *
- * Also opens group_creation and member_addition schedule windows so the
- * frontend group creation flow works without a coordinator.
+ * Also seeds a SprintConfig (D8) record with a future deadline so Process 5.4
+ * succeeds out of the box.
  *
  * Usage:
  *   node scripts/seed-test-student.js
@@ -24,6 +26,7 @@ const User           = require('../src/models/User');
 const Group          = require('../src/models/Group');
 const Committee      = require('../src/models/Committee');
 const ScheduleWindow = require('../src/models/ScheduleWindow');
+const SprintConfig   = require('../src/models/SprintConfig');
 const { hashPassword }        = require('../src/utils/password');
 const { generateAccessToken } = require('../src/utils/jwt');
 
@@ -43,6 +46,7 @@ async function run() {
   await Group.deleteOne({ groupName: 'Test Group' });
   await Committee.deleteOne({ committeeName: 'Test Committee' });
   await ScheduleWindow.deleteMany({ createdBy: 'seed-test-student' });
+  await SprintConfig.deleteMany({ sprintId: 'sprint_1' });
 
   // ── Create student user ───────────────────────────────────────────────────
   const userId = `usr_${uuidv4().split('-')[0]}`;
@@ -94,6 +98,15 @@ async function run() {
     });
   }
 
+  // ── Seed SprintConfig (D8) — future deadline for Process 5.4 ────────────
+  const deadlineDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days from now
+  await SprintConfig.create({
+    sprintId: 'sprint_1',
+    deliverableType: 'proposal',
+    deadline: deadlineDate,
+    description: 'Test sprint — seeded for local dev',
+  });
+
   // ── Generate a ready-to-use JWT (1 h) ─────────────────────────────────────
   const token = generateAccessToken(userId, 'student');
 
@@ -112,10 +125,9 @@ async function run() {
   console.log('─────────────────────────────────────────────────────────────');
   console.log(`
 The test student already has an active group (${groupId}).
-Log in at the frontend, navigate to the group dashboard, and use the
-Deliverable Submission form to upload a file.
+SprintConfig deadline seeded: sprint_1 / proposal → 30 days from now.
 
-Or test via curl:
+Full Process 5.1 → 5.4 flow via curl:
 
 STEP 1 — Get a validationToken (Process 5.1):
 
@@ -124,18 +136,30 @@ STEP 1 — Get a validationToken (Process 5.1):
     -H "Content-Type: application/json" \\
     -d '{"groupId": "${groupId}"}' | jq .
 
-STEP 2 — Submit a deliverable (Process 5.2):
+STEP 2 — Submit a deliverable, get stagingId (Process 5.2):
 
   echo "%PDF-1.4 test" > /tmp/test.pdf
 
   curl -s -X POST http://localhost:5000/api/v1/deliverables/submit \\
     -H "Authorization: Bearer ${token}" \\
-    -H "Authorization-Validation: <paste validationToken here>" \\
+    -H "Authorization-Validation: <VALIDATION_TOKEN>" \\
     -F "groupId=${groupId}" \\
     -F "deliverableType=proposal" \\
     -F "sprintId=sprint_1" \\
     -F "description=My test proposal" \\
     -F "file=@/tmp/test.pdf;type=application/pdf" | jq .
+
+STEP 3 — Validate format (Process 5.3):
+
+  curl -s -X POST http://localhost:5000/api/v1/deliverables/<STAGING_ID>/validate-format \\
+    -H "Authorization: Bearer ${token}" | jq .
+
+STEP 4 — Validate deadline + team requirements (Process 5.4):
+
+  curl -s -X POST http://localhost:5000/api/v1/deliverables/<STAGING_ID>/validate-deadline \\
+    -H "Authorization: Bearer ${token}" \\
+    -H "Content-Type: application/json" \\
+    -d '{"sprintId": "sprint_1"}' | jq .
 `);
 }
 

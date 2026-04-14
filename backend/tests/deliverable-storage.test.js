@@ -26,6 +26,13 @@ const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const mockFs = require('mock-fs');
 
+// Service
+const {
+  storeDeliverable: storeDeliverableService,
+  StorageError,
+  calculateChecksum: serviceCalculateChecksum,
+} = require('../src/services/deliverableStorageService');
+
 // Models
 let Deliverable;
 let DeliverableStaging;
@@ -151,49 +158,10 @@ function moveFile(fromPath, toPath) {
 }
 
 /**
- * Create a deliverable in permanent storage and verify
+ * Wrapper to call the deliverable storage service
  */
-async function storeDeliverable(stagingRecord, verifyChecksum = true) {
-  const content = fs.readFileSync(stagingRecord.record.tempFilePath);
-  const currentFileHash = calculateChecksum(content);
-
-  // Verify checksum
-  if (verifyChecksum && currentFileHash !== stagingRecord.record.fileHash) {
-    throw new Error('Checksum mismatch');
-  }
-
-  // Map staging deliverable type to deliverable type
-  // Staging: 'proposal', 'statement_of_work', 'demo', 'interim_report', 'final_report'
-  // Deliverable: 'proposal', 'statement-of-work', 'demonstration'
-  let deliverableType = stagingRecord.record.deliverableType;
-  if (deliverableType === 'statement_of_work') {
-    deliverableType = 'statement-of-work';
-  } else if (deliverableType === 'demo' || deliverableType === 'interim_report' || deliverableType === 'final_report') {
-    deliverableType = 'demonstration';
-  }
-
-  // Move file
-  const permanentPath = path.join(
-    PERMANENT_DIR,
-    `${stagingRecord.stagingId}_${Date.now()}.pdf`
-  );
-  moveFile(stagingRecord.filePath, permanentPath);
-
-  // Create deliverable record
-  const deliverable = await Deliverable.create({
-    committeeId: 'com_test_001',
-    groupId: stagingRecord.record.groupId,
-    studentId: stagingRecord.record.submittedBy,
-    type: deliverableType,
-    storageRef: permanentPath,
-    submittedAt: new Date(),
-    status: 'accepted',
-  });
-
-  // Delete staging record
-  await DeliverableStaging.deleteOne({ stagingId: stagingRecord.stagingId });
-
-  return { deliverable, permanentPath };
+async function storeDeliverable(stagingRecord) {
+  return storeDeliverableService(stagingRecord.stagingId, PERMANENT_DIR, 'com_test_001');
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -246,7 +214,7 @@ describe('Deliverable Storage Service', () => {
 
       expect(originalHash).toBe(calculateChecksum(TEST_FILE_CONTENT));
 
-      const result = await storeDeliverable(stagingData, true);
+      const result = await storeDeliverable(stagingData);
 
       expect(result.deliverable.storageRef).toBeDefined();
     });
@@ -257,8 +225,8 @@ describe('Deliverable Storage Service', () => {
       // Tamper with file after staging record was created
       fs.writeFileSync(stagingData.filePath, 'Tampered content');
 
-      await expect(storeDeliverable(stagingData, true)).rejects.toThrow(
-        'Checksum mismatch'
+      await expect(storeDeliverable(stagingData)).rejects.toThrow(
+        'checksum'
       );
     });
 
@@ -384,7 +352,7 @@ describe('Deliverable Storage Service', () => {
       // Tamper with file
       fs.writeFileSync(stagingData.filePath, 'Tampered content');
 
-      await expect(storeDeliverable(stagingData, true)).rejects.toThrow();
+      await expect(storeDeliverable(stagingData)).rejects.toThrow();
 
       // Staging record should still exist
       const record = await DeliverableStaging.findOne({ stagingId });
