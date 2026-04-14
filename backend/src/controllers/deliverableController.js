@@ -8,6 +8,7 @@ const Committee = require('../models/Committee');
 const AuditLog = require('../models/AuditLog');
 const DeliverableStaging = require('../models/DeliverableStaging');
 const { hashData } = require('../utils/fileHash');
+const { runFormatValidation } = require('../services/deliverableValidationService');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
@@ -299,4 +300,20 @@ const submitDeliverable = async (req, res) => {
   });
 };
 
-module.exports = { validateGroup, submitDeliverable };
+/**
+ * POST /api/deliverables/:stagingId/validate-format
+ *
+ * Process 5.3 — Validate the staged file's format and size.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+const validateFormatHandler = async (req, res) => {
+  const { stagingId } = req.params;
+  const actorId = req.user?.userId;
+
+  const { status, body } = await runFormatValidation(stagingId, actorId);
+  return res.status(status).json(body);
+};
+
+module.exports = { validateGroup, submitDeliverable, validateFormatHandler };
