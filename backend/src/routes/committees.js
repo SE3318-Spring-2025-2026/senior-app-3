@@ -7,6 +7,7 @@ const {
   validateCommitteeHandler,
   publishCommitteeHandler,
   getCommitteeHandler,
+  listCommitteesHandler,
 } = require('../controllers/committees');
 const { authorize } = require('../middleware/authorization');
 
@@ -15,6 +16,7 @@ const { authorize } = require('../middleware/authorization');
  * POST /api/v1/committees
  */
 router.post('/', authorize(['coordinator']), createCommitteeHandler);
+router.get('/', authorize(['coordinator', 'admin']), listCommitteesHandler);
 
 /**
  * Process 4.2: Assign Advisors

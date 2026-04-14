@@ -56,7 +56,7 @@ const CoordinatorPanel = () => {
   const [windowsError, setWindowsError] = useState(null);
 
   // Selected group for override actions
-  const [selectedGroupId, setSelectedGroupId] = useState(null);
+  const [selectedGroupId, setSelectedGroupId] = useState('');
 
   // Override form state
   const [overrideForm, setOverrideForm] = useState({
@@ -408,8 +408,8 @@ const CoordinatorPanel = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {groups.map((group) => (
-                      <tr key={group.groupId} style={{ borderBottom: '1px solid #e1e4e8' }}>
+                    {groups.map((group, idx) => (
+                      <tr key={group.groupId || group._id || `group-row-${idx}`} style={{ borderBottom: '1px solid #e1e4e8' }}>
                         <td style={{ padding: '12px', fontFamily: '\"SF Mono\", Monaco, monospace', fontSize: '12px', color: '#444' }}>
                           {group.groupId}
                         </td>
@@ -485,8 +485,8 @@ const CoordinatorPanel = () => {
                     required
                   >
                     <option value="">-- Choose a group --</option>
-                    {groups.map((g) => (
-                      <option key={g.groupId} value={g.groupId}>
+                    {groups.map((g, idx) => (
+                      <option key={g.groupId || g._id || `transfer-group-${idx}`} value={g.groupId || ''}>
                         {g.groupName} ({g.groupId}) {g.advisorId ? `- current: ${g.advisorId}` : '- no advisor'}
                       </option>
                     ))}
@@ -564,8 +564,8 @@ const CoordinatorPanel = () => {
                     required
                   >
                     <option value="">-- Choose a group --</option>
-                    {groups.map((g) => (
-                      <option key={g.groupId} value={g.groupId}>
+                    {groups.map((g, idx) => (
+                      <option key={g.groupId || g._id || `override-group-${idx}`} value={g.groupId || ''}>
                         {g.groupName} ({g.groupId})
                       </option>
                     ))}
@@ -1004,8 +1004,8 @@ const CoordinatorPanel = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {committees.map((c) => (
-                      <tr key={c.committeeId} style={{ borderBottom: '1px solid #e1e4e8' }}>
+                    {committees.map((c, idx) => (
+                      <tr key={c.committeeId || c._id || `committee-row-${idx}`} style={{ borderBottom: '1px solid #e1e4e8' }}>
                         <td style={{ padding: '12px', fontFamily: '"SF Mono", Monaco, monospace', fontSize: '12px', color: '#444' }}>
                           {c.committeeId}
                         </td>
