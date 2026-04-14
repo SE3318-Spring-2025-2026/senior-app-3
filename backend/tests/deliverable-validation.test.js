@@ -335,21 +335,20 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
   // ───────────────────────────────────────────────────────────────────────────
 
   describe('Group Not Found (404)', () => {
-    it('404 — group does not exist in D2', async () => {
+    it('REST_GROUP_NOT_FOUND (KNOWN LIMITATION)', async () => {
       if (!app) this.skip();
-      const studentId = generateUniqueId('stu');
-      const ghostGroupId = generateUniqueId('grp');
-
-      // Create a properly formatted token with issuer
-      // Note: deliverableAuthMiddleware will look up groupId from database,
-      // so this ghostGroupId in token is ignored and will result in groupId=null
-      // Then validateGroup will reject it with 403 GROUP_ID_MISMATCH when it compares
-      // ghostGroupId !== null. But since we want to test 404, we need a different approach.
-      // Actually, we cannot directly test this without creating a group in DB first.
-      // The middleware always looks up the user's group from DB, not from token.
-      // So this test needs to seed a group first, then test with wrong groupId in body.
       
-      // Create a group with the student as a member
+      // ARCHITECTURE LIMITATION:
+      // The deliverableAuthMiddleware looks up groupId from the database based on the user's
+      // userId (from JWT), NOT from a groupId field in the token. Therefore:
+      // 1. A true 404 "group not found" can only occur if the user has no group in the DB
+      // 2. But if user has no group, req.user.groupId becomes null
+      // 3. The controller's groupId mismatch gate (403) triggers before group lookup (404)
+      // Result: A true 404 scenario cannot be reached through normal middleware flow.
+      // 
+      // This test verifies the 403 gate (groupId mismatch) which is the actual testable
+      // condition in the current architecture.
+      
       const { group, token } = await seedGroup();
       const anotherGhostGroupId = generateUniqueId('grp');
 
@@ -358,12 +357,7 @@ describe('POST /api/deliverables/validate-group (Issue #171)', () => {
         .set('Authorization', `Bearer ${token}`)
         .send({ groupId: anotherGhostGroupId });
 
-      // Since groupId in body (anotherGhostGroupId) != groupId in token (group.groupId),
-      // this should return 403 GROUP_ID_MISMATCH, not 404.
-      // The current behavior is correct for this scenario. 
-      // To test 404, we'd need to manually bypass the groupId mismatch check, which isn't possible with real middleware.
-      
-      // Changed this to test the actual constraint: groupId mismatch returns 403, not 404
+      // GroupId mismatch (body vs. middleware-extracted groupId) → 403, not 404
       expect(res.status).toBe(403);
       expect(res.body.code).toBe('GROUP_ID_MISMATCH');
     });
@@ -961,17 +955,12 @@ describe('Format & File Size Validation (Issue #174)', () => {
       const { token } = await seedGroup();
       const ghostStagingId = generateUniqueId('stg');
 
-      try {
-        const res = await request(app)
-          .post(`${ENDPOINT}/${ghostStagingId}/validate-format`)
-          .set('Authorization', `Bearer ${token}`);
+      const res = await request(app)
+        .post(`${ENDPOINT}/${ghostStagingId}/validate-format`)
+        .set('Authorization', `Bearer ${token}`);
 
-        expect(res.status).toBe(404);
-        expect(res.body.code).toBe('STAGING_NOT_FOUND');
-      } catch (err) {
-        // If app fails to initialize or respond, skip this test
-        expect(true).toBe(true);
-      }
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe('STAGING_NOT_FOUND');
     });
 
     it('400 — staging record is not in "staging" status', async () => {
@@ -982,16 +971,11 @@ describe('Format & File Size Validation (Issue #174)', () => {
         status: 'format_validated',
       });
 
-      try {
-        const res = await request(app)
-          .post(`${ENDPOINT}/${staging.stagingId}/validate-format`)
-          .set('Authorization', `Bearer ${token}`);
+      const res = await request(app)
+        .post(`${ENDPOINT}/${staging.stagingId}/validate-format`)
+        .set('Authorization', `Bearer ${token}`);
 
-        expect(res.status).toBe(400);
-      } catch (err) {
-        // If app fails to initialize, skip this test
-        expect(true).toBe(true);
-      }
+      expect(res.status).toBe(400);
     });
 
     it('200 — returns validationToken on successful format validation', async () => {
@@ -1017,10 +1001,7 @@ describe('Format & File Size Validation (Issue #174)', () => {
           .post(`${ENDPOINT}/${staging.stagingId}/validate-format`)
           .set('Authorization', `Bearer ${token}`);
 
-        expect([200, 404]).toContain(res.status); // 404 if app doesn't initialize
-      } catch (err) {
-        // If app fails to initialize, this is expected
-        expect(true).toBe(true);
+        expect(res.status).toBe(200);
       } finally {
         if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
@@ -1050,10 +1031,7 @@ describe('Format & File Size Validation (Issue #174)', () => {
           .post(`${ENDPOINT}/${staging.stagingId}/validate-format`)
           .set('Authorization', `Bearer ${token}`);
 
-        expect([400, 404]).toContain(res.status);
-      } catch (err) {
-        // If app fails to initialize, this is expected
-        expect(true).toBe(true);
+        expect(res.status).toBe(400);
       } finally {
         if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
@@ -1063,8 +1041,23 @@ describe('Format & File Size Validation (Issue #174)', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// TEST SUITE 3: DEADLINE VALIDATION SERVICE (Issue #175)
-// ═════════════════════════════════════════════════════════════════════════════
+  // DEADLINE VALIDATION SERVICE (Issue #175) — DATA STRUCTURE TESTS
+  // ═════════════════════════════════════════════════════════════════════════════
+  // 
+  // NOTE: These tests validate data structure conditions (fixture creation, field values).
+  // Full deadline validation service endpoint (POST /api/deliverables/:stagingId/validate-deadline)
+  // and service function calls are NOT yet implemented as part of Issue #175.
+  //
+  // When Process 5.4 (Deadline Validation Endpoint) is implemented, these tests should be
+  // extended to include HTTP endpoint calls that verify:
+  // - 403 DEADLINE_EXCEEDED response when submission is past deadline
+  // - missingMembers array in 403 response when members unconfirmed
+  // - 200 success when all members confirmed and before deadline
+  //
+  // Current tests only verify:
+  // - Test data fixture creation
+  // - Member confirmation status in group documents
+  // - Deadline comparison logic (no actual service call)
 
 describe('Deadline Validation Service (Issue #175)', () => {
   // ───────────────────────────────────────────────────────────────────────────
@@ -1237,19 +1230,25 @@ describe('Deadline Validation Service (Issue #175)', () => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe('Code Coverage Target: 80%+', () => {
-  it('cover — validateFormat with all file extensions', () => {
-    expect(true).toBe(true); // Covered by format validation tests above
+  it('cover — validateFormat is a function', () => {
+    expect(typeof validateFormat).toBe('function');
   });
 
-  it('cover — validateFileSize with all deliverable types', () => {
-    expect(true).toBe(true); // Covered by size validation tests above
+  it('cover — validateFileSize is a function', () => {
+    expect(typeof validateFileSize).toBe('function');
   });
 
-  it('cover — validateGroup with all status codes', () => {
-    expect(true).toBe(true); // Covered by group validation tests above
+  it('cover — Group model exists with required fields', async () => {
+    const testGroup = createGroup();
+    expect(testGroup).toHaveProperty('groupId');
+    expect(testGroup).toHaveProperty('status');
+    expect(testGroup).toHaveProperty('members');
   });
 
-  it('cover — committee validation with member edge cases', () => {
-    expect(true).toBe(true); // Covered by committee tests above
+  it('cover — Committee model exists with required fields', async () => {
+    const testCommittee = createCommittee();
+    expect(testCommittee).toHaveProperty('committeeId');
+    expect(testCommittee).toHaveProperty('advisorIds');
+    expect(testCommittee).toHaveProperty('juryIds');
   });
 });
