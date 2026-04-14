@@ -754,6 +754,52 @@ const options = {
           },
         },
       },
+      '/deliverables/{stagingId}/validate-deadline': {
+        post: {
+          tags: ['Deliverables'],
+          summary: 'Process 5.4 — Validate submission deadline and team requirements',
+          security: [{ bearerAuth: [] }],
+          parameters: [{ name: 'stagingId', in: 'path', required: true, schema: { type: 'string', example: 'stg_5e8a9c2f1b' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['sprintId'],
+                  properties: {
+                    sprintId: { type: 'string', example: 'sprint_1' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: 'Deadline and team requirements met — ready for storage',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      stagingId: { type: 'string', example: 'stg_5e8a9c2f1b' },
+                      deadlineOk: { type: 'boolean', example: true },
+                      sprintDeadline: { type: 'string', format: 'date-time' },
+                      timeRemainingMinutes: { type: 'integer', example: 120 },
+                      submissionVersion: { type: 'integer', example: 1 },
+                      priorSubmissions: { type: 'integer', example: 0 },
+                      readyForStorage: { type: 'boolean', example: true },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: 'Team requirements not met or deadline not configured' },
+            403: { description: 'Deadline exceeded — { code: "DEADLINE_EXCEEDED" }' },
+            404: { description: 'Staging record not found or not in format_validated status' },
+          },
+        },
+      },
       '/deliverables/{stagingId}/submit': {
         post: {
           tags: ['Deliverables'],
