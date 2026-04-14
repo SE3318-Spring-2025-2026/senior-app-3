@@ -2,6 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./swagger');
 
 const authRoutes = require('./routes/auth');
 const onboardingRoutes = require('./routes/onboarding');
@@ -49,6 +51,9 @@ const connectDB = async () => {
 if (process.env.NODE_ENV !== 'test') {
   connectDB();
 }
+
+// Swagger UI
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // API Routes
 app.use('/api/v1/auth', authRoutes);
