@@ -26,6 +26,7 @@ import './App.css';
 import './components/layout/Sidebar.css';
 import AdvisorAssociationPanel from './components/AdvisorAssociationPanel';
 import DeliverableSubmissionForm from './components/DeliverableSubmissionForm.jsx';
+import SubmitDeliverablePage from './pages/SubmitDeliverablePage.jsx';
 
 
 const Profile = () => <div className="page">Profile - Coming Soon</div>;
@@ -117,6 +118,10 @@ function App() {
             <Route
               path="/groups/:group_id/deliverables/submit"
               element={<ProtectedRoute component={DeliverableSubmissionForm} requiredRoles={['student']} />}
+            />
+            <Route
+              path="/dashboard/submit-deliverable"
+              element={<ProtectedRoute component={SubmitDeliverablePage} requiredRoles={['student']} />}
             />
             <Route
               path="/jury/committees"
