@@ -55,9 +55,11 @@ const logValidationAudit = (action, userId, groupId, reason, req) => {
  * @param {import('express').Response} res
  */
 const validateGroup = async (req, res) => {
-  const { groupId } = req.body;
+  const groupId = req.body.groupId || req.user?.groupId;
   const userId = req.user?.userId;
   const userGroupId = req.user?.groupId;
+
+  console.log('hey')
 
   if (!groupId) {
     return res.status(400).json({

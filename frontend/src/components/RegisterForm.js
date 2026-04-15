@@ -220,6 +220,7 @@ const RegisterForm = () => {
           userId: response.userId,
           email: response.email,
           role: 'student',
+          groupId: response.groupId,
           emailVerified: false,
           accountStatus: response.accountStatus,
         },
