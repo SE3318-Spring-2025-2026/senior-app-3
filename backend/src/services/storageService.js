@@ -110,38 +110,45 @@ const persistDeliverableFile = (stagingRecord) => {
 };
 
 /**
- * createFinalRecord(stagingRecord, savedPath)
+ * createFinalRecord(stagingRecord, savedPath, session)
  *
  * Creates the permanent Deliverable document in D4 (status: 'accepted').
  * Computes version by counting prior submissions for the same group + deliverableType.
+ * Pass a Mongoose ClientSession to run this inside a transaction.
  *
  * @param {import('../models/DeliverableStaging').default} stagingRecord - DeliverableStaging document
  * @param {string} savedPath - Absolute path where the file was written
+ * @param {import('mongoose').ClientSession} [session] - Optional Mongoose session for transactions
  * @returns {Promise<import('../models/Deliverable').default>} Created Deliverable document
  */
-const createFinalRecord = async (stagingRecord, savedPath) => {
+const createFinalRecord = async (stagingRecord, savedPath, session) => {
   const { groupId, deliverableType, sprintId, submittedBy, description, fileHash, fileSize } = stagingRecord;
 
-  const priorCount = await Deliverable.countDocuments({ groupId, deliverableType });
+  const priorCount = await Deliverable.countDocuments({ groupId, deliverableType }).session(session ?? null);
   const version = priorCount + 1;
 
   const ext = path.extname(savedPath);
   const format = ext.replace(/^\./, '').toLowerCase() || 'bin';
 
-  const deliverable = await Deliverable.create({
-    groupId,
-    deliverableType,
-    sprintId: sprintId || null,
-    submittedBy,
-    description: description || null,
-    filePath: savedPath,
-    fileSize,
-    fileHash,
-    format,
-    status: 'accepted',
-    version,
-    submittedAt: new Date(),
-  });
+  const [deliverable] = await Deliverable.create(
+    [
+      {
+        groupId,
+        deliverableType,
+        sprintId: sprintId || null,
+        submittedBy,
+        description: description || null,
+        filePath: savedPath,
+        fileSize,
+        fileHash,
+        format,
+        status: 'accepted',
+        version,
+        submittedAt: new Date(),
+      },
+    ],
+    { session: session ?? null }
+  );
 
   return deliverable;
 };

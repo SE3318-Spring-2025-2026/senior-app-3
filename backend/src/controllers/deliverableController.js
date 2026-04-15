@@ -8,6 +8,7 @@ const Committee = require('../models/Committee');
 const AuditLog = require('../models/AuditLog');
 const DeliverableStaging = require('../models/DeliverableStaging');
 const Deliverable = require('../models/Deliverable');
+const mongoose = require('mongoose');
 const { hashData } = require('../utils/fileHash');
 const { runFormatValidation, runDeadlineValidation } = require('../services/deliverableValidationService');
 const { persistDeliverableFile, createFinalRecord } = require('../services/storageService');
@@ -385,37 +386,40 @@ const storeDeliverableHandler = async (req, res) => {
     });
   }
 
-  // 2. Move file to permanent storage
+  // 2–4. Move file, create DB record, and delete staging — all in a transaction so
+  //      createFinalRecord and deleteOne are atomic. persistDeliverableFile is
+  //      synchronous file I/O and cannot participate in the DB session; if it
+  //      succeeds but the transaction aborts, the permanent file is left orphaned
+  //      (acceptable trade-off — the staging record is preserved for retry).
   let fileInfo;
+  let deliverable;
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     fileInfo = persistDeliverableFile(staging);
+    deliverable = await createFinalRecord(staging, fileInfo.savedPath, session);
+    await DeliverableStaging.deleteOne({ stagingId }, { session });
+    await session.commitTransaction();
   } catch (err) {
-    const statusCode = err.statusCode || 500;
-    const code = err.code || 'STORAGE_ERROR';
+    await session.abortTransaction();
 
-    if (statusCode === 507) {
+    if (err.statusCode === 507 || err.code === 'DISK_FULL') {
       return res.status(507).json({ code: 'DISK_FULL', message: 'Insufficient disk space — please retry later' });
     }
 
-    console.error('[storeDeliverableHandler] File storage error:', err);
-    return res.status(statusCode).json({ code, message: err.message });
-  }
+    if (err.statusCode === 400 && err.code === 'CHECKSUM_MISMATCH') {
+      return res.status(400).json({ code: 'CHECKSUM_MISMATCH', message: err.message });
+    }
 
-  // 3. Create permanent Deliverable record
-  let deliverable;
-  try {
-    deliverable = await createFinalRecord(staging, fileInfo.savedPath);
-  } catch (err) {
-    console.error('[storeDeliverableHandler] Deliverable record creation error:', err);
-    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Failed to create deliverable record' });
-  }
+    if (err.statusCode === 404 && err.code === 'FILE_NOT_FOUND') {
+      return res.status(404).json({ code: 'STAGING_FILE_NOT_FOUND', message: err.message });
+    }
 
-  // 4. Delete staging record
-  try {
-    await DeliverableStaging.deleteOne({ stagingId });
-  } catch (err) {
-    // Non-fatal: log and continue — file and DB record are already committed
-    console.warn('[storeDeliverableHandler] Failed to delete staging record:', err.message);
+    console.error('[storeDeliverableHandler] Transaction error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Failed to store deliverable' });
+  } finally {
+    session.endSession();
   }
 
   AuditLog.create({
