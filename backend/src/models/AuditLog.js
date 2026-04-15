@@ -101,6 +101,9 @@ const auditLogSchema = new mongoose.Schema(
         'DELIVERABLE_DEADLINE_VALIDATION_SUCCESS',
         'DELIVERABLE_DEADLINE_VALIDATION_FAILED',
 
+        // --- Deliverable Read & Retract ---
+        'DELIVERABLE_RETRACTED',
+
         // --- System & Test ---
         'TEST_ACTION',
       ],
