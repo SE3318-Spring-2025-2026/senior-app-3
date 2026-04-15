@@ -146,7 +146,7 @@ async function seedScheduleWindows() {
     { type: 'group_creation', dayOffset: -10 },
     { type: 'member_addition', dayOffset: -5 },
     { type: 'deliverable_submission', dayOffset: 0 },
-    { type: 'committee_formation', dayOffset: 5 },
+    { type: 'advisor_association', dayOffset: 5 },
   ];
 
   for (const { type, dayOffset } of windowTypes) {
@@ -185,11 +185,12 @@ async function seedAdvisorSetup(groups, users) {
 
   const assignment = await AdvisorAssignment.create({
     assignmentId: generateId('asn'),
+    groupRef: groups[0]._id,
     groupId: groups[0].groupId,
-    professorId: users.professor.userId,
+    advisorId: users.professor.userId,
     status: 'active',
     assignedAt: new Date(),
-    assignedBy: 'seed-test-general',
+    updatedBy: 'seed-test-general',
   });
   console.log(`  ✓ Created advisor assignment for ${groups[0].groupName}`);
 
@@ -239,18 +240,15 @@ async function seedSprintRecords(groups, committees) {
     for (let j = 1; j <= 2; j++) {
       const sprint = await SprintRecord.create({
         sprintRecordId: generateId('spr'),
+        sprintId: `sprint_${i}_${j}`,
         groupId: groups[i - 1].groupId,
-        sprintNumber: j,
-        sprintName: `Sprint ${j}`,
         committeeId: committees[i - 1].committeeId,
-        startDate: new Date(Date.now() + (j - 1) * 14 * 24 * 60 * 60 * 1000),
-        endDate: new Date(Date.now() + j * 14 * 24 * 60 * 60 * 1000),
-        status: j === 1 ? 'active' : 'planning',
-        deliverables: [],
+        status: j === 1 ? 'in_progress' : 'pending',
+        deliverableRefs: [],
       });
 
       sprints.push(sprint);
-      console.log(`  ✓ Created sprint: ${groups[i - 1].groupName} - ${sprint.sprintName}`);
+      console.log(`  ✓ Created sprint: ${groups[i - 1].groupName} - ${sprint.sprintId}`);
     }
   }
 
@@ -299,7 +297,7 @@ async function run() {
     const testEmails = Object.values(TEST_USERS).map(u => u.email);
 
     await User.deleteMany({ email: { $in: testEmails } });
-    await Group.deleteMany({ createdBy: 'seed-test-general' });
+    await Group.deleteMany({ groupName: { $in: ['Project Alpha Team', 'Project Beta Team'] } });
     await Committee.deleteMany({ createdBy: 'seed-test-general' });
     await ScheduleWindow.deleteMany({ createdBy: 'seed-test-general' });
     await AdvisorRequest.deleteMany({ requesterId: { $regex: /^usr_/ } });
@@ -329,20 +327,77 @@ async function run() {
     await seedAuditLogs(users);
     console.log();
 
-    await seedSprintRecords(groups, committees);
+    const sprints      = await seedSprintRecords(groups, committees);
     console.log();
 
-    await seedDeliverables(groups, committees);
+    const deliverables = await seedDeliverables(groups, committees);
     console.log();
 
-    // Generate tokens for testing
-    console.log('🔐 Generated test tokens:');
-    for (const [role, user] of Object.entries(users)) {
-      const token = generateAccessToken(user.userId, user.role);
-      console.log(`  ${role.toUpperCase().padEnd(25)} | Token: ${token.substring(0, 40)}...`);
+    // Create a Review for each deliverable so comment endpoints work immediately
+    const Review = require('../src/models/Review');
+    const reviews = [];
+    for (const d of deliverables) {
+      const r = await Review.create({
+        deliverableId: d.deliverableId,
+        groupId: d.groupId,
+        status: 'pending',
+        assignedMembers: [],
+        deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      });
+      reviews.push(r);
     }
 
-    console.log('\n✨ Seeding complete!');
+    // ── Summary ──────────────────────────────────────────────────────────────
+    const sep = '─'.repeat(72);
+
+    console.log(`\n${'═'.repeat(72)}`);
+    console.log('  SEED SUMMARY');
+    console.log(`${'═'.repeat(72)}\n`);
+
+    // Users
+    console.log('👤 USERS');
+    console.log(sep);
+    for (const [role, user] of Object.entries(users)) {
+      const creds = TEST_USERS[role];
+      console.log(`  ${role.toUpperCase().padEnd(12)} | userId: ${user.userId.padEnd(16)} | email: ${creds.email}  pw: ${creds.password}`);
+    }
+
+    // Groups
+    console.log(`\n🏢 GROUPS`);
+    console.log(sep);
+    for (const g of groups) {
+      console.log(`  ${g.groupName.padEnd(22)} | groupId: ${g.groupId}`);
+    }
+
+    // Deliverables + Reviews
+    console.log(`\n📄 DELIVERABLES & REVIEWS`);
+    console.log(sep);
+    for (let i = 0; i < deliverables.length; i++) {
+      const d = deliverables[i];
+      const r = reviews[i];
+      const g = groups.find(g => g.groupId === d.groupId);
+      console.log(`  ${(g?.groupName ?? d.groupId).padEnd(22)} | deliverableId: ${d.deliverableId.padEnd(16)} | type: ${d.type.padEnd(18)} | reviewId: ${r.reviewId}`);
+    }
+
+    // Sprints
+    console.log(`\n🏃 SPRINTS`);
+    console.log(sep);
+    for (const s of sprints) {
+      const g = groups.find(g => g.groupId === s.groupId);
+      console.log(`  ${(g?.groupName ?? s.groupId).padEnd(22)} | sprintRecordId: ${s.sprintRecordId.padEnd(16)} | sprintId: ${s.sprintId}`);
+    }
+
+    // Tokens
+    console.log(`\n🔐 JWT TOKENS  (valid ~15 min — re-run to refresh)`);
+    console.log(sep);
+    for (const [role, user] of Object.entries(users)) {
+      const token = generateAccessToken(user.userId, user.role);
+      console.log(`  ${role.toUpperCase().padEnd(12)} | ${token}`);
+    }
+
+    console.log(`\n${'═'.repeat(72)}`);
+    console.log('✨ Seeding complete!');
+    console.log(`${'═'.repeat(72)}\n`);
 
     await mongoose.disconnect();
   } catch (error) {
