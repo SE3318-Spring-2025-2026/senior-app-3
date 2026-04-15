@@ -4,6 +4,7 @@ const express = require('express');
 const router = express.Router();
 
 const { deliverableAuthMiddleware, roleMiddleware } = require('../middleware/auth');
+const reviewController = require('../controllers/reviews');
 
 // All review routes require a valid JWT; req.user = { userId, role, groupId }
 router.use(deliverableAuthMiddleware);
@@ -16,9 +17,7 @@ router.use(deliverableAuthMiddleware);
 router.post(
   '/assign',
   roleMiddleware(['coordinator']),
-  (_req, res) => {
-    res.status(501).json({ code: 'NOT_IMPLEMENTED', message: 'Assign review endpoint not yet implemented' });
-  }
+  reviewController.assignReview
 );
 
 /**
@@ -29,9 +28,7 @@ router.post(
 router.get(
   '/status',
   roleMiddleware(['coordinator']),
-  (_req, res) => {
-    res.status(501).json({ code: 'NOT_IMPLEMENTED', message: 'Review status endpoint not yet implemented' });
-  }
+  reviewController.getReviewStatus
 );
 
 module.exports = router;

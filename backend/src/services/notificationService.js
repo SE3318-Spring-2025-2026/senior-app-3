@@ -268,6 +268,50 @@ const dispatchGroupDisbandNotification = async ({ groupId, reason }) => {
   });
 };
 
+/**
+ * Dispatch review assignment notification to committee members
+ */
+const dispatchReviewAssignmentNotification = async ({
+  reviewId,
+  deliverableId,
+  membersToNotify,
+  instructions,
+}) => {
+  try {
+    // TODO: Implement actual notification logic
+    // For now, just return success
+    return {
+      success: true,
+      notificationId: `notif_review_${Date.now()}`,
+    };
+  } catch (error) {
+    console.error('Error dispatching review assignment notification:', error);
+    throw error;
+  }
+};
+
+/**
+ * Dispatch clarification required notification
+ */
+const dispatchClarificationRequiredNotification = async ({
+  reviewId,
+  deliverableId,
+  commentId,
+  content,
+}) => {
+  try {
+    // TODO: Implement actual notification logic
+    // For now, just return success
+    return {
+      success: true,
+      notificationId: `notif_clarif_${Date.now()}`,
+    };
+  } catch (error) {
+    console.error('Error dispatching clarification notification:', error);
+    throw error;
+  }
+};
+
 module.exports = {
   dispatchInvitationNotification,
   dispatchMembershipDecisionNotification,
@@ -282,5 +326,7 @@ module.exports = {
   dispatchAdvisorTransferNotification,
   dispatchGroupDisbandNotification,
   dispatchDisbandNotification,
+  dispatchReviewAssignmentNotification,
+  dispatchClarificationRequiredNotification,
   isTransientError,
 };

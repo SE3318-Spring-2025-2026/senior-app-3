@@ -76,7 +76,7 @@ const deliverableSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['submitted', 'reviewed', 'accepted', 'rejected', 'retracted'],
+      enum: ['submitted', 'reviewed', 'accepted', 'under_review', 'rejected', 'retracted'],
       default: 'submitted',
     },
     feedback: {
