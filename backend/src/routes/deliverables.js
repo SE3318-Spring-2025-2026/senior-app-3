@@ -14,6 +14,7 @@ const {
   getDeliverableHandler,
   retractDeliverableHandler,
 } = require('../controllers/deliverableController');
+const { updateCommentHandler, replyToCommentHandler } = require('../controllers/reviewController');
 
 // All deliverable routes require a valid JWT; req.user = { userId, role, groupId }
 router.use(deliverableAuthMiddleware);
@@ -97,7 +98,7 @@ router.post(
 router.delete('/:deliverableId/retract', roleMiddleware(['coordinator']), retractDeliverableHandler);
 
 /**
- * POST /api/v1/deliverables/:deliverableId/comments
+ * POST /api/deliverables/:deliverableId/comments
  * Process 6 — Initiate a review comment on a deliverable.
  * Accessible by committee_member and coordinator. Students may NOT initiate comments.
  */
@@ -110,16 +111,26 @@ router.post(
 );
 
 /**
- * POST /api/v1/deliverables/:deliverableId/comments/:commentId/reply
- * Process 6 — Reply to an existing review comment.
- * Accessible by committee_member, coordinator, and student.
+ * PATCH /api/deliverables/:deliverableId/comments/:commentId
+ * Process 6.2 — Edit content (author only) or update status (author or coordinator).
+ * After update: if no open needsResponse comments remain, Review reverts to 'in_progress'.
+ */
+router.patch(
+  '/:deliverableId/comments/:commentId',
+  updateCommentHandler
+);
+
+/**
+ * POST /api/deliverables/:deliverableId/comments/:commentId/reply
+ * Process 6.2 — Append a reply to a comment thread.
+ * Students use this to respond to clarification requests.
+ * Auto-acknowledges the comment if needsResponse was true.
+ * Notifies the comment author asynchronously.
  */
 router.post(
   '/:deliverableId/comments/:commentId/reply',
   roleMiddleware(['committee_member', 'coordinator', 'student']),
-  (_req, res) => {
-    res.status(501).json({ code: 'NOT_IMPLEMENTED', message: 'Comment reply endpoint not yet implemented' });
-  }
+  replyToCommentHandler
 );
 
 module.exports = router;
