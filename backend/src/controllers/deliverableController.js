@@ -10,6 +10,7 @@ const DeliverableStaging = require('../models/DeliverableStaging');
 const Deliverable = require('../models/Deliverable');
 const { hashData } = require('../utils/fileHash');
 const { runFormatValidation, runDeadlineValidation } = require('../services/deliverableValidationService');
+const { persistDeliverableFile, createFinalRecord } = require('../services/storageService');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
@@ -345,6 +346,105 @@ const validateDeadlineHandler = async (req, res) => {
 };
 
 /**
+ * POST /api/deliverables/:stagingId/store
+ *
+ * Process 5.5 — Move staged file to permanent storage, create the final Deliverable
+ * record, and clean up the staging record. Point of no return.
+ *
+ * Prerequisites:
+ *   1. JWT (student role) — enforced by route middleware
+ *   2. Staging record exists and is in 'requirements_validated' status
+ *
+ * On success: deletes staging record, returns 201.
+ * On storage failure (disk full): staging record stays intact; returns 507.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+const storeDeliverableHandler = async (req, res) => {
+  const { stagingId } = req.params;
+  const actorId = req.user?.userId;
+
+  // 1. Look up staging record
+  let staging;
+  try {
+    staging = await DeliverableStaging.findOne({ stagingId });
+  } catch (err) {
+    console.error('[storeDeliverableHandler] DB lookup error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Database query failed' });
+  }
+
+  if (!staging) {
+    return res.status(404).json({ code: 'STAGING_NOT_FOUND', message: 'Staging record not found' });
+  }
+
+  if (staging.status !== 'requirements_validated') {
+    return res.status(400).json({
+      code: 'INVALID_STAGING_STATUS',
+      message: `Staging record must be in 'requirements_validated' status (current: '${staging.status}')`,
+    });
+  }
+
+  // 2. Move file to permanent storage
+  let fileInfo;
+  try {
+    fileInfo = persistDeliverableFile(staging);
+  } catch (err) {
+    const statusCode = err.statusCode || 500;
+    const code = err.code || 'STORAGE_ERROR';
+
+    if (statusCode === 507) {
+      return res.status(507).json({ code: 'DISK_FULL', message: 'Insufficient disk space — please retry later' });
+    }
+
+    console.error('[storeDeliverableHandler] File storage error:', err);
+    return res.status(statusCode).json({ code, message: err.message });
+  }
+
+  // 3. Create permanent Deliverable record
+  let deliverable;
+  try {
+    deliverable = await createFinalRecord(staging, fileInfo.savedPath);
+  } catch (err) {
+    console.error('[storeDeliverableHandler] Deliverable record creation error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Failed to create deliverable record' });
+  }
+
+  // 4. Delete staging record
+  try {
+    await DeliverableStaging.deleteOne({ stagingId });
+  } catch (err) {
+    // Non-fatal: log and continue — file and DB record are already committed
+    console.warn('[storeDeliverableHandler] Failed to delete staging record:', err.message);
+  }
+
+  AuditLog.create({
+    action: 'DELIVERABLE_STORED',
+    actorId,
+    groupId: staging.groupId,
+    payload: { stagingId, deliverableId: deliverable.deliverableId },
+    ipAddress: req.ip || null,
+    userAgent: req.headers['user-agent'] || null,
+  }).catch((err) => {
+    console.error('[storeDeliverableHandler] Audit log error:', err.message);
+  });
+
+  const sizeMb = parseFloat((deliverable.fileSize / (1024 * 1024)).toFixed(2));
+
+  return res.status(201).json({
+    deliverableId: deliverable.deliverableId,
+    groupId: deliverable.groupId,
+    deliverableType: deliverable.deliverableType,
+    status: deliverable.status,
+    fileHash: deliverable.fileHash,
+    sizeMb,
+    format: deliverable.format,
+    version: deliverable.version,
+    submittedAt: deliverable.submittedAt.toISOString(),
+  });
+};
+
+/**
  * GET /api/deliverables
  *
  * List deliverables for a group with optional filters and pagination.
@@ -393,7 +493,7 @@ const listDeliverablesHandler = async (req, res) => {
   try {
     [deliverables, total] = await Promise.all([
       Deliverable.find(filter)
-        .select('deliverableId type sprintId status submittedAt version')
+        .select('deliverableId deliverableType sprintId status submittedAt version')
         .sort({ submittedAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -412,7 +512,7 @@ const listDeliverablesHandler = async (req, res) => {
     limit,
     deliverables: deliverables.map((d) => ({
       deliverableId: d.deliverableId,
-      deliverableType: d.type,
+      deliverableType: d.deliverableType,
       sprintId: d.sprintId ?? null,
       status: d.status,
       submittedAt: d.submittedAt,
@@ -454,17 +554,16 @@ const getDeliverableHandler = async (req, res) => {
   return res.status(200).json({
     deliverableId: deliverable.deliverableId,
     groupId: deliverable.groupId,
-    committeeId: deliverable.committeeId,
-    deliverableType: deliverable.type,
+    deliverableType: deliverable.deliverableType,
     sprintId: deliverable.sprintId ?? null,
     version: deliverable.version ?? 1,
     status: deliverable.status,
     submittedAt: deliverable.submittedAt,
-    storageRef: deliverable.storageRef,
-    feedback: deliverable.feedback ?? null,
-    reviewedBy: deliverable.reviewedBy ?? null,
-    reviewedAt: deliverable.reviewedAt ?? null,
-    validationHistory: deliverable.validationHistory ?? [],
+    filePath: deliverable.filePath,
+    fileHash: deliverable.fileHash,
+    fileSize: deliverable.fileSize,
+    format: deliverable.format,
+    description: deliverable.description ?? null,
   });
 };
 
@@ -530,6 +629,7 @@ module.exports = {
   submitDeliverable,
   validateFormatHandler,
   validateDeadlineHandler,
+  storeDeliverableHandler,
   listDeliverablesHandler,
   getDeliverableHandler,
   retractDeliverableHandler,

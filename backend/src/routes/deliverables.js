@@ -10,6 +10,7 @@ const {
   submitDeliverable,
   validateFormatHandler,
   validateDeadlineHandler,
+  storeDeliverableHandler,
   listDeliverablesHandler,
   getDeliverableHandler,
   retractDeliverableHandler,
@@ -78,7 +79,7 @@ router.post(
  * POST /api/deliverables/:stagingId/submit
  * Accepted role: student
  * Parses multipart upload (field: "file") before reaching the controller.
- * Controller to be implemented in subsequent Process 5 issues.
+ * Kept as a stub for middleware testing (MIME-type filter, role guard).
  */
 router.post(
   '/:stagingId/submit',
@@ -87,6 +88,18 @@ router.post(
   (_req, res) => {
     res.status(501).json({ code: 'NOT_IMPLEMENTED', message: 'Submit endpoint not yet implemented' });
   }
+);
+
+/**
+ * POST /api/deliverables/:stagingId/store
+ * Process 5.5 — Move staged file to permanent storage and create the final Deliverable record.
+ * Requires JWT (student role). Staging record must be in 'requirements_validated' status.
+ * Returns 201 on success; 507 if disk is full (staging record preserved for retry).
+ */
+router.post(
+  '/:stagingId/store',
+  roleMiddleware(['student']),
+  storeDeliverableHandler
 );
 
 /**

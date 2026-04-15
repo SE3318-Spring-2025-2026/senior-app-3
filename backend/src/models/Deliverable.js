@@ -1,14 +1,15 @@
+'use strict';
+
 const mongoose = require('mongoose');
+const { v4: uuidv4 } = require('uuid');
 
 /**
  * Deliverable Schema (D4 Data Store)
- * 
- * Represents student project deliverables submitted during committee evaluation.
- * Part of Process 4.5 (Deliverable Submission) workflow.
- * 
+ *
+ * Represents the permanent record created after Process 5.5 (file storage).
  * Flows:
- * - f12: 4.5 → D4 (deliverable submission)
- * - f14: D4 → D6 (cross-reference to sprint records)
+ *   f12: Process 5.5 → D4 (deliverable stored)
+ *   f14: D4 → D6 (cross-reference to sprint records)
  */
 const deliverableSchema = new mongoose.Schema(
   {
@@ -17,79 +18,59 @@ const deliverableSchema = new mongoose.Schema(
       required: true,
       unique: true,
       index: true,
-      default: () => `DEL-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
-    },
-    committeeId: {
-      type: String,
-      required: true,
-      index: true,
+      default: () => `del_${uuidv4().replace(/-/g, '').slice(0, 10)}`,
     },
     groupId: {
       type: String,
       required: true,
-      index: true,
     },
-    studentId: {
+    deliverableType: {
       type: String,
-      required: true,
-    },
-    type: {
-      type: String,
-      enum: ['proposal', 'statement-of-work', 'demonstration'],
-      required: true,
-      index: true,
-    },
-    submittedAt: {
-      type: Date,
-      required: true,
-      default: () => new Date(),
-    },
-    storageRef: {
-      type: String,
+      enum: ['proposal', 'statement_of_work', 'demo', 'interim_report', 'final_report'],
       required: true,
     },
     sprintId: {
       type: String,
       default: null,
-      index: true,
+    },
+    submittedBy: {
+      type: String,
+      required: true,
+    },
+    description: {
+      type: String,
+      default: null,
+    },
+    filePath: {
+      type: String,
+      required: true,
+    },
+    fileSize: {
+      type: Number,
+      required: true,
+    },
+    fileHash: {
+      type: String,
+      required: true,
+    },
+    format: {
+      type: String,
+      required: true,
+    },
+    status: {
+      type: String,
+      enum: ['accepted', 'under_review', 'awaiting_resubmission', 'evaluated', 'retracted'],
+      default: 'accepted',
     },
     version: {
       type: Number,
       default: 1,
       min: 1,
     },
-    validationHistory: {
-      type: [
-        {
-          step: {
-            type: String,
-            enum: ['format_validation', 'deadline_validation', 'storage'],
-            required: true,
-          },
-          passed: { type: Boolean, required: true },
-          checkedAt: { type: Date, required: true },
-          failureReasons: { type: [String], default: [] },
-          _id: false,
-        },
-      ],
-      default: [],
-    },
-    status: {
-      type: String,
-      enum: ['submitted', 'reviewed', 'accepted', 'rejected', 'retracted'],
-      default: 'submitted',
-    },
-    feedback: {
-      type: String,
-      default: null,
-    },
-    reviewedBy: {
-      type: String,
-      default: null,
-    },
-    reviewedAt: {
+    submittedAt: {
       type: Date,
-      default: null,
+      required: true,
+      default: () => new Date(),
     },
   },
   {
@@ -98,9 +79,9 @@ const deliverableSchema = new mongoose.Schema(
   }
 );
 
-// Compound indexes for common queries
-deliverableSchema.index({ committeeId: 1, groupId: 1 });
-deliverableSchema.index({ groupId: 1, type: 1 });
-deliverableSchema.index({ submittedAt: -1 });
+// Indexes per spec
+deliverableSchema.index({ groupId: 1, createdAt: -1 });
+deliverableSchema.index({ status: 1 });
+deliverableSchema.index({ groupId: 1, deliverableType: 1, sprintId: 1 });
 
 module.exports = mongoose.model('Deliverable', deliverableSchema);
