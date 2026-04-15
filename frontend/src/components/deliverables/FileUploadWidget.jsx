@@ -7,6 +7,7 @@ import apiClient from '../../api/apiClient';
  */
 const FileUploadWidget = ({
   validationToken,
+  groupId,
   deliverableType,
   sprintId,
   description,
@@ -36,6 +37,7 @@ const FileUploadWidget = ({
 
     try {
       const formData = new FormData();
+      formData.append('groupId', groupId);
       formData.append('deliverableType', deliverableType);
       formData.append('sprintId', sprintId);
       formData.append('file', file);

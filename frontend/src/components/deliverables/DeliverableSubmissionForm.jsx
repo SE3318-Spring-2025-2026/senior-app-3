@@ -95,6 +95,7 @@ const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
       <div className="w-full">
         <FileUploadWidget
           validationToken={validationToken}
+          groupId={groupId}
           deliverableType={deliverableType}
           sprintId={sprintId}
           description={description}
