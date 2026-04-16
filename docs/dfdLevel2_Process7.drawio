@@ -1,0 +1,119 @@
+<mxfile host="65bd71144e">
+    <diagram id="dfdLevel2_Process7_detailed" name="Level 2 DFD: 7.0 Sprint Tracking &amp; Contribution Calculation">
+        <mxGraphModel dx="898" dy="555" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+
+                <mxCell id="title" value="Senior Project Management System — Level 2 DFD: 7.0 Sprint Tracking &amp; Contribution Calculation" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=16;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="0" y="10" width="850" height="30" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="boundary_system" value="System Boundary" style="points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];shape=mxgraph.flowchart.start_2;fillColor=none;strokeColor=#666666;strokeWidth=2;dashed=1;dashPattern=8 8;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=11;fontStyle=2;" parent="1" vertex="1">
+                    <mxGeometry x="180" y="70" width="490" height="900" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="ext_jira" value="JIRA API" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="80" width="120" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ext_github" value="GitHub API" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="700" y="80" width="120" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ext_coordinator" value="Coordinator" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="700" y="220" width="120" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ext_notification" value="Notification Service" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="700" y="830" width="120" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="p80_external" value="8.0 Final Grade Calculation" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="700" y="620" width="120" height="80" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="p71" value="7.1 Fetch Sprint Issues from JIRA" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="250" y="130" width="220" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="p72" value="7.2 Validate PR Merges via GitHub" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="250" y="280" width="220" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="p73" value="7.3 Map Story Points to Students" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="250" y="430" width="220" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="p74" value="7.4 Calculate Contribution Ratios" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="250" y="580" width="220" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="p75" value="7.5 Store Sprint Records &amp; Notify" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="250" y="730" width="220" height="80" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="ds_d1" value="D1 User Accounts" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="190" y="880" width="130" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ds_d2" value="D2 Groups &amp; Advisor Assignments" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="330" y="880" width="160" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ds_d4" value="D4 Deliverables" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="490" y="880" width="140" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ds_d6" value="D6 Sprint / Contribution Records" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="635" y="880" width="160" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ds_d8" value="D8 Rubrics &amp; Sprint Configurations" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="500" y="450" width="160" height="60" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="f7_ext_coordinator_p71" value="sprint targets / config" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#82b366;strokeWidth=2;" edge="1" source="ext_coordinator" target="p71" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f7_ext_jira_p71" value="active sprint issues + story points" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#82b366;strokeWidth=2;" edge="1" source="ext_jira" target="p71" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f7_ds_d8_p71" value="sprint targets / config" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#666666;strokeWidth=1;dashed=1;" edge="1" source="ds_d8" target="p71" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="f7_p71_p72" value="issue_keys + story_points + retry results" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" source="p71" target="p72" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f7_ext_github_p72" value="PAT / PR / merge data" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#82b366;strokeWidth=2;" edge="1" source="ext_github" target="p72" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="f7_p72_p73" value="completed issues with merged PR status" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" source="p72" target="p73" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f7_ds_d2_p73" value="group membership data" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#666666;strokeWidth=1;dashed=1;" edge="1" source="ds_d2" target="p73" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f7_ds_d1_p73" value="student account mapping" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#666666;strokeWidth=1;dashed=1;" edge="1" source="ds_d1" target="p73" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="f7_p73_p74" value="student story point totals per sprint" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" source="p73" target="p74" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f7_p74_p75" value="contribution ratios + sprint summary" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" source="p74" target="p75" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="f7_p74_p80_external" value="contribution ratios" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" source="p74" target="p80_external" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f7_p75_ds_d6" value="store sprint contribution records" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#666666;strokeWidth=1;dashed=1;" edge="1" source="p75" target="ds_d6" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f7_p75_d4" value="sprint records" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#666666;strokeWidth=1;dashed=1;" edge="1" source="p75" target="ds_d4" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f7_d4_d6" value="sync records" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#666666;strokeWidth=1;dashed=1;" edge="1" source="ds_d4" target="ds_d6" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f7_p75_ext_coordinator" value="sprint summary report" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#82b366;strokeWidth=2;" edge="1" source="p75" target="ext_coordinator" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f7_p75_ext_notification" value="sprint updates notification" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#d6b656;strokeWidth=2;" edge="1" source="p75" target="ext_notification" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

@@ -1,0 +1,400 @@
+openapi: 3.0.0
+info:
+  title: Senior Project Management System - Process 8.0 API
+  description: >
+    API specifications for Final Grade Calculation (Level 2 DFD Process 8.0).
+    This process aggregates group deliverable scores (D4, D5) and individual sprint contribution ratios (D6),
+    applies rubric and configuration rules (D8), and writes approved final grades into D7 Final Grades.
+    It coordinates approval and override by the Coordinator and exposes final grade information to
+    Students, Professors/Advisors, and Committee Members.
+    DFD source: dfdLevel2_Process8.drawio
+  version: 2.8.1
+  contact:
+    name: Development Team
+    email: support@senior-project.dev
+  license:
+    name: MIT
+
+servers:
+  - url: https://api.senior-project.dev/v1
+    description: Production server
+  - url: http://localhost:3000/api/v1
+    description: Development server
+
+tags:
+  - name: Final Grade Calculation
+    description: Final grade computation, approval, and publication operations
+
+paths:
+  /groups/{groupId}/final-grades/preview:
+    post:
+      summary: Preview Final Grades (Process 8.1 + 8.2 + 8.3)
+      description: >
+        Computes a preview of individual final grades for all students in a group (Processes 8.1, 8.2, and 8.3).
+
+        Reads group deliverable scores from D4 Deliverables and D5 Reviews & Evaluations, and individual
+        sprint completion ratios from D6 Sprint / Contribution Records. Applies rubric weights and configuration
+        rules from D8 Rubrics & Sprint Configurations to calculate a base group score and individual final grade
+        candidates per student. Does not persist into D7 Final Grades; this is a read-only computation used for review
+        and validation before approval.
+
+        External entities involved: Coordinator and Professor/Advisor (as consumers of the preview and reviewers).
+        **DFD Reference:** ep_8_preview_final_grades
+      operationId: previewFinalGrades
+      tags:
+        - Final Grade Calculation
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group identifier whose final grades are being previewed
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreviewFinalGradesInput'
+      responses:
+        '200':
+          description: Preview of computed final grades for the group
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinalGradesPreview'
+        '400':
+          description: Invalid request payload (e.g., missing or inconsistent deliverable/ratio selection)
+        '403':
+          description: Forbidden - only the Coordinator role or authorized Professor/Advisor roles may preview final grades
+        '404':
+          description: Group or required deliverable/ratio data not found in D4/D5/D6
+        '409':
+          description: Conflict - preview cannot be generated due to inconsistent or locked configuration
+
+  /groups/{groupId}/final-grades/approval:
+    post:
+      summary: Validate & Approve Final Grades (Process 8.4)
+      description: >
+        Validates and approves computed final grades for a group (Process 8.4), optionally applying
+        coordinator overrides for individual students.
+
+        Reads the latest computed final grade candidates (from preview results or internal cache) along with
+        rubric and configuration rules from D8 Rubrics & Sprint Configurations. The Coordinator may approve
+        grades as-is or override specific student grades. Approval decisions and override metadata are recorded
+        and prepared for persistence into D7 Final Grades by the publication step.
+
+        External entities involved: Coordinator (approver and override authority) and Professor/Advisor
+        (read-only review visibility).
+        **DFD Reference:** ep_8_approve_final_grades
+      operationId: approveFinalGrades
+      tags:
+        - Final Grade Calculation
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group identifier whose final grades will be approved
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApproveFinalGradesInput'
+      responses:
+        '200':
+          description: Final grades approved and ready for publication
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinalGradeApproval'
+        '400':
+          description: Invalid approval payload (e.g., malformed overrides or missing decisions)
+        '403':
+          description: Forbidden - only the Coordinator role may approve or override final grades
+        '404':
+          description: Group or grade preview context not found
+        '409':
+          description: Conflict - grades have already been approved or publication is in progress
+
+  /groups/{groupId}/final-grades/publish:
+    post:
+      summary: Store & Publish Final Grades (Process 8.5)
+      description: >
+        Stores approved final grades into D7 Final Grades and publishes them to all relevant parties (Process 8.5).
+
+        Reads approved final grade decisions and override metadata, writes final grade records into D7 Final Grades,
+        and marks each student's evaluation as complete. It then notifies Students with their individual final grade,
+        and provides grade reports/status to Coordinators, Professors/Advisors, and Committee Members via downstream
+        notification or reporting mechanisms. This operation is typically idempotent once grades are published.
+
+        External entities involved: Student (individual final grade), Coordinator, Professor/Advisor, Committee Member,
+        and Notification Service (for final grade notifications).
+        **DFD Reference:** ep_8_publish_final_grades
+      operationId: publishFinalGrades
+      tags:
+        - Final Grade Calculation
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group identifier whose final grades are being published
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishFinalGradesInput'
+      responses:
+        '200':
+          description: Final grades stored in D7 and publication/notifications completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinalGradePublishResult'
+        '400':
+          description: Invalid publish payload (e.g., missing approval reference context)
+        '403':
+          description: Forbidden - only the Coordinator role or authorized system backend may publish final grades
+        '404':
+          description: Group or approved grades not found
+        '409':
+          description: Conflict - final grades have already been published for this group
+
+components:
+  schemas:
+    PreviewFinalGradesInput:
+      type: object
+      required:
+        - requestedBy
+      properties:
+        requestedBy:
+          type: string
+          description: User identifier of the Coordinator or Professor requesting the preview
+        includeDeliverableIds:
+          type: array
+          description: Optional list of deliverable IDs from D4/D5 to include in the computation
+          items:
+            type: string
+        includeSprintIds:
+          type: array
+          description: Optional list of sprint identifiers whose contribution ratios from D6 should be factored in
+          items:
+            type: string
+        useLatestRatios:
+          type: boolean
+          default: true
+          description: If true, uses the most recent contribution ratios stored in D6
+
+    ApproveFinalGradesInput:
+      type: object
+      required:
+        - coordinatorId
+        - decision
+      properties:
+        coordinatorId:
+          type: string
+          description: Coordinator user identifier performing the approval
+        decision:
+          type: string
+          enum: [approve, reject]
+          description: Overall decision for the final grades preview
+        overrideEntries:
+          type: array
+          description: Optional list of per-student overrides when decision is approve
+          items:
+            $ref: '#/components/schemas/FinalGradeOverrideInput'
+        reason:
+          type: string
+          description: Optional reason for rejection or explanation for overrides
+
+    FinalGradeOverrideInput:
+      type: object
+      required:
+        - studentId
+        - overriddenFinalGrade
+      properties:
+        studentId:
+          type: string
+          description: Student identifier whose grade is being overridden
+        overriddenFinalGrade:
+          type: number
+          format: float
+          description: Manually overridden final grade value
+        comment:
+          type: string
+          description: Optional comment documenting why the override was applied
+
+    PublishFinalGradesInput:
+      type: object
+      required:
+        - coordinatorId
+      properties:
+        coordinatorId:
+          type: string
+          description: Coordinator user identifier authorizing the publication
+        notifyStudents:
+          type: boolean
+          default: true
+          description: Whether to send individual final grade notifications to students
+        notifyFaculty:
+          type: boolean
+          default: true
+          description: Whether to send grade reports to Coordinators, Professors/Advisors, and Committee Members
+
+    FinalGradesPreview:
+      type: object
+      required:
+        - groupId
+        - baseGroupScore
+        - students
+      properties:
+        groupId:
+          type: string
+        baseGroupScore:
+          type: number
+          format: float
+          description: Aggregated group-level score computed from D4/D5 and D8
+        students:
+          type: array
+          description: Per-student preview of final grade components
+          items:
+            $ref: '#/components/schemas/FinalGradePreviewEntry'
+        createdAt:
+          type: string
+          format: date-time
+
+    FinalGradePreviewEntry:
+      type: object
+      required:
+        - studentId
+        - contributionRatio
+        - computedFinalGrade
+      properties:
+        studentId:
+          type: string
+        contributionRatio:
+          type: number
+          format: float
+          description: Contribution ratio fetched from D6 for the student
+        computedFinalGrade:
+          type: number
+          format: float
+          description: Base group score multiplied by the individual contribution ratio
+        deliverableScoreBreakdown:
+          type: object
+          additionalProperties:
+            type: number
+            format: float
+          description: Optional mapping of deliverable IDs to their aggregate scores
+
+    FinalGradeApproval:
+      type: object
+      required:
+        - groupId
+        - decision
+        - approvedAt
+      properties:
+        groupId:
+          type: string
+        decision:
+          type: string
+          enum: [approved, rejected]
+        coordinatorId:
+          type: string
+        overridesApplied:
+          type: boolean
+          description: Indicates whether any per-student overrides were applied
+        overrideEntries:
+          type: array
+          items:
+            $ref: '#/components/schemas/FinalGradeOverrideEntry'
+        approvedAt:
+          type: string
+          format: date-time
+
+    FinalGradeOverrideEntry:
+      type: object
+      required:
+        - studentId
+        - originalFinalGrade
+        - overriddenFinalGrade
+      properties:
+        studentId:
+          type: string
+        originalFinalGrade:
+          type: number
+          format: float
+        overriddenFinalGrade:
+          type: number
+          format: float
+        comment:
+          type: string
+
+    FinalGradePublishResult:
+      type: object
+      required:
+        - groupId
+        - publishedAt
+        - finalGrades
+      properties:
+        groupId:
+          type: string
+        publishedAt:
+          type: string
+          format: date-time
+        finalGrades:
+          type: array
+          description: The persisted final grade records as stored in D7 Final Grades
+          items:
+            $ref: '#/components/schemas/FinalGrade'
+        notificationsDispatched:
+          type: boolean
+          description: Indicates whether notifications were sent to all relevant parties
+
+    FinalGrade:
+      type: object
+      required:
+        - groupId
+        - studentId
+        - finalGrade
+        - status
+        - createdAt
+      properties:
+        groupId:
+          type: string
+        studentId:
+          type: string
+        finalGrade:
+          type: number
+          format: float
+        baseGroupScore:
+          type: number
+          format: float
+          description: Base group-level score used in the calculation
+        individualRatio:
+          type: number
+          format: float
+          description: Contribution ratio applied for this student
+        status:
+          type: string
+          enum: [pending, approved, published]
+        approvedBy:
+          type: string
+          description: Coordinator identifier who approved the grade
+        overriddenBy:
+          type: string
+          nullable: true
+          description: Coordinator identifier who applied an override, if any
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+

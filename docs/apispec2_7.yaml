@@ -1,0 +1,378 @@
+openapi: 3.0.0
+info:
+  title: Senior Project Management System - Process 7.0 API
+  description: >
+    API specifications for Sprint Tracking & Contribution Calculation (Level 2 DFD Process 7.0).
+    This process uses JIRA for story-point based sprint tracking and GitHub for pull-request merge
+    validation to compute individual contribution ratios per sprint. It reads and writes data across
+    D1 User Accounts, D2 Groups & Advisor Assignments, D4 Deliverables, D6 Sprint / Contribution Records,
+    and D8 Rubrics & Sprint Configurations, and emits notifications via the Notification Service.
+    DFD source: dfdLevel2_Process7.drawio
+  version: 2.7.1
+  contact:
+    name: Development Team
+    email: support@senior-project.dev
+  license:
+    name: MIT
+
+servers:
+  - url: https://api.senior-project.dev/v1
+    description: Production server
+  - url: http://localhost:3000/api/v1
+    description: Development server
+
+tags:
+  - name: Sprint Tracking & Contribution Calculation
+    description: Sprint tracking, PR validation, story-point mapping, and contribution ratio computation operations
+
+paths:
+  /groups/{groupId}/sprints/{sprintId}/jira-sync:
+    post:
+      summary: Fetch Sprint Issues (Process 7.1)
+      description: >
+        Triggers a JIRA synchronization job for the given group and sprint (Process 7.1).
+
+        Reads sprint configuration and targets from D8 Rubrics & Sprint Configurations and group context from
+        D2 Groups & Advisor Assignments, then calls the JIRA API to fetch active sprint issues and story points.
+        The job persists issue-to-sprint mappings and story-point values into D6 Sprint / Contribution Records and
+        may also update deliverable-related context in D4 Deliverables for reporting.
+
+        External entities involved: Coordinator (as the caller), JIRA API (for active sprint issues and story points),
+        Notification Service (for optional sync status notifications).
+        **DFD Reference:** ep_7_jira_sync
+      operationId: fetchSprintIssuesFromJira
+      tags:
+        - Sprint Tracking & Contribution Calculation
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group identifier whose sprint is being synchronized
+          schema:
+            type: string
+        - name: sprintId
+          in: path
+          required: true
+          description: Sprint identifier within the group or project context
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SprintJiraSyncInput'
+      responses:
+        '202':
+          description: >
+            JIRA sprint sync job accepted. Issues and story points will be fetched and stored
+            in D6 Sprint / Contribution Records asynchronously.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SprintSyncJobStatus'
+        '400':
+          description: Invalid request payload (e.g., missing JIRA configuration or invalid sprint identifier)
+        '403':
+          description: Forbidden - only coordinator or authorized backend job may trigger JIRA sync
+        '404':
+          description: Group or sprint configuration not found in D2/D8
+        '409':
+          description: A JIRA sync is already in progress for this group and sprint
+        '502':
+          description: Bad Gateway - JIRA API returned an error or invalid payload
+        '504':
+          description: Gateway Timeout - JIRA API did not respond within the configured timeout after retries
+
+  /groups/{groupId}/sprints/{sprintId}/github-sync:
+    post:
+      summary: Validate PR Merges (Process 7.2)
+      description: >
+        Validates GitHub pull requests and merge status for JIRA issues associated with the given sprint (Process 7.2).
+
+        Reads previously synchronized sprint issues from D6 Sprint / Contribution Records and group integration
+        settings from D2 Groups & Advisor Assignments and D1 User Accounts, then calls the GitHub API using the
+        configured Personal Access Token (PAT) to verify related PRs and their merge state. Results are written back
+        to D6 as per-issue merge validation records.
+
+        External entities involved: Coordinator (for configuration), GitHub API (for PR and merge data),
+        Notification Service (for optional sync status notifications).
+        **DFD Reference:** ep_7_github_sync
+      operationId: validateSprintPullRequestMerges
+      tags:
+        - Sprint Tracking & Contribution Calculation
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group identifier whose sprint PR activity is being validated
+          schema:
+            type: string
+        - name: sprintId
+          in: path
+          required: true
+          description: Sprint identifier whose issues will be matched to PRs
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SprintGithubSyncInput'
+      responses:
+        '202':
+          description: >
+            GitHub merge validation job accepted. PR and merge state will be validated and stored in
+            D6 Sprint / Contribution Records asynchronously.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SprintSyncJobStatus'
+        '400':
+          description: Invalid request payload (e.g., missing or malformed repository mapping)
+        '403':
+          description: Forbidden - only coordinator or authorized backend job may trigger GitHub sync
+        '404':
+          description: Sprint issues not found for the given group and sprint in D6
+        '409':
+          description: A GitHub sync is already in progress for this group and sprint
+        '502':
+          description: Bad Gateway - GitHub API returned an error or invalid payload
+        '504':
+          description: Gateway Timeout - GitHub API did not respond within the configured timeout after retries
+
+  /groups/{groupId}/sprints/{sprintId}/contributions/recalculate:
+    post:
+      summary: Recalculate Contribution Ratios (Process 7.3 + 7.4 + 7.5)
+      description: >
+        Recalculates individual sprint contribution ratios for all students in the group and persists sprint
+        contribution records, optionally emitting sprint update notifications (Processes 7.3, 7.4, and 7.5).
+
+        Reads group membership from D2 Groups & Advisor Assignments, student identities from D1 User Accounts,
+        sprint issues and merge data from D6 Sprint / Contribution Records, and sprint targets / rubric weights
+        from D8 Rubrics & Sprint Configurations. For each student, it maps merged PRs to JIRA issues, aggregates
+        completed story points, computes contribution ratios relative to group totals and configured targets,
+        stores per-student sprint records into D6 (and optionally creates sprint-related entries in D4 Deliverables
+        for reporting), and exposes ratios for downstream consumption by Process 8.0 Final Grade Calculation.
+
+        External entities involved: Coordinator (as caller and report consumer), Notification Service (for sprint
+        updates notifications), and the downstream Process 8.0 Final Grade Calculation (as an internal consumer
+        of the resulting contribution ratios).
+        **DFD Reference:** ep_7_recalculate_contributions
+      operationId: recalculateSprintContributionRatios
+      tags:
+        - Sprint Tracking & Contribution Calculation
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group identifier whose sprint contributions will be recalculated
+          schema:
+            type: string
+        - name: sprintId
+          in: path
+          required: true
+          description: Sprint identifier for which contribution ratios are computed
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecalculateContributionsInput'
+      responses:
+        '200':
+          description: >
+            Contribution ratios recalculated successfully and stored in D6 Sprint / Contribution Records.
+            The response returns a snapshot of per-student metrics for this sprint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SprintContributionSummary'
+        '400':
+          description: Invalid request payload (e.g., inconsistent targets or missing mappings)
+        '403':
+          description: Forbidden - coordinator or authorized backend job only
+        '404':
+          description: Group, sprint, or prerequisite sync data not found (D1/D2/D6/D8)
+        '409':
+          description: Contribution records are locked or already finalized for this sprint
+        '422':
+          description: Sprint contribution window is closed or configuration is not yet published.
+        '502':
+          description: Bad Gateway - dependent services failed during recalculation (e.g., cache or downstream process)
+        '504':
+          description: Gateway Timeout - recalculation exceeded allowed processing time
+
+components:
+  schemas:
+    SprintJiraSyncInput:
+      type: object
+      required:
+        - coordinatorId
+        - jiraBoardId
+        - sprintKey
+      properties:
+        coordinatorId:
+          type: string
+          description: Coordinator user identifier authorizing the sync
+        jiraBoardId:
+          type: string
+          description: JIRA board or project identifier bound to the group
+        sprintKey:
+          type: string
+          description: External JIRA sprint key to fetch issues from
+        retryOnFailure:
+          type: boolean
+          default: true
+          description: Whether to apply the configured retry policy on JIRA timeouts and transient errors
+        notifyOnCompletion:
+          type: boolean
+          default: false
+          description: Whether to send a sprint sync notification via the Notification Service when the job completes
+
+    SprintGithubSyncInput:
+      type: object
+      required:
+        - coordinatorId
+        - repositorySlug
+      properties:
+        coordinatorId:
+          type: string
+          description: Coordinator user identifier authorizing the sync
+        repositorySlug:
+          type: string
+          description: GitHub repository slug (e.g., org/repo) associated with this group
+        branch:
+          type: string
+          description: Optional branch filter for PR validation
+        revalidateAll:
+          type: boolean
+          default: false
+          description: >
+            If true, revalidates all PRs linked to this sprint's issues; otherwise, only validates PRs
+            that have changed since the last sync.
+
+    RecalculateContributionsInput:
+      type: object
+      required:
+        - triggeredBy
+      properties:
+        triggeredBy:
+          type: string
+          description: User or system identifier that triggered the recalculation
+        overrideExisting:
+          type: boolean
+          default: false
+          description: >
+            If true, overrides existing contribution records for this sprint in D6; otherwise, only fills missing entries.
+        notifyStudents:
+          type: boolean
+          default: true
+          description: Whether to send sprint update notifications to students via the Notification Service
+        useRubricWeights:
+          type: boolean
+          default: true
+          description: >
+            If true, applies rubric and sprint weight configuration from D8 when interpreting story points and targets.
+
+    SprintSyncJobStatus:
+      type: object
+      required:
+        - jobId
+        - status
+        - source
+        - createdAt
+      properties:
+        jobId:
+          type: string
+          description: Identifier of the background sync job
+        status:
+          type: string
+          enum: [queued, running, completed, failed]
+        source:
+          type: string
+          enum: [jira, github]
+          description: Indicates whether this job is a JIRA or GitHub sync
+        message:
+          type: string
+          description: Optional human-readable status or error message
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    SprintContributionSummary:
+      type: object
+      required:
+        - groupId
+        - sprintId
+        - contributions
+        - recalculatedAt
+      properties:
+        groupId:
+          type: string
+        sprintId:
+          type: string
+        contributions:
+          type: array
+          description: Per-student contribution metrics for this sprint
+          items:
+            $ref: '#/components/schemas/SprintContribution'
+        recalculatedAt:
+          type: string
+          format: date-time
+        basedOnTargets:
+          type: boolean
+          description: Indicates whether D8 sprint target configuration was applied
+
+    SprintContribution:
+      type: object
+      required:
+        - studentId
+        - githubUsername
+        - completedStoryPoints
+        - targetStoryPoints
+        - groupTotalStoryPoints
+        - contributionRatio
+      properties:
+        studentId:
+          type: string
+          description: Identifier from D1 User Accounts
+        githubUsername:
+          type: string
+          description: GitHub username mapped from student profile and PRs
+        completedStoryPoints:
+          type: number
+          format: float
+          description: Sum of story points from merged issues attributed to this student in the sprint
+        targetStoryPoints:
+          type: number
+          format: float
+          description: Per-sprint target configured for this student (from D8)
+        groupTotalStoryPoints:
+          type: number
+          format: float
+          description: Total completed story points for the group in this sprint
+        contributionRatio:
+          type: number
+          format: float
+          description: >
+            Completed story points divided by group total or configured target, depending on rubric and configuration.
+        locked:
+          type: boolean
+          default: false
+          description: Indicates whether this record is locked for further edits
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+

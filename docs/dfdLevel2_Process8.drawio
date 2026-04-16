@@ -1,0 +1,136 @@
+<mxfile host="65bd71144e">
+    <diagram id="dfdLevel2_Process8_detailed" name="Level 2 DFD: 8.0 Final Grade Calculation">
+        <mxGraphModel dx="898" dy="555" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+
+                <mxCell id="title" value="Senior Project Management System — Level 2 DFD: 8.0 Final Grade Calculation" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=16;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="0" y="10" width="850" height="30" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="boundary_system" value="System Boundary" style="points=[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0],[1,0.25],[1,0.5],[1,0.75],[1,1],[0.75,1],[0.5,1],[0.25,1],[0,1],[0,0.75],[0,0.5],[0,0.25]];shape=mxgraph.flowchart.start_2;fillColor=none;strokeColor=#666666;strokeWidth=2;dashed=1;dashPattern=8 8;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=11;fontStyle=2;" parent="1" vertex="1">
+                    <mxGeometry x="180" y="70" width="490" height="900" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="ext_student" value="Student" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="330" width="120" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ext_coordinator" value="Coordinator" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="700" y="230" width="120" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ext_professor" value="Professor / Advisor" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="700" y="380" width="120" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ext_committee" value="Committee Member" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="700" y="530" width="120" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ext_notification" value="Notification Service" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;" parent="1" vertex="1">
+                    <mxGeometry x="700" y="840" width="120" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="p60_external" value="6.0 Deliverable Review" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="120" width="120" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="p70_external" value="7.0 Sprint Tracking" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="220" width="120" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="p50_external" value="5.0 Deliverable Submission" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="540" width="120" height="70" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="p81" value="8.1 Fetch Deliverable Scores" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="250" y="130" width="220" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="p82" value="8.2 Fetch Individual Contribution Ratios" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="250" y="280" width="220" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="p83" value="8.3 Compute Final Grade" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="250" y="430" width="220" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="p84" value="8.4 Validate &amp; Approve Grade" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="250" y="580" width="220" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="p85" value="8.5 Store &amp; Publish Final Grades" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="250" y="730" width="220" height="80" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="ds_d4" value="D4 Deliverables" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="190" y="870" width="110" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ds_d5" value="D5 Reviews &amp; Evaluations" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="305" y="870" width="120" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ds_d6" value="D6 Sprint / Contribution Records" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="430" y="870" width="120" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ds_d7" value="D7 Final Grades" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="555" y="870" width="105" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="ds_d8" value="D8 Rubrics &amp; Sprint Configurations" style="shape=partialRectangle;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=10;" parent="1" vertex="1">
+                    <mxGeometry x="500" y="450" width="160" height="60" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="f8_ds_d5_p81" value="group_id + deliverable aggregate scores" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#666666;strokeWidth=1;dashed=1;" edge="1" source="ds_d5" target="p81" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f8_p60_external_p81" value="deliverable scores" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" source="p60_external" target="p81" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f8_ds_d4_p81" value="deliverable metadata and evaluated set" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#666666;strokeWidth=1;dashed=1;" edge="1" source="ds_d4" target="p81" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f8_p81_p83" value="deliverable scores" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" source="p81" target="p83" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="f8_ds_d6_p82" value="student_id + sprint_completion_ratio" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#666666;strokeWidth=1;dashed=1;" edge="1" source="ds_d6" target="p82" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f8_p70_external_p82" value="contribution ratios" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" source="p70_external" target="p82" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f8_p82_p83" value="contribution ratios" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" source="p82" target="p83" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f8_ds_d8_p83" value="rubric weights and grade rules" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#666666;strokeWidth=1;dashed=1;" edge="1" source="ds_d8" target="p83" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="f8_p83_p84" value="calculated final grades" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" source="p83" target="p84" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f8_p84_ext_coordinator" value="approval request + override options" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#82b366;strokeWidth=2;" edge="1" source="p84" target="ext_coordinator" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f8_ext_coordinator_p84" value="approval decision / manual override" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#82b366;strokeWidth=2;" edge="1" source="ext_coordinator" target="p84" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f8_p84_ext_professor" value="grade review visibility" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#82b366;strokeWidth=2;" edge="1" source="p84" target="ext_professor" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f8_p84_p85" value="approved final grades" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" source="p84" target="p85" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="f8_p85_ds_d7" value="final grades" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#666666;strokeWidth=1;dashed=1;" edge="1" source="p85" target="ds_d7" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f8_coord_student" value="individual final grade" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#82b366;strokeWidth=2;" edge="1" source="ext_coordinator" target="ext_student" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f8_p85_ext_professor" value="grade reports / status" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#82b366;strokeWidth=2;" edge="1" source="p85" target="ext_professor" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f8_p85_ext_committee" value="final results view" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#82b366;strokeWidth=2;" edge="1" source="p85" target="ext_committee" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f8_p85_p50_external" value="final grade status sync" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" source="p85" target="p50_external" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f8_p85_ext_notification" value="final grade notification" style="rounded=0;orthogonalLoop=1;jettySize=auto;strokeColor=#d6b656;strokeWidth=2;" edge="1" source="p85" target="ext_notification" parent="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
