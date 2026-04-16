@@ -306,11 +306,13 @@ describe('Deliverable Notification Service', () => {
       // Create a deliverable
       const deliverable = await Deliverable.create({
         deliverableId: `del_${Date.now()}`,
-        committeeId,
         groupId: 'grp_001',
-        studentId: 'stu_001',
-        type: 'proposal',
-        storageRef: '/path/to/file.pdf',
+        deliverableType: 'proposal',
+        submittedBy: 'stu_001',
+        filePath: '/path/to/file.pdf',
+        fileSize: 1024,
+        fileHash: 'abc123def456',
+        format: 'pdf',
         status: 'accepted',
       });
 
@@ -396,11 +398,13 @@ describe('Deliverable Notification Service', () => {
     it('should track notification attempts', async () => {
       const deliverable = await Deliverable.create({
         deliverableId: `del_${Date.now()}`,
-        committeeId: 'com_dup_check',
         groupId: 'grp_001',
-        studentId: 'stu_001',
-        type: 'proposal',
-        storageRef: '/path/to/file.pdf',
+        deliverableType: 'proposal',
+        submittedBy: 'stu_001',
+        filePath: '/path/to/file.pdf',
+        fileSize: 1024,
+        fileHash: 'abc123def456',
+        format: 'pdf',
         status: 'accepted',
       });
 
@@ -430,11 +434,13 @@ describe('Deliverable Notification Service', () => {
     it('should allow different notification modes', async () => {
       const deliverable = await Deliverable.create({
         deliverableId: `del_timeout_${Date.now()}`,
-        committeeId: 'com_rename_mode',
         groupId: 'grp_001',
-        studentId: 'stu_001',
-        type: 'proposal',
-        storageRef: '/path/to/file.pdf',
+        deliverableType: 'proposal',
+        submittedBy: 'stu_001',
+        filePath: '/path/to/file.pdf',
+        fileSize: 1024,
+        fileHash: 'abc123def456',
+        format: 'pdf',
         status: 'accepted',
       });
 

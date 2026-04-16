@@ -240,7 +240,7 @@ describe('POST /api/v1/deliverables/:deliverableId/comments', () => {
     expect(res.status).toBe(403);
   });
 
-  it('501 — committee_member reaches stub (auth + role passed)', async () => {
+  it('400 — committee_member passes auth+role; handler rejects empty body (content required)', async () => {
     const token = makeToken(unique('cm'), 'committee_member');
 
     const res = await request(app)
@@ -248,11 +248,11 @@ describe('POST /api/v1/deliverables/:deliverableId/comments', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({});
 
-    expect(res.status).toBe(501);
-    expect(res.body.code).toBe('NOT_IMPLEMENTED');
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_REQUEST');
   });
 
-  it('501 — coordinator reaches stub (auth + role passed)', async () => {
+  it('400 — coordinator passes auth+role; handler rejects empty body (content required)', async () => {
     const token = makeToken(unique('coord'), 'coordinator');
 
     const res = await request(app)
@@ -260,8 +260,8 @@ describe('POST /api/v1/deliverables/:deliverableId/comments', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({});
 
-    expect(res.status).toBe(501);
-    expect(res.body.code).toBe('NOT_IMPLEMENTED');
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_REQUEST');
   });
 });
 
