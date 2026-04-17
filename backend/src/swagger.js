@@ -927,6 +927,29 @@ const options = {
           parameters: [
             { name: 'deliverableId', in: 'path', required: true, schema: { type: 'string', example: 'del_abc123' } },
             { name: 'commentId', in: 'path', required: true, schema: { type: 'string', example: 'cmt_abc123' } },
+          ],
+          requestBody: {
+            required: false,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    content: { type: 'string', example: 'Updated comment text.' },
+                    status: { type: 'string', enum: ['open', 'resolved', 'acknowledged'], example: 'resolved' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: { description: 'Comment updated' },
+            400: { description: 'No fields provided or invalid status' },
+            403: { description: 'Not the comment author (for content) or insufficient role (for status)' },
+            404: { description: 'Comment not found' },
+          },
+        },
+      },
       '/deliverables/{deliverableId}/comments': {
         post: {
           tags: ['Deliverables'],
@@ -942,9 +965,6 @@ const options = {
               'application/json': {
                 schema: {
                   type: 'object',
-                  properties: {
-                    content: { type: 'string', example: 'Updated comment text.' },
-                    status: { type: 'string', enum: ['open', 'resolved', 'acknowledged'], example: 'resolved' },
                   required: ['content'],
                   properties: {
                     content: { type: 'string', minLength: 1, maxLength: 5000, example: 'This section needs clarification.' },
@@ -957,40 +977,6 @@ const options = {
             },
           },
           responses: {
-            200: { description: 'Comment updated' },
-            400: { description: 'No fields provided or invalid status' },
-            403: { description: 'Not the comment author (for content) or insufficient role (for status)' },
-            404: { description: 'Comment not found' },
-          },
-        },
-      },
-      '/deliverables/{deliverableId}/comments/{commentId}/reply': {
-        post: {
-          tags: ['Deliverables'],
-          summary: 'Process 6.2 — Append a reply to a comment thread',
-          security: [{ bearerAuth: [] }],
-          parameters: [
-            { name: 'deliverableId', in: 'path', required: true, schema: { type: 'string', example: 'del_abc123' } },
-            { name: 'commentId', in: 'path', required: true, schema: { type: 'string', example: 'cmt_abc123' } },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object',
-                  required: ['content'],
-                  properties: {
-                    content: { type: 'string', minLength: 1, maxLength: 2000, example: 'Here is our clarification...' },
-                  },
-                },
-              },
-            },
-          },
-          responses: {
-            201: { description: 'Reply added; comment returned with updated replies array' },
-            400: { description: 'content missing or exceeds 2000 chars' },
-            404: { description: 'Comment not found' },
             201: {
               description: 'Comment created',
               content: {
@@ -1015,7 +1001,7 @@ const options = {
                 },
               },
             },
-            400: { description: 'Validation error or no active review — `{ code: "INVALID_REQUEST" | "NO_ACTIVE_REVIEW" }`' },
+            400: { description: 'Validation error or no active review' },
             403: { description: 'Students cannot initiate comments' },
             404: { description: 'Deliverable not found' },
           },
@@ -1068,6 +1054,36 @@ const options = {
             },
             403: { description: 'Student viewing another group\'s deliverable' },
             404: { description: 'Deliverable not found' },
+          },
+        },
+      },
+      '/deliverables/{deliverableId}/comments/{commentId}/reply': {
+        post: {
+          tags: ['Deliverables'],
+          summary: 'Process 6.2 — Append a reply to a comment thread',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'deliverableId', in: 'path', required: true, schema: { type: 'string', example: 'del_abc123' } },
+            { name: 'commentId', in: 'path', required: true, schema: { type: 'string', example: 'cmt_abc123' } },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['content'],
+                  properties: {
+                    content: { type: 'string', minLength: 1, maxLength: 2000, example: 'Here is our clarification...' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            201: { description: 'Reply added; comment returned with updated replies array' },
+            400: { description: 'content missing or exceeds 2000 chars' },
+            404: { description: 'Comment not found' },
           },
         },
       },

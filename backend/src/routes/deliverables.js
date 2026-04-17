@@ -130,6 +130,17 @@ router.post(
 router.get('/:deliverableId/comments', getComments);
 
 /**
+ * PATCH /api/v1/deliverables/:deliverableId/comments/:commentId
+ * Process 6.2 — Edit content or update status of a comment.
+ * Accessible by committee_member, coordinator, and student.
+ */
+router.patch(
+  '/:deliverableId/comments/:commentId',
+  roleMiddleware(['committee_member', 'coordinator', 'student']),
+  updateCommentHandler
+);
+
+/**
  * POST /api/v1/deliverables/:deliverableId/comments/:commentId/reply
  * Process 6 — Reply to an existing review comment.
  * Accessible by committee_member, coordinator, and student.

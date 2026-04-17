@@ -4,10 +4,24 @@ const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
 const Comment = require('../models/Comment');
 const Review = require('../models/Review');
+const User = require('../models/User');
+const Deliverable = require('../models/Deliverable');
+const AuditLog = require('../models/AuditLog');
+const Group = require('../models/Group');
 
 const NOTIFICATION_SERVICE_URL = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:4000';
 
 const VALID_STATUSES = ['open', 'resolved', 'acknowledged'];
+const VALID_COMMENT_TYPES = ['general', 'question', 'clarification_required', 'suggestion', 'praise'];
+const VALID_SORT_FIELDS = ['timestamp', 'author', 'section', 'status'];
+const VALID_STATUS_FILTERS = ['open', 'resolved', 'acknowledged'];
+
+const SORT_MAP = {
+  timestamp: { createdAt: 1 },
+  author: { authorName: 1, createdAt: 1 },
+  section: { sectionNumber: 1, createdAt: 1 },
+  status: { status: 1, createdAt: 1 },
+};
 
 /**
  * Serialize a Comment document for API responses.
@@ -43,26 +57,7 @@ const formatComment = (comment) => ({
  *
  * After a successful update, if no open comments with needsResponse: true remain
  * on this deliverable, the Review record is reverted to 'in_progress'.
-const User = require('../models/User');
-const Deliverable = require('../models/Deliverable');
-const Review = require('../models/Review');
-const Comment = require('../models/Comment');
-const AuditLog = require('../models/AuditLog');
-const Group = require('../models/Group');
-
-const NOTIFICATION_SERVICE_URL =
-  process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:4000';
-
-const VALID_COMMENT_TYPES = ['general', 'question', 'clarification_required', 'suggestion', 'praise'];
-const VALID_SORT_FIELDS = ['timestamp', 'author', 'section', 'status'];
-const VALID_STATUS_FILTERS = ['open', 'resolved', 'acknowledged'];
-
-const SORT_MAP = {
-  timestamp: { createdAt: 1 },
-  author: { authorName: 1, createdAt: 1 },
-  section: { sectionNumber: 1, createdAt: 1 },
-  status: { status: 1, createdAt: 1 },
-};
+ */
 
 /**
  * POST /api/deliverables/:deliverableId/comments
@@ -168,6 +163,7 @@ const updateCommentHandler = async (req, res) => {
  * Side-effects:
  *   - If comment.needsResponse === true, auto-sets comment.status = 'acknowledged'
  *   - Dispatches an async notification to the comment author (fire-and-forget)
+  */
 const addComment = async (req, res) => {
   const { deliverableId } = req.params;
   const { userId } = req.user;
@@ -418,7 +414,6 @@ const replyToCommentHandler = async (req, res) => {
   return res.status(201).json(formatComment(comment));
 };
 
-module.exports = { updateCommentHandler, replyToCommentHandler };
 const getComments = async (req, res) => {
   const { deliverableId } = req.params;
   const { role, groupId: userGroupId } = req.user;
@@ -496,4 +491,4 @@ const getComments = async (req, res) => {
   });
 };
 
-module.exports = { addComment, getComments };
+module.exports = { updateCommentHandler, replyToCommentHandler, addComment, getComments };

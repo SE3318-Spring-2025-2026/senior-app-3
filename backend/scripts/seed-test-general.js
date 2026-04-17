@@ -262,23 +262,25 @@ async function seedDeliverables(groups, committees) {
   console.log('🌱 Seeding deliverables...');
   
   const deliverables = [];
-  const types = ['proposal', 'statement-of-work', 'demonstration'];
+  const types = ['proposal', 'statement_of_work', 'demo'];
 
   for (let i = 0; i < groups.length; i++) {
+    const deliverableType = types[i % types.length];
     const deliverable = await Deliverable.create({
       deliverableId: generateId('del'),
-      committeeId: committees[i].committeeId,
       groupId: groups[i].groupId,
-      studentId: groups[i].members[0].userId,
-      type: types[i % types.length],
+      deliverableType,
+      submittedBy: groups[i].members[0].userId,
       submittedAt: new Date(),
-      storageRef: `s3://deliverables/${groups[i].groupId}/${types[i % types.length]}_v1.pdf`,
-      status: 'submitted',
-      feedback: null,
+      filePath: `uploads/${groups[i].groupId}/${deliverableType}_v1.pdf`,
+      fileSize: 102400,
+      fileHash: `hash_${generateId('h')}`,
+      format: 'pdf',
+      status: 'under_review',
     });
 
     deliverables.push(deliverable);
-    console.log(`  ✓ Created deliverable: ${groups[i].groupName} - ${deliverable.type}`);
+    console.log(`  ✓ Created deliverable: ${groups[i].groupName} - ${deliverableType}`);
   }
 
   return deliverables;
@@ -376,7 +378,7 @@ async function run() {
       const d = deliverables[i];
       const r = reviews[i];
       const g = groups.find(g => g.groupId === d.groupId);
-      console.log(`  ${(g?.groupName ?? d.groupId).padEnd(22)} | deliverableId: ${d.deliverableId.padEnd(16)} | type: ${d.type.padEnd(18)} | reviewId: ${r.reviewId}`);
+      console.log(`  ${(g?.groupName ?? d.groupId).padEnd(22)} | deliverableId: ${d.deliverableId.padEnd(16)} | type: ${d.deliverableType.padEnd(18)} | reviewId: ${r.reviewId}`);
     }
 
     // Sprints
