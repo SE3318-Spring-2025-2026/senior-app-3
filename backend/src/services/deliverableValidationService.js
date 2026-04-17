@@ -287,7 +287,7 @@ const checkSubmissionEligibility = async (stagingId, sprintId) => {
   try {
     priorSubmissions = await Deliverable.countDocuments({
       groupId: staging.groupId,
-      type: staging.deliverableType,
+      deliverableType: staging.deliverableType,
     });
   } catch (err) {
     console.error('[deliverableValidationService] checkSubmissionEligibility D4 count error:', err.message);

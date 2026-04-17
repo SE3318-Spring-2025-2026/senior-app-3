@@ -919,6 +919,113 @@ const options = {
           },
         },
       },
+      '/deliverables/{deliverableId}/comments': {
+        post: {
+          tags: ['Deliverables'],
+          summary: 'Process 6.2 — Add a comment or clarification request to a deliverable',
+          description: 'Committee members and coordinators can add comments. Deliverable must have an active (non-completed) review. If `needsResponse` is true, the review status is set to `needs_clarification` and the student group is notified asynchronously.',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'deliverableId', in: 'path', required: true, schema: { type: 'string', example: 'del_5e8f9d2a3c' } },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['content'],
+                  properties: {
+                    content: { type: 'string', minLength: 1, maxLength: 5000, example: 'This section needs clarification.' },
+                    commentType: { type: 'string', enum: ['general', 'question', 'clarification_required', 'suggestion', 'praise'], default: 'general', example: 'clarification_required' },
+                    sectionNumber: { type: 'integer', nullable: true, minimum: 1, example: 3 },
+                    needsResponse: { type: 'boolean', default: false, example: true },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            201: {
+              description: 'Comment created',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      commentId: { type: 'string', example: 'cmt_a1b2c3d4e5f6' },
+                      deliverableId: { type: 'string', example: 'del_5e8f9d2a3c' },
+                      authorId: { type: 'string' },
+                      authorName: { type: 'string' },
+                      content: { type: 'string' },
+                      commentType: { type: 'string' },
+                      sectionNumber: { type: 'integer', nullable: true },
+                      needsResponse: { type: 'boolean' },
+                      status: { type: 'string', enum: ['open', 'resolved', 'acknowledged'] },
+                      replies: { type: 'array', items: { type: 'object' } },
+                      createdAt: { type: 'string', format: 'date-time' },
+                      updatedAt: { type: 'string', format: 'date-time' },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: 'Validation error or no active review — `{ code: "INVALID_REQUEST" | "NO_ACTIVE_REVIEW" }`' },
+            403: { description: 'Students cannot initiate comments' },
+            404: { description: 'Deliverable not found' },
+          },
+        },
+        get: {
+          tags: ['Deliverables'],
+          summary: 'Process 6.2 — Retrieve the full comment thread for a deliverable',
+          description: 'Any authenticated role. Students can only view comments on their own group\'s deliverables.',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'deliverableId', in: 'path', required: true, schema: { type: 'string', example: 'del_5e8f9d2a3c' } },
+            { name: 'sortBy', in: 'query', required: false, schema: { type: 'string', enum: ['timestamp', 'author', 'section', 'status'], default: 'timestamp' } },
+            { name: 'status', in: 'query', required: false, schema: { type: 'string', enum: ['open', 'resolved', 'acknowledged'] }, description: 'Filter by comment status' },
+            { name: 'page', in: 'query', required: false, schema: { type: 'integer', default: 1 }, description: 'Page number (20 comments per page)' },
+          ],
+          responses: {
+            200: {
+              description: 'Comment thread',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      deliverableId: { type: 'string', example: 'del_5e8f9d2a3c' },
+                      comments: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            commentId: { type: 'string' },
+                            authorId: { type: 'string' },
+                            authorName: { type: 'string' },
+                            content: { type: 'string' },
+                            commentType: { type: 'string' },
+                            sectionNumber: { type: 'integer', nullable: true },
+                            needsResponse: { type: 'boolean' },
+                            status: { type: 'string' },
+                            replies: { type: 'array', items: { type: 'object' } },
+                            createdAt: { type: 'string', format: 'date-time' },
+                            updatedAt: { type: 'string', format: 'date-time' },
+                          },
+                        },
+                      },
+                      totalCount: { type: 'integer', example: 12 },
+                      openClarificationCount: { type: 'integer', example: 3 },
+                    },
+                  },
+                },
+              },
+            },
+            403: { description: 'Student viewing another group\'s deliverable' },
+            404: { description: 'Deliverable not found' },
+          },
+        },
+      },
       '/deliverables/{deliverableId}/retract': {
         delete: {
           tags: ['Deliverables'],

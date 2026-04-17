@@ -104,6 +104,10 @@ const auditLogSchema = new mongoose.Schema(
         // --- Deliverable Read & Retract ---
         'DELIVERABLE_RETRACTED',
 
+        // --- Review & Comment (Process 6) ---
+        'COMMENT_CREATED',
+        'REVIEW_STATUS_UPDATED',
+
         // --- System & Test ---
         'TEST_ACTION',
       ],
