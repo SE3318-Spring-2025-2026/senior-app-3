@@ -15,6 +15,7 @@ const {
   getDeliverableHandler,
   retractDeliverableHandler,
 } = require('../controllers/deliverableController');
+const { updateCommentHandler, replyToCommentHandler } = require('../controllers/reviewController');
 const { addComment, getComments } = require('../controllers/reviewController');
 
 // All deliverable routes require a valid JWT; req.user = { userId, role, groupId }
@@ -129,6 +130,17 @@ router.post(
 router.get('/:deliverableId/comments', getComments);
 
 /**
+ * PATCH /api/v1/deliverables/:deliverableId/comments/:commentId
+ * Process 6.2 — Edit content or update status of a comment.
+ * Accessible by committee_member, coordinator, and student.
+ */
+router.patch(
+  '/:deliverableId/comments/:commentId',
+  roleMiddleware(['committee_member', 'coordinator', 'student']),
+  updateCommentHandler
+);
+
+/**
  * POST /api/v1/deliverables/:deliverableId/comments/:commentId/reply
  * Process 6 — Reply to an existing review comment.
  * Accessible by committee_member, coordinator, and student.
@@ -136,9 +148,7 @@ router.get('/:deliverableId/comments', getComments);
 router.post(
   '/:deliverableId/comments/:commentId/reply',
   roleMiddleware(['committee_member', 'coordinator', 'student']),
-  (_req, res) => {
-    res.status(501).json({ code: 'NOT_IMPLEMENTED', message: 'Comment reply endpoint not yet implemented' });
-  }
+  replyToCommentHandler
 );
 
 module.exports = router;
