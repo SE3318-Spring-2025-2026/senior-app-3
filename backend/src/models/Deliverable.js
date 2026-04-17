@@ -24,6 +24,10 @@ const deliverableSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    committeeId: {
+      type: String,
+      default: null,
+    },
     deliverableType: {
       type: String,
       enum: ['proposal', 'statement_of_work', 'demo', 'interim_report', 'final_report'],
@@ -92,6 +96,9 @@ const deliverableSchema = new mongoose.Schema(
       default: null,
     },
     reviewedAt: {
+      type: Date,
+      default: null,
+    },
     submittedAt: {
       type: Date,
       required: true,

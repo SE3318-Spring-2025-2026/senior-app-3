@@ -1,6 +1,7 @@
 'use strict';
 
 const { v4: uuidv4 } = require('uuid');
+const mongoose = require('mongoose');
 
 /**
  * Test data fixtures for review assignment and comment tests.
@@ -122,28 +123,32 @@ function createCommittee(overrides = {}) {
  */
 function createDeliverable(overrides = {}) {
   const deliverableId = overrides.deliverableId || generateUniqueId('del');
-  const committeeId = overrides.committeeId || generateUniqueId('cmt');
   const groupId = overrides.groupId || generateUniqueId('grp');
-  const studentId = overrides.studentId || generateUniqueId('stu');
+  const submittedBy = overrides.submittedBy || overrides.studentId || generateUniqueId('stu');
+
+  // Filter out undefined values so computed fields are not accidentally overwritten
+  const definedOverrides = Object.fromEntries(
+    Object.entries(overrides).filter(([, v]) => v !== undefined)
+  );
 
   return {
     deliverableId,
-    committeeId,
     groupId,
-    studentId,
-    type: overrides.type || 'proposal',
-    status: overrides.status || 'accepted',
+    submittedBy,
+    deliverableType: definedOverrides.deliverableType || definedOverrides.type || 'proposal',
+    status: definedOverrides.status || 'accepted',
     submittedAt: new Date(),
-    storageRef: `gs://bucket/path/${deliverableId}`,
-    sprintId: overrides.sprintId || generateUniqueId('sprint'),
+    filePath: `uploads/${deliverableId}/document.pdf`,
+    fileSize: 204800,
+    fileHash: `sha256_mock_${deliverableId}`,
+    format: 'pdf',
+    sprintId: null,
     version: 1,
     validationHistory: [],
     feedback: null,
     reviewedBy: null,
     reviewedAt: null,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    ...overrides,
+    ...definedOverrides,
   };
 }
 
@@ -258,6 +263,9 @@ function createSprintRecord(overrides = {}) {
  * @returns {Promise<Object>}
  */
 async function setupReviewScenario(overrides = {}) {
+  const Committee = mongoose.model('Committee');
+  const Group = mongoose.model('Group');
+
   const coordinator = createCoordinator({
     userId: overrides.coordinatorId || generateUniqueId('coord'),
   });
@@ -285,9 +293,13 @@ async function setupReviewScenario(overrides = {}) {
     deliverableId: overrides.deliverableId,
     committeeId: committee.committeeId,
     groupId: group.groupId,
-    studentId: group.leaderId,
+    submittedBy: group.leaderId,
     status: overrides.deliverableStatus || 'accepted',
   });
+
+  // Persist committee and group so controllers can look them up
+  await Committee.create(committee);
+  await Group.create(group);
 
   return {
     coordinator,

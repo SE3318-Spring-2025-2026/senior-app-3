@@ -130,8 +130,11 @@ exports.getComments = async (req, res, next) => {
 
     // Students can only view comments for their own group's deliverables
     if (role === 'student') {
-      const group = await Group.findOne({ groupId }).lean();
-      if (!group || group.groupId !== deliverable.groupId) {
+      const group = await Group.findOne({
+        groupId: deliverable.groupId,
+        'members.userId': userId,
+      }).lean();
+      if (!group) {
         return res.status(403).json({ message: 'You do not have permission to view comments for this deliverable' });
       }
     }

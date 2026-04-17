@@ -35,18 +35,18 @@ exports.assignReview = async (req, res, next) => {
       return res.status(404).json({ message: 'Deliverable not found' });
     }
 
-    // Check deliverable status
-    if (deliverable.status !== 'accepted') {
-      return res.status(400).json({
-        message: `Deliverable must be in 'accepted' status, current status: ${deliverable.status}`,
-      });
-    }
-
-    // Check if review already exists
+    // Check if review already exists (before status check so 409 takes precedence)
     const existingReview = await Review.findOne({ deliverableId }).lean();
     if (existingReview) {
       return res.status(409).json({
         message: 'Review already exists for this deliverable',
+      });
+    }
+
+    // Check deliverable status
+    if (deliverable.status !== 'accepted') {
+      return res.status(400).json({
+        message: `Deliverable must be in 'accepted' status, current status: ${deliverable.status}`,
       });
     }
 

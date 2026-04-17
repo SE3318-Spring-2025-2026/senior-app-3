@@ -169,7 +169,7 @@ describe('POST /api/v1/reviews/assign', () => {
     it('should return 400 when deliverable status is not accepted', async () => {
       const { userId, token } = tokenCoordinator();
       const scenario = await setupReviewScenario({
-        deliverableStatus: 'submitted',
+        deliverableStatus: 'under_review',
       });
       await Deliverable.create(scenario.deliverable);
 
@@ -189,7 +189,7 @@ describe('POST /api/v1/reviews/assign', () => {
     it('should return 400 when deliverable status is rejected', async () => {
       const { userId, token } = tokenCoordinator();
       const scenario = await setupReviewScenario({
-        deliverableStatus: 'rejected',
+        deliverableStatus: 'awaiting_resubmission',
       });
       await Deliverable.create(scenario.deliverable);
 

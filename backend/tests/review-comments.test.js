@@ -849,6 +849,7 @@ describe('Review Comments Endpoints', () => {
           deliverableId: deliverable.deliverableId,
           authorId: scenario.committeeMembers[0].userId,
           status: 'open',
+          needsResponse: true,
         });
         const student = tokenStudent(scenario.group.leaderId);
 
