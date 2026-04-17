@@ -107,6 +107,11 @@ const auditLogSchema = new mongoose.Schema(
         // --- Review & Comment (Process 6) ---
         'COMMENT_CREATED',
         'REVIEW_STATUS_UPDATED',
+        'REVIEW_ASSIGNED',
+        'COMMENT_ADDED',
+        'COMMENT_EDITED',
+        'COMMENT_REPLIED',
+        'COMMENT_RESOLVED',
 
         // --- System & Test ---
         'TEST_ACTION',

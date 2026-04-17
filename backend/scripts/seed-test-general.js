@@ -424,7 +424,7 @@ async function run() {
       const d = deliverables[i];
       const r = reviews[i];
       const g = groups.find(g => g.groupId === d.groupId);
-      console.log(`  ${(g?.groupName ?? d.groupId).padEnd(22)} | deliverableId: ${d.deliverableId.padEnd(16)} | type: ${d.deliverableType.padEnd(20)} | reviewId: ${r.reviewId}`);
+      console.log(`  ${(g?.groupName ?? d.groupId).padEnd(22)} | deliverableId: ${d.deliverableId.padEnd(16)} | type: ${d.deliverableType.padEnd(18)} | reviewId: ${r.reviewId}`);
     }
 
     // Sprints

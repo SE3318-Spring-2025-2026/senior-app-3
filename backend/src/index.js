@@ -14,6 +14,7 @@ const scheduleWindowRoutes = require('./routes/scheduleWindow');
 const auditLogRoutes = require('./routes/auditLogs');
 const deliverableRoutes = require('./routes/deliverables');
 const reviewRoutes = require('./routes/reviews');
+const commentsRoutes = require('./routes/comments');
 const { errorHandler } = require('./middleware/auth');
 
 const app = express();
@@ -66,6 +67,7 @@ app.use('/api/v1/schedule-window', scheduleWindowRoutes);
 app.use('/api/v1/audit-logs', auditLogRoutes);
 app.use('/api/v1/deliverables', deliverableRoutes);
 app.use('/api/v1/reviews', reviewRoutes);
+app.use('/api/v1/comments', commentsRoutes);
 
 // 404 Handler
 app.use((req, res) => {
