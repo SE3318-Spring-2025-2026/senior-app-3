@@ -1,0 +1,7 @@
+Review of deliverable #{{deliverableId}} from {{groupName}} is complete.
+
+Open clarifications: 0
+See full comment thread at: {{link}}
+
+---
+Senior Project Management System

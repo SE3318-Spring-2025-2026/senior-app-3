@@ -1,0 +1,6 @@
+Clarification requested on your deliverable #{{deliverableId}}: {{commentContent}}
+
+Please log in to the Senior Project Management System and reply to the comment thread.
+
+---
+Senior Project Management System

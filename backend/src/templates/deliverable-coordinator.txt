@@ -1,0 +1,7 @@
+Deliverable #{{id}} submitted by {{groupName}}.
+
+The submission has passed all validation checks and is now stored permanently.
+You may assign reviewers from the Review Management section.
+
+---
+Senior Project Management System

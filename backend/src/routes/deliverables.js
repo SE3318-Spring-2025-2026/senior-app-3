@@ -14,6 +14,7 @@ const {
   listDeliverablesHandler,
   getDeliverableHandler,
   retractDeliverableHandler,
+  notifyDeliverableHandler,
 } = require('../controllers/deliverableController');
 const { updateCommentHandler, replyToCommentHandler } = require('../controllers/reviewController');
 const { addComment, getComments } = require('../controllers/reviewController');
@@ -110,6 +111,14 @@ router.post(
  * Sets status = 'retracted'; does not delete the file from disk.
  */
 router.delete('/:deliverableId/retract', roleMiddleware(['coordinator']), retractDeliverableHandler);
+
+/**
+ * POST /api/deliverables/:deliverableId/notify
+ * Process 5.6 — Queue post-submission notifications to committee, coordinator, and students.
+ * Requires JWT. Returns 202 immediately; notifications are delivered asynchronously.
+ * Returns 409 if notifications have already been sent (notifiedAt is set).
+ */
+router.post('/:deliverableId/notify', notifyDeliverableHandler);
 
 /**
  * POST /api/deliverables/:deliverableId/comments

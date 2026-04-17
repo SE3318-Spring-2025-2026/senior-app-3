@@ -1,0 +1,6 @@
+Group {{groupName}} replied to your clarification on deliverable #{{deliverableId}}: {{replyContent}}
+
+Please log in to the Senior Project Management System to continue the thread.
+
+---
+Senior Project Management System
