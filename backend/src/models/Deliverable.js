@@ -24,6 +24,10 @@ const deliverableSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    committeeId: {
+      type: String,
+      default: null,
+    },
     deliverableType: {
       type: String,
       enum: ['proposal', 'statement_of_work', 'demo', 'interim_report', 'final_report'],
@@ -66,6 +70,34 @@ const deliverableSchema = new mongoose.Schema(
       type: Number,
       default: 1,
       min: 1,
+    },
+    validationHistory: {
+      type: [
+        {
+          step: {
+            type: String,
+            enum: ['format_validation', 'deadline_validation', 'storage'],
+            required: true,
+          },
+          passed: { type: Boolean, required: true },
+          checkedAt: { type: Date, required: true },
+          failureReasons: { type: [String], default: [] },
+          _id: false,
+        },
+      ],
+      default: [],
+    },
+    feedback: {
+      type: String,
+      default: null,
+    },
+    reviewedBy: {
+      type: String,
+      default: null,
+    },
+    reviewedAt: {
+      type: Date,
+      default: null,
     },
     submittedAt: {
       type: Date,
