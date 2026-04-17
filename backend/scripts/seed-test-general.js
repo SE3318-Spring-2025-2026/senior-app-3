@@ -15,6 +15,7 @@ const AdvisorAssignment = require('../src/models/AdvisorAssignment');
 const AuditLog          = require('../src/models/AuditLog');
 const Deliverable       = require('../src/models/Deliverable');
 const SprintRecord      = require('../src/models/SprintRecord');
+const SprintConfig      = require('../src/models/SprintConfig');
 
 // Utilities
 const { hashPassword }        = require('../src/utils/password');
@@ -40,7 +41,7 @@ const generateId = (prefix) => `${prefix}_${uuidv4().split('-')[0]}`;
  */
 async function seedUsers() {
   console.log('🌱 Seeding users...');
-  
+
   const users = {};
   for (const [role, creds] of Object.entries(TEST_USERS)) {
     const userRole = role.includes('student') ? 'student'
@@ -69,7 +70,7 @@ async function seedUsers() {
  */
 async function seedCommittees(professorId) {
   console.log('🌱 Seeding committees...');
-  
+
   const committees = [];
   for (let i = 1; i <= 2; i++) {
     const committee = await Committee.create({
@@ -96,9 +97,9 @@ async function seedCommittees(professorId) {
  */
 async function seedGroups(users, committees) {
   console.log('🌱 Seeding groups...');
-  
+
   const groups = [];
-  
+
   // Group 1: Alice as leader, Bob as member
   const group1 = await Group.create({
     groupId: generateId('grp'),
@@ -138,7 +139,7 @@ async function seedGroups(users, committees) {
  */
 async function seedScheduleWindows() {
   console.log('🌱 Seeding schedule windows...');
-  
+
   const now = new Date();
   const windows = [];
 
@@ -171,7 +172,7 @@ async function seedScheduleWindows() {
  */
 async function seedAdvisorSetup(groups, users) {
   console.log('🌱 Seeding advisor requests & assignments...');
-  
+
   const request = await AdvisorRequest.create({
     requestId: generateId('arq'),
     groupId: groups[0].groupId,
@@ -202,7 +203,7 @@ async function seedAdvisorSetup(groups, users) {
  */
 async function seedAuditLogs(users) {
   console.log('🌱 Seeding audit logs...');
-  
+
   const actions = [
     { action: 'ACCOUNT_CREATED', userId: users.student1.userId, description: 'Student 1 account created' },
     { action: 'LOGIN_SUCCESS', userId: users.student1.userId, description: 'Student 1 login' },
@@ -233,7 +234,7 @@ async function seedAuditLogs(users) {
  */
 async function seedSprintRecords(groups, committees) {
   console.log('🌱 Seeding sprint records...');
-  
+
   const sprints = [];
 
   for (let i = 1; i <= 2; i++) {
@@ -256,29 +257,72 @@ async function seedSprintRecords(groups, committees) {
 }
 
 /**
- * Create sample deliverables
+ * Create sprint configs (deadlines) for each sprint + deliverable type combination.
+ * Required by Process 5.4 (validate-deadline).
  */
-async function seedDeliverables(groups, committees) {
+async function seedSprintConfigs(sprints) {
+  console.log('🌱 Seeding sprint configs (deadlines)...');
+
+  const configs = [];
+  const deliverableTypes = [
+    'proposal',
+    'statement_of_work',
+    'demo',
+    'interim_report',
+    'final_report',
+  ];
+
+  const uniqueSprintIds = [...new Set(sprints.map((s) => s.sprintId))];
+
+  for (const sprintId of uniqueSprintIds) {
+    for (const deliverableType of deliverableTypes) {
+      const config = await SprintConfig.create({
+        sprintId,
+        deliverableType,
+        deadline: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 gün sonra
+        description: `Test deadline — ${sprintId} / ${deliverableType}`,
+      });
+      configs.push(config);
+      console.log(`  ✓ Created sprint config: ${sprintId} / ${deliverableType}`);
+    }
+  }
+
+  return configs;
+}
+
+/**
+ * Create sample deliverables — aligned with current Deliverable schema (D4).
+ */
+async function seedDeliverables(groups, users, sprints) {
   console.log('🌱 Seeding deliverables...');
-  
+
   const deliverables = [];
-  const types = ['proposal', 'statement-of-work', 'demonstration'];
+  const types = ['proposal', 'statement_of_work', 'demo'];
 
   for (let i = 0; i < groups.length; i++) {
+    const group  = groups[i];
+    const leader = i === 0 ? users.student1 : users.student3;
+    const sprint = sprints.find((s) => s.groupId === group.groupId) ?? sprints[i * 2];
+    const type   = types[i % types.length];
+
     const deliverable = await Deliverable.create({
-      deliverableId: generateId('del'),
-      committeeId: committees[i].committeeId,
-      groupId: groups[i].groupId,
-      studentId: groups[i].members[0].userId,
-      type: types[i % types.length],
-      submittedAt: new Date(),
-      storageRef: `s3://deliverables/${groups[i].groupId}/${types[i % types.length]}_v1.pdf`,
-      status: 'submitted',
-      feedback: null,
+      deliverableId:   generateId('del'),
+      groupId:         group.groupId,
+      deliverableType: type,
+      sprintId:        sprint?.sprintId ?? null,
+      submittedBy:     leader.userId,
+      description:     `Sample ${type} deliverable for ${group.groupName}`,
+      filePath:        `s3://deliverables/${group.groupId}/${type}_v1.pdf`,
+      fileSize:        204800, // 200 KB
+      fileHash:        uuidv4().replace(/-/g, ''),
+      format:          'pdf',
+      status:          'accepted',
+      version:         1,
+      submittedAt:     new Date(),
     });
 
     deliverables.push(deliverable);
-    console.log(`  ✓ Created deliverable: ${groups[i].groupName} - ${deliverable.type}`);
+    console.log(`  ✓ Created deliverable: ${group.groupName} - ${type}`);
   }
 
   return deliverables;
@@ -305,6 +349,7 @@ async function run() {
     await AuditLog.deleteMany({ auditId: { $regex: /^aud_/ } });
     await SprintRecord.deleteMany({ sprintRecordId: { $regex: /^spr_/ } });
     await Deliverable.deleteMany({ deliverableId: { $regex: /^del_/ } });
+    await SprintConfig.deleteMany({ sprintId: { $regex: /^sprint_/ } });
 
     console.log('  ✓ Cleaned up old test data\n');
 
@@ -327,10 +372,13 @@ async function run() {
     await seedAuditLogs(users);
     console.log();
 
-    const sprints      = await seedSprintRecords(groups, committees);
+    const sprints = await seedSprintRecords(groups, committees);
     console.log();
 
-    const deliverables = await seedDeliverables(groups, committees);
+    const sprintConfigs = await seedSprintConfigs(sprints);
+    console.log();
+
+    const deliverables = await seedDeliverables(groups, users, sprints);
     console.log();
 
     // Create a Review for each deliverable so comment endpoints work immediately
@@ -376,7 +424,7 @@ async function run() {
       const d = deliverables[i];
       const r = reviews[i];
       const g = groups.find(g => g.groupId === d.groupId);
-      console.log(`  ${(g?.groupName ?? d.groupId).padEnd(22)} | deliverableId: ${d.deliverableId.padEnd(16)} | type: ${d.type.padEnd(18)} | reviewId: ${r.reviewId}`);
+      console.log(`  ${(g?.groupName ?? d.groupId).padEnd(22)} | deliverableId: ${d.deliverableId.padEnd(16)} | type: ${d.deliverableType.padEnd(20)} | reviewId: ${r.reviewId}`);
     }
 
     // Sprints
@@ -385,6 +433,13 @@ async function run() {
     for (const s of sprints) {
       const g = groups.find(g => g.groupId === s.groupId);
       console.log(`  ${(g?.groupName ?? s.groupId).padEnd(22)} | sprintRecordId: ${s.sprintRecordId.padEnd(16)} | sprintId: ${s.sprintId}`);
+    }
+
+    // Sprint Configs
+    console.log(`\n⏰ SPRINT CONFIGS (DEADLINES)`);
+    console.log(sep);
+    for (const c of sprintConfigs) {
+      console.log(`  ${c.sprintId.padEnd(16)} | type: ${c.deliverableType.padEnd(20)} | deadline: ${c.deadline.toISOString()}`);
     }
 
     // Tokens
