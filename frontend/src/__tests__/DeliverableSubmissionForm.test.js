@@ -13,6 +13,7 @@ jest.mock('../api/groupService', () => ({
 jest.mock('../api/deliverableService', () => ({
   getGroupDeliverables: jest.fn(),
   submitDeliverable: jest.fn(),
+  submitDeliverableStaging: jest.fn(),
 }));
 
 describe('DeliverableSubmissionForm', () => {
@@ -56,11 +57,11 @@ describe('DeliverableSubmissionForm', () => {
   it('shows submission success message after submitting a link', async () => {
     groupService.getScheduleWindow.mockResolvedValue({ open: true, window: { endsAt: '2026-04-20T00:00:00Z' } });
     groupService.getGroupDeliverables.mockResolvedValue({ deliverables: [] });
-    deliverableService.submitDeliverable.mockResolvedValue({
+    deliverableService.submitDeliverableStaging.mockResolvedValue({
+      stagingId: 'd1',
       type: 'proposal',
-      deliverableId: 'd1',
       submittedAt: '2026-04-13T00:00:00Z',
-      storageRef: 'https://example.com/proposal.pdf',
+      fileHash: 'abc123def456',
     });
 
     render(
@@ -75,15 +76,18 @@ describe('DeliverableSubmissionForm', () => {
 
     await screen.findByLabelText(/Deliverable Type/i);
 
-    const fileInput = screen.getByLabelText(/File \(PDF, Word, Markdown, ZIP\)/i);
+    const fileInput = screen.getByLabelText(/File \(PDF, DOCX, Markdown, ZIP\)/i);
+    const sprintInput = screen.getByLabelText(/Sprint ID/i);
     const file = new File(['dummy content'], 'proposal.pdf', { type: 'application/pdf' });
+    
     await userEvent.upload(fileInput, file);
+    await userEvent.type(sprintInput, 'sprint_1');
 
     fireEvent.click(screen.getByRole('button', { name: /Submit Deliverable/i }));
 
+    expect(await screen.findByText(/Deliverable staged successfully/i)).toBeInTheDocument();
     expect(await screen.findByText('d1')).toBeInTheDocument();
-    expect(screen.getByText('https://example.com/proposal.pdf')).toBeInTheDocument();
-    expect(deliverableService.submitDeliverable).toHaveBeenCalled();
+    expect(deliverableService.submitDeliverableStaging).toHaveBeenCalled();
   });
 
   it('disables submission when the schedule window is closed', async () => {
