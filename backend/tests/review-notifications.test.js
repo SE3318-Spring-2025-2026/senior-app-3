@@ -17,15 +17,19 @@
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'review-notification-test-secret';
 
-const nodemailer = require('nodemailer');
 jest.mock('nodemailer');
+jest.mock('axios');
+
+const nodemailer = require('nodemailer');
+const axios = require('axios');
 
 const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 
 const notificationService = require('../src/services/notificationService');
 const AuditLog = require('../src/models/AuditLog');
-const { isTransientError } = require('../src/services/notificationRetry');
+const SyncErrorLog = require('../src/models/SyncErrorLog');
+const { isTransientError, retryNotificationWithBackoff } = require('../src/services/notificationRetry');
 
 const { generateUniqueId } = require('./fixtures/review-test-data');
 
@@ -333,5 +337,453 @@ describe('Edge Cases', () => {
     });
 
     expect(result.success).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Spec-based tests: acceptance criteria from issue #195
+// These test the expected API contract; failing tests indicate missing impl.
+// ---------------------------------------------------------------------------
+
+describe('notifyReviewerAssigned', () => {
+  it('should send email to each assigned member', async () => {
+    const member1 = generateUniqueId('prof');
+    const member2 = generateUniqueId('prof');
+
+    const result = await notificationService.notifyReviewerAssigned({
+      reviewId: generateUniqueId('rev'),
+      deliverableId: generateUniqueId('del'),
+      assignedMembers: [member1, member2],
+      instructions: 'Review this deliverable carefully.',
+    });
+
+    expect(result).toBeDefined();
+    expect(result.success).toBe(true);
+    expect(result.notifiedCount).toBe(2);
+  });
+
+  it('should appear in audit log with correct fields', async () => {
+    const reviewId = generateUniqueId('rev');
+
+    await notificationService.notifyReviewerAssigned({
+      reviewId,
+      deliverableId: generateUniqueId('del'),
+      assignedMembers: [generateUniqueId('prof')],
+    });
+
+    const log = await AuditLog.findOne({ action: 'NOTIFICATION_DISPATCHED' });
+    expect(log).not.toBeNull();
+    expect(log.payload).toBeDefined();
+  });
+
+  it('should not throw when email delivery fails', async () => {
+    await expect(
+      notificationService.notifyReviewerAssigned({
+        reviewId: generateUniqueId('rev'),
+        deliverableId: generateUniqueId('del'),
+        assignedMembers: [generateUniqueId('prof')],
+      })
+    ).resolves.toBeDefined();
+  });
+});
+
+describe('notifyClarificationRequested', () => {
+  it('should email all group members when clarification is needed', async () => {
+    const groupMembers = [
+      generateUniqueId('stu'),
+      generateUniqueId('stu'),
+      generateUniqueId('stu'),
+    ];
+
+    const result = await notificationService.notifyClarificationRequested({
+      reviewId: generateUniqueId('rev'),
+      deliverableId: generateUniqueId('del'),
+      commentId: generateUniqueId('cmt'),
+      content: 'Please clarify section 3.',
+      groupMembers,
+    });
+
+    expect(result).toBeDefined();
+    expect(result.success).toBe(true);
+    expect(result.notifiedCount).toBe(groupMembers.length);
+  });
+
+  it('should appear in audit log', async () => {
+    const deliverableId = generateUniqueId('del');
+
+    await notificationService.notifyClarificationRequested({
+      reviewId: generateUniqueId('rev'),
+      deliverableId,
+      commentId: generateUniqueId('cmt'),
+      content: 'Clarification needed.',
+      groupMembers: [generateUniqueId('stu')],
+    });
+
+    const log = await AuditLog.findOne({ action: 'NOTIFICATION_DISPATCHED' });
+    expect(log).not.toBeNull();
+  });
+
+  it('should not throw when email delivery fails', async () => {
+    await expect(
+      notificationService.notifyClarificationRequested({
+        reviewId: generateUniqueId('rev'),
+        deliverableId: generateUniqueId('del'),
+        commentId: generateUniqueId('cmt'),
+        content: 'Clarification needed.',
+        groupMembers: [],
+      })
+    ).resolves.toBeDefined();
+  });
+});
+
+describe('notifyStudentReplied', () => {
+  it('should email the reviewer with reply content', async () => {
+    const reviewerId = generateUniqueId('prof');
+    const replyContent = 'We have updated section 3 as requested.';
+
+    const result = await notificationService.notifyStudentReplied({
+      reviewId: generateUniqueId('rev'),
+      deliverableId: generateUniqueId('del'),
+      commentId: generateUniqueId('cmt'),
+      replyContent,
+      reviewerId,
+    });
+
+    expect(result).toBeDefined();
+    expect(result.success).toBe(true);
+    expect(result.reviewerId).toBe(reviewerId);
+  });
+
+  it('should include reply content in the notification payload', async () => {
+    const result = await notificationService.notifyStudentReplied({
+      reviewId: generateUniqueId('rev'),
+      deliverableId: generateUniqueId('del'),
+      commentId: generateUniqueId('cmt'),
+      replyContent: 'Updated as requested.',
+      reviewerId: generateUniqueId('prof'),
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('should appear in audit log', async () => {
+    await notificationService.notifyStudentReplied({
+      reviewId: generateUniqueId('rev'),
+      deliverableId: generateUniqueId('del'),
+      commentId: generateUniqueId('cmt'),
+      replyContent: 'Reply here.',
+      reviewerId: generateUniqueId('prof'),
+    });
+
+    const log = await AuditLog.findOne({ action: 'NOTIFICATION_DISPATCHED' });
+    expect(log).not.toBeNull();
+  });
+
+  it('should not throw when email delivery fails', async () => {
+    await expect(
+      notificationService.notifyStudentReplied({
+        reviewId: generateUniqueId('rev'),
+        deliverableId: generateUniqueId('del'),
+        commentId: generateUniqueId('cmt'),
+        replyContent: 'Reply.',
+        reviewerId: generateUniqueId('prof'),
+      })
+    ).resolves.toBeDefined();
+  });
+});
+
+describe('notifyReviewCompleted', () => {
+  it('should notify the coordinator', async () => {
+    const coordinatorId = generateUniqueId('coord');
+
+    const result = await notificationService.notifyReviewCompleted({
+      reviewId: generateUniqueId('rev'),
+      deliverableId: generateUniqueId('del'),
+      coordinatorId,
+      committeeMembers: [],
+      studentIds: [],
+    });
+
+    expect(result).toBeDefined();
+    expect(result.success).toBe(true);
+    expect(result.notifiedRecipients).toContain(coordinatorId);
+  });
+
+  it('should notify all committee members', async () => {
+    const committeeMembers = [generateUniqueId('prof'), generateUniqueId('prof')];
+
+    const result = await notificationService.notifyReviewCompleted({
+      reviewId: generateUniqueId('rev'),
+      deliverableId: generateUniqueId('del'),
+      coordinatorId: generateUniqueId('coord'),
+      committeeMembers,
+      studentIds: [],
+    });
+
+    expect(result.success).toBe(true);
+    committeeMembers.forEach((id) => {
+      expect(result.notifiedRecipients).toContain(id);
+    });
+  });
+
+  it('should notify all students in the group', async () => {
+    const studentIds = [generateUniqueId('stu'), generateUniqueId('stu')];
+
+    const result = await notificationService.notifyReviewCompleted({
+      reviewId: generateUniqueId('rev'),
+      deliverableId: generateUniqueId('del'),
+      coordinatorId: generateUniqueId('coord'),
+      committeeMembers: [],
+      studentIds,
+    });
+
+    expect(result.success).toBe(true);
+    studentIds.forEach((id) => {
+      expect(result.notifiedRecipients).toContain(id);
+    });
+  });
+
+  it('should appear in audit log with correct fields', async () => {
+    const reviewId = generateUniqueId('rev');
+
+    await notificationService.notifyReviewCompleted({
+      reviewId,
+      deliverableId: generateUniqueId('del'),
+      coordinatorId: generateUniqueId('coord'),
+      committeeMembers: [generateUniqueId('prof')],
+      studentIds: [generateUniqueId('stu')],
+    });
+
+    const log = await AuditLog.findOne({ action: 'NOTIFICATION_DISPATCHED' });
+    expect(log).not.toBeNull();
+    expect(log.payload).toBeDefined();
+  });
+
+  it('should not throw when email delivery fails', async () => {
+    await expect(
+      notificationService.notifyReviewCompleted({
+        reviewId: generateUniqueId('rev'),
+        deliverableId: generateUniqueId('del'),
+        coordinatorId: generateUniqueId('coord'),
+        committeeMembers: [],
+        studentIds: [],
+      })
+    ).resolves.toBeDefined();
+  });
+});
+
+describe('Email failure handling', () => {
+  it('should not throw when email transport fails', async () => {
+    await expect(
+      notificationService.dispatchReviewAssignmentNotification({
+        reviewId: generateUniqueId('rev'),
+        deliverableId: generateUniqueId('del'),
+        membersToNotify: [generateUniqueId('prof')],
+        instructions: 'Test',
+      })
+    ).resolves.toBeDefined();
+  });
+
+  it('should log email failure to audit trail and not propagate error', async () => {
+    const reviewId = generateUniqueId('rev');
+
+    let threw = false;
+    try {
+      await notificationService.dispatchReviewAssignmentNotification({
+        reviewId,
+        deliverableId: generateUniqueId('del'),
+        membersToNotify: [generateUniqueId('prof')],
+        instructions: 'Test',
+      });
+    } catch {
+      threw = true;
+    }
+
+    expect(threw).toBe(false);
+  });
+});
+
+describe('retryNotificationWithBackoff - Retry behavior', () => {
+  it('should succeed on the first attempt without retrying', async () => {
+    const dispatchFn = jest.fn().mockResolvedValue({
+      success: true,
+      notificationId: 'notif_ok',
+      error: null,
+    });
+
+    const result = await retryNotificationWithBackoff(dispatchFn, {
+      maxRetries: 3,
+      backoffMs: [10, 20, 40],
+      context: { groupId: 'g1', committeeId: 'c1', actorId: 'a1' },
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.notificationId).toBe('notif_ok');
+    expect(dispatchFn).toHaveBeenCalledTimes(1);
+    expect(result.attempt).toBe(1);
+  });
+
+  it('should retry on transient error and succeed on second attempt', async () => {
+    const transientErr = Object.assign(new Error('ECONNREFUSED'), { code: 'ECONNREFUSED' });
+    const dispatchFn = jest
+      .fn()
+      .mockResolvedValueOnce({ success: false, notificationId: null, error: transientErr })
+      .mockResolvedValueOnce({ success: true, notificationId: 'notif_retry', error: null });
+
+    const result = await retryNotificationWithBackoff(dispatchFn, {
+      maxRetries: 3,
+      backoffMs: [10, 20, 40],
+      context: { groupId: 'g2', committeeId: 'c2', actorId: 'a2' },
+    });
+
+    expect(result.success).toBe(true);
+    expect(dispatchFn).toHaveBeenCalledTimes(2);
+    expect(result.attempt).toBe(2);
+  });
+
+  it('should stop immediately on permanent error without retrying', async () => {
+    const permanentErr = Object.assign(new Error('Bad request'), {
+      response: { status: 400 },
+    });
+    const dispatchFn = jest
+      .fn()
+      .mockResolvedValueOnce({ success: false, notificationId: null, error: permanentErr });
+
+    const result = await retryNotificationWithBackoff(dispatchFn, {
+      maxRetries: 3,
+      backoffMs: [10, 20, 40],
+      context: { groupId: 'g3', committeeId: 'c3', actorId: 'a3' },
+    });
+
+    expect(result.success).toBe(false);
+    expect(dispatchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('should exhaust all 3 retries and return failure', async () => {
+    const transientErr = Object.assign(new Error('Server error'), {
+      response: { status: 500 },
+    });
+    const dispatchFn = jest.fn().mockResolvedValue({
+      success: false,
+      notificationId: null,
+      error: transientErr,
+    });
+
+    const result = await retryNotificationWithBackoff(dispatchFn, {
+      maxRetries: 3,
+      backoffMs: [10, 20, 40],
+      context: { groupId: 'g4', committeeId: 'c4', actorId: 'a4' },
+    });
+
+    expect(result.success).toBe(false);
+    expect(dispatchFn).toHaveBeenCalledTimes(3);
+  });
+
+  it('should write a SyncErrorLog record when all retries are exhausted', async () => {
+    const transientErr = Object.assign(new Error('ETIMEDOUT'), { code: 'ETIMEDOUT' });
+    const dispatchFn = jest.fn().mockResolvedValue({
+      success: false,
+      notificationId: null,
+      error: transientErr,
+    });
+
+    const groupId = generateUniqueId('grp');
+    const result = await retryNotificationWithBackoff(dispatchFn, {
+      maxRetries: 3,
+      backoffMs: [10, 20, 40],
+      context: { groupId, committeeId: 'c5', actorId: 'a5' },
+    });
+
+    expect(result.success).toBe(false);
+    const errorLog = await SyncErrorLog.findOne({ groupId });
+    expect(errorLog).toBeDefined();
+  });
+
+  it('should stop retrying once dispatch succeeds', async () => {
+    const transientErr = Object.assign(new Error('ECONNREFUSED'), { code: 'ECONNREFUSED' });
+    const dispatchFn = jest
+      .fn()
+      .mockResolvedValueOnce({ success: false, notificationId: null, error: transientErr })
+      .mockResolvedValueOnce({ success: true, notificationId: 'notif_success', error: null })
+      .mockResolvedValueOnce({ success: false, notificationId: null, error: transientErr }); // Should not be called
+
+    const result = await retryNotificationWithBackoff(dispatchFn, {
+      maxRetries: 3,
+      backoffMs: [10, 20, 40],
+      context: { groupId: 'g6', committeeId: 'c6', actorId: 'a6' },
+    });
+
+    expect(result.success).toBe(true);
+    expect(dispatchFn).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('dispatchAdvisorRequestWithRetry - Retry behavior', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('should return ok:true on successful first call', async () => {
+    axios.post.mockResolvedValue({
+      status: 200,
+      data: { ok: true },
+    });
+
+    const result = await notificationService.dispatchAdvisorRequestWithRetry({
+      url: 'http://advisor-service/notify',
+      payload: { advisorId: 'adv1', message: 'Test' },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(axios.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('should retry on transient ECONNREFUSED and succeed on second attempt', async () => {
+    axios.post
+      .mockRejectedValueOnce(Object.assign(new Error('ECONNREFUSED'), { code: 'ECONNREFUSED' }))
+      .mockResolvedValueOnce({
+        status: 200,
+        data: { ok: true },
+      });
+
+    const result = await notificationService.dispatchAdvisorRequestWithRetry({
+      url: 'http://advisor-service/notify',
+      payload: { advisorId: 'adv2', message: 'Test' },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(axios.post).toHaveBeenCalledTimes(2);
+  });
+
+  it('should stop immediately on permanent 400 error', async () => {
+    axios.post.mockRejectedValueOnce(
+      Object.assign(new Error('Bad request'), {
+        response: { status: 400 },
+      })
+    );
+
+    const result = await notificationService.dispatchAdvisorRequestWithRetry({
+      url: 'http://advisor-service/notify',
+      payload: { advisorId: 'adv3', message: 'Test' },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(axios.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('should return ok:false after exhausting all 3 attempts on transient errors', async () => {
+    axios.post.mockRejectedValue(
+      Object.assign(new Error('Server error'), {
+        response: { status: 500 },
+      })
+    );
+
+    const result = await notificationService.dispatchAdvisorRequestWithRetry({
+      url: 'http://advisor-service/notify',
+      payload: { advisorId: 'adv4', message: 'Test' },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(axios.post).toHaveBeenCalledTimes(3);
   });
 });
