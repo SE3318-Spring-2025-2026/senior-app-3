@@ -137,29 +137,84 @@ exports.assignReview = async (req, res, next) => {
 
 /**
  * GET /api/v1/reviews/status
- * Get review status for a deliverable
+ * Process 6.3 — Coordinator dashboard: live overview of all reviews.
+ * Query params: status (pending|in_progress|needs_clarification|completed), page (default 1)
  */
 exports.getReviewStatus = async (req, res, next) => {
   try {
-    const { deliverableId } = req.query;
+    const { status, page = '1' } = req.query;
 
-    if (!deliverableId) {
-      return res.status(400).json({ message: 'deliverableId query parameter is required' });
+    const VALID_REVIEW_STATUSES = ['pending', 'in_progress', 'needs_clarification', 'completed'];
+
+    if (status && !VALID_REVIEW_STATUSES.includes(status)) {
+      return res.status(400).json({
+        message: `status must be one of: ${VALID_REVIEW_STATUSES.join(', ')}`,
+      });
     }
 
-    const review = await Review.findOne({ deliverableId }).lean();
-    if (!review) {
-      return res.status(404).json({ message: 'Review not found for this deliverable' });
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const PAGE_SIZE = 20;
+    const skip = (pageNum - 1) * PAGE_SIZE;
+    const filter = status ? { status } : {};
+
+    const [statusCounts, total, reviews] = await Promise.all([
+      Review.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
+      Review.countDocuments(filter),
+      Review.find(filter).sort({ createdAt: -1 }).skip(skip).limit(PAGE_SIZE).lean(),
+    ]);
+
+    const statuses = { pending: 0, in_progress: 0, needs_clarification: 0, completed: 0 };
+    for (const { _id, count } of statusCounts) {
+      if (_id in statuses) statuses[_id] = count;
     }
 
-    res.status(200).json({
-      reviewId: review.reviewId,
-      deliverableId,
-      status: review.status,
-      assignedMembers: review.assignedMembers,
-      deadline: review.deadline,
-      instructions: review.instructions,
+    if (reviews.length === 0) {
+      return res.status(200).json({ total, statuses, reviews: [] });
+    }
+
+    const deliverableIds = reviews.map((r) => r.deliverableId);
+
+    const [deliverables, commentCounts, clarificationCounts] = await Promise.all([
+      Deliverable.find({ deliverableId: { $in: deliverableIds } })
+        .select('deliverableId deliverableType sprintId')
+        .lean(),
+      Comment.aggregate([
+        { $match: { deliverableId: { $in: deliverableIds } } },
+        { $group: { _id: '$deliverableId', count: { $sum: 1 } } },
+      ]),
+      Comment.aggregate([
+        {
+          $match: {
+            deliverableId: { $in: deliverableIds },
+            needsResponse: true,
+            status: 'open',
+          },
+        },
+        { $group: { _id: '$deliverableId', count: { $sum: 1 } } },
+      ]),
+    ]);
+
+    const deliverableMap = Object.fromEntries(deliverables.map((d) => [d.deliverableId, d]));
+    const commentCountMap = Object.fromEntries(commentCounts.map((c) => [c._id, c.count]));
+    const clarificationCountMap = Object.fromEntries(
+      clarificationCounts.map((c) => [c._id, c.count])
+    );
+
+    const reviewList = reviews.map((r) => {
+      const del = deliverableMap[r.deliverableId] || {};
+      return {
+        deliverableId: r.deliverableId,
+        groupId: r.groupId,
+        deliverableType: del.deliverableType || null,
+        sprintId: del.sprintId || null,
+        reviewStatus: r.status,
+        commentCount: commentCountMap[r.deliverableId] || 0,
+        clarificationsRemaining: clarificationCountMap[r.deliverableId] || 0,
+        deadline: r.deadline,
+      };
     });
+
+    return res.status(200).json({ total, statuses, reviews: reviewList });
   } catch (error) {
     next(error);
   }

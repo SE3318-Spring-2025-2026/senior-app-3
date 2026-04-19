@@ -135,7 +135,7 @@ const updateCommentHandler = async (req, res) => {
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Failed to update comment' });
   }
 
-  // If no open needsResponse comments remain, revert Review to 'in_progress'
+  // If no open needsResponse comments remain, mark Review as 'completed'
   try {
     const openCount = await Comment.countDocuments({
       deliverableId,
@@ -143,10 +143,13 @@ const updateCommentHandler = async (req, res) => {
       needsResponse: true,
     });
     if (openCount === 0) {
-      await Review.updateOne({ deliverableId }, { $set: { status: 'in_progress' } });
+      await Review.updateOne(
+        { deliverableId, status: { $in: ['in_progress', 'needs_clarification'] } },
+        { $set: { status: 'completed' } }
+      );
     }
   } catch (err) {
-    console.warn('[updateCommentHandler] Review status revert failed:', err.message);
+    console.warn('[updateCommentHandler] Review status update failed:', err.message);
   }
 
   return res.status(200).json(formatComment(comment));
