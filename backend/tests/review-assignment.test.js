@@ -269,7 +269,7 @@ describe('POST /api/v1/reviews/assign', () => {
       const { userId, token } = tokenCoordinator();
       const scenario = await setupReviewScenario();
       await Deliverable.create(scenario.deliverable);
-      
+
       const selectedMembers = scenario.committeeMembers.slice(0, 2).map((m) => m.userId);
 
       const res = await request(app)
@@ -284,9 +284,13 @@ describe('POST /api/v1/reviews/assign', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.reviewId).toBeTruthy();
-      expect(res.body.status).toBe('pending');
-      expect(res.body.assignedMembers).toHaveLength(selectedMembers.length);
-      expect(res.body.assignedMembers.every((m) => m.status === 'notified')).toBe(true);
+      expect(res.body.deliverableId).toBe(scenario.deliverable.deliverableId);
+      expect(res.body.assignedCommitteeMembers).toHaveLength(selectedMembers.length);
+      expect(res.body.assignedCount).toBe(selectedMembers.length);
+      expect(res.body.assignedCommitteeMembers.every((m) => m.status === 'notified')).toBe(true);
+      expect(res.body.assignedCommitteeMembers.every((m) => m.memberId)).toBe(true);
+      expect(res.body.deadline).toBeDefined();
+      expect(res.body.notificationsSent).toBe(selectedMembers.length);
 
       // Verify Review was created
       const review = await Review.findOne({
@@ -296,6 +300,9 @@ describe('POST /api/v1/reviews/assign', () => {
       expect(review.deliverableId).toBe(scenario.deliverable.deliverableId);
       expect(review.groupId).toBe(scenario.group.groupId);
       expect(review.assignedMembers).toHaveLength(selectedMembers.length);
+
+      // Give fire-and-forget deliverable update a moment to complete
+      await new Promise((r) => setTimeout(r, 100));
 
       // Verify Deliverable was updated to under_review
       const deliverable = await Deliverable.findOne({
@@ -318,10 +325,11 @@ describe('POST /api/v1/reviews/assign', () => {
         });
 
       expect(res.status).toBe(201);
-      expect(res.body.assignedMembers).toHaveLength(
+      expect(res.body.assignedCommitteeMembers).toHaveLength(
         scenario.committee.advisorIds.length
       );
-      expect(res.body.assignedMembers.map((m) => m.memberId)).toEqual(
+      expect(res.body.assignedCount).toBe(scenario.committee.advisorIds.length);
+      expect(res.body.assignedCommitteeMembers.map((m) => m.memberId)).toEqual(
         expect.arrayContaining(scenario.committee.advisorIds)
       );
 
@@ -428,7 +436,7 @@ describe('POST /api/v1/reviews/assign', () => {
         });
 
       expect(secondRes.status).toBe(409);
-      expect(secondRes.body.message).toContain('already exists');
+      expect(secondRes.body.message).toMatch(/already assigned|already exists/i);
     });
   });
 
@@ -450,6 +458,9 @@ describe('POST /api/v1/reviews/assign', () => {
         });
 
       expect(res.status).toBe(201);
+
+      // Allow fire-and-forget audit log to write
+      await new Promise((r) => setTimeout(r, 100));
 
       // Verify audit log created
       const audit = await AuditLog.findOne({

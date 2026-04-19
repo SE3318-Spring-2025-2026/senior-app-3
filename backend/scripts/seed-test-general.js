@@ -308,12 +308,13 @@ async function seedDeliverables(groups, users, sprints) {
     const deliverable = await Deliverable.create({
       deliverableId:   generateId('del'),
       groupId:         group.groupId,
+      committeeId:     group.committeeId,
       deliverableType: type,
       sprintId:        sprint?.sprintId ?? null,
       submittedBy:     leader.userId,
       description:     `Sample ${type} deliverable for ${group.groupName}`,
       filePath:        `s3://deliverables/${group.groupId}/${type}_v1.pdf`,
-      fileSize:        204800, // 200 KB
+      fileSize:        204800,
       fileHash:        uuidv4().replace(/-/g, ''),
       format:          'pdf',
       status:          'accepted',
