@@ -104,6 +104,10 @@ const deliverableSchema = new mongoose.Schema(
       required: true,
       default: () => new Date(),
     },
+    notifiedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,

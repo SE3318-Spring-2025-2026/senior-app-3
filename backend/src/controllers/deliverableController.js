@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const Group = require('../models/Group');
 const Committee = require('../models/Committee');
+const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
 const DeliverableStaging = require('../models/DeliverableStaging');
 const Deliverable = require('../models/Deliverable');
@@ -12,6 +13,11 @@ const mongoose = require('mongoose');
 const { hashData } = require('../utils/fileHash');
 const { runFormatValidation, runDeadlineValidation } = require('../services/deliverableValidationService');
 const { persistDeliverableFile, createFinalRecord } = require('../services/storageService');
+const {
+  notifyCommittee,
+  notifyCoordinator,
+  notifyStudents,
+} = require('../services/deliverableNotificationService');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
@@ -628,6 +634,112 @@ const retractDeliverableHandler = async (req, res) => {
   return res.status(200).json({ deliverableId, status: 'retracted' });
 };
 
+/**
+ * POST /api/deliverables/:deliverableId/notify
+ *
+ * Process 5.6 — Queue post-submission notifications to committee, coordinator, and students.
+ *
+ * Prerequisites:
+ *   1. JWT (any authenticated role) — enforced by route middleware
+ *   2. Deliverable must exist
+ *   3. Notifications must not have been sent already (notifiedAt is null)
+ *
+ * Returns 202 immediately; notifications are dispatched asynchronously.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+const notifyDeliverableHandler = async (req, res) => {
+  const { deliverableId } = req.params;
+
+  let deliverable;
+  try {
+    deliverable = await Deliverable.findOne({ deliverableId }).lean();
+  } catch (err) {
+    console.error('[notifyDeliverableHandler] DB error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Database query failed' });
+  }
+
+  if (!deliverable) {
+    return res.status(404).json({ code: 'DELIVERABLE_NOT_FOUND', message: 'Deliverable not found' });
+  }
+
+  if (deliverable.notifiedAt) {
+    return res.status(409).json({
+      code: 'ALREADY_NOTIFIED',
+      message: 'Notifications have already been sent for this deliverable',
+    });
+  }
+
+  // Mark notifiedAt before dispatching to prevent duplicate sends on concurrent calls.
+  try {
+    await Deliverable.updateOne({ deliverableId }, { $set: { notifiedAt: new Date() } });
+  } catch (err) {
+    console.error('[notifyDeliverableHandler] notifiedAt update error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Failed to mark deliverable as notified' });
+  }
+
+  // Count expected tasks for the response (best-effort; uses cached lean reads).
+  const { groupId } = deliverable;
+  let tasksQueued = 0;
+  try {
+    const [group, coordinatorCount] = await Promise.all([
+      Group.findOne({ groupId }).select('committeeId members leaderId').lean(),
+      User.countDocuments({ role: { $in: ['coordinator', 'admin'] }, accountStatus: 'active' }),
+    ]);
+
+    if (group?.committeeId) {
+      const committee = await Committee.findOne({ committeeId: group.committeeId })
+        .select('advisorIds juryIds')
+        .lean();
+      if (committee) {
+        tasksQueued += new Set([
+          ...(committee.advisorIds || []),
+          ...(committee.juryIds || []),
+        ]).size;
+      }
+    }
+
+    tasksQueued += coordinatorCount;
+
+    const acceptedIds = (group?.members || [])
+      .filter((m) => m.status === 'accepted')
+      .map((m) => m.userId);
+    if (group?.leaderId && !acceptedIds.includes(group.leaderId)) {
+      acceptedIds.push(group.leaderId);
+    }
+    tasksQueued += acceptedIds.length;
+  } catch (err) {
+    console.error('[notifyDeliverableHandler] task count error (non-fatal):', err.message);
+  }
+
+  // Fire-and-forget — response is already sent before these complete.
+  Promise.allSettled([
+    notifyCommittee(deliverableId, groupId),
+    notifyCoordinator(deliverableId, groupId),
+    notifyStudents(deliverableId, groupId),
+  ]).catch((err) => {
+    console.error('[notifyDeliverableHandler] Async dispatch error:', err.message);
+  });
+
+  AuditLog.create({
+    action: 'DELIVERABLE_NOTIFIED',
+    actorId: req.user?.userId || 'system',
+    groupId,
+    payload: { deliverableId, tasksQueued },
+    ipAddress: req.ip || null,
+    userAgent: req.headers['user-agent'] || null,
+  }).catch((err) => {
+    console.error('[notifyDeliverableHandler] Audit log error:', err.message);
+  });
+
+  return res.status(202).json({
+    deliverableId,
+    tasksQueued,
+    estimatedDeliveryMinutes: 5,
+  });
+};
+
 module.exports = {
   validateGroup,
   submitDeliverable,
@@ -637,4 +749,5 @@ module.exports = {
   listDeliverablesHandler,
   getDeliverableHandler,
   retractDeliverableHandler,
+  notifyDeliverableHandler,
 };

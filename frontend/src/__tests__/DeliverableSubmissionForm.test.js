@@ -79,7 +79,7 @@ describe('DeliverableSubmissionForm', () => {
     const fileInput = screen.getByLabelText(/File \(PDF, DOCX, Markdown, ZIP\)/i);
     const sprintInput = screen.getByLabelText(/Sprint ID/i);
     const file = new File(['dummy content'], 'proposal.pdf', { type: 'application/pdf' });
-    
+
     await userEvent.upload(fileInput, file);
     await userEvent.type(sprintInput, 'sprint_1');
 
