@@ -1,270 +1,396 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { BrowserRouter } from 'react-router-dom';
 import '@testing-library/jest-dom';
 import ReviewManagement from '../ReviewManagement';
+import reviewService from '../../api/reviewService';
+import authStore from '../../store/authStore';
 
-/**
- * ReviewManagement Page Test Suite
- * 
- * CURRENT STATUS: Component is a placeholder
- * These tests verify the placeholder rendering while comprehensive tests
- * are ready for implementation of the full page.
- * 
- * TODO: Implement full component with:
- * - Display list of all reviews with pagination
- * - Filter reviews by status (pending, in_progress, completed)
- * - Search reviews by group name
- * - Sort by deadline, creation date, status
- * - Quick status updates from table
- * - View detailed review information
- * - Assign new reviews
- */
+jest.mock('../../api/reviewService');
+jest.mock('../../store/authStore');
 
-// Mock the reviewService API
-jest.mock('../../api/reviewService', () => ({
-  getReviewsForCoordinator: jest.fn(),
-  getReviewDetails: jest.fn(),
-  getReviewStatus: jest.fn(),
-  updateReviewStatus: jest.fn(),
-  getReviewComments: jest.fn(),
-}));
+const mockReviews = [
+  {
+    reviewId: 'r1',
+    groupName: 'Team Alpha',
+    status: 'pending',
+    deadline: '2024-02-15',
+    createdAt: '2024-02-01'
+  },
+  {
+    reviewId: 'r2',
+    groupName: 'Team Beta',
+    status: 'in_progress',
+    deadline: '2024-02-20',
+    createdAt: '2024-02-05'
+  },
+  {
+    reviewId: 'r3',
+    groupName: 'Team Gamma',
+    status: 'completed',
+    deadline: '2024-02-10',
+    createdAt: '2024-01-30'
+  }
+];
 
-describe('ReviewManagement Page - Placeholder Tests', () => {
-  let reviewService;
+const mockStats = {
+  pending: 5,
+  in_progress: 3,
+  needs_clarification: 2,
+  completed: 10
+};
 
+function renderWithRouter(component) {
+  return render(<BrowserRouter>{component}</BrowserRouter>);
+}
+
+describe('ReviewManagement', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    reviewService = require('../../api/reviewService');
-  });
-
-  describe('Placeholder Rendering', () => {
-    test('renders the page', () => {
-      render(<ReviewManagement />);
-      expect(screen.getByText(/Placeholder - Implementation in progress/i)).toBeInTheDocument();
+    authStore.getState.mockReturnValue({
+      user: { username: 'coord1', role: 'coordinator' }
     });
-
-    test('renders with correct title', () => {
-      render(<ReviewManagement />);
-      expect(screen.getByText(/Review Management/i)).toBeInTheDocument();
+    reviewService.getReviewsForCoordinator.mockResolvedValue({
+      data: mockReviews,
+      total: mockReviews.length
     });
-
-    test('renders with correct CSS class', () => {
-      const { container } = render(<ReviewManagement />);
-      expect(container.querySelector('.review-management-page')).toBeInTheDocument();
+    reviewService.getReviewStatus.mockResolvedValue({
+      data: mockStats
     });
   });
 
-  describe('Page Layout - Ready for Implementation', () => {
-    test('renders page title', () => {
-      render(<ReviewManagement />);
-      expect(screen.getByText(/Review Management/i)).toBeInTheDocument();
-    });
+  describe('Page Layout', () => {
+    test('renders page title', async () => {
+      renderWithRouter(<ReviewManagement />);
 
-    test('renders stat cards with review counts (when implemented)', () => {
-      render(<ReviewManagement />);
-      
-      // When implemented: Should display stat cards
-      // Total reviews, Pending, In Progress, Completed
-      const statCards = [
-        screen.queryByText(/total|pending|in progress|completed/i),
-        screen.queryByText(/[0-9]+/) // Stats have numbers
-      ];
-      
-      statCards.forEach(card => {
-        if (card) {
-          expect(card).toBeInTheDocument();
-        }
+      await waitFor(() => {
+        expect(screen.getByText('Review Management')).toBeInTheDocument();
       });
     });
 
-    test('renders review list table with required columns (when implemented)', () => {
-      render(<ReviewManagement />);
-      
-      // When implemented: Table should have these columns
-      const expectedColumns = [
-        'group|team', 
-        'status',
-        'deadline|due', 
-        'created|date',
-        'actions'
-      ];
-      
-      expectedColumns.forEach(column => {
-        const header = screen.queryByText(new RegExp(column, 'i'));
-        if (header) {
-          expect(header).toBeInTheDocument();
-        }
+    test('renders stat cards section with all status labels', async () => {
+      renderWithRouter(<ReviewManagement />);
+
+      await waitFor(() => {
+        const statHeaders = screen.getAllByText(/Pending|In Progress|Needs Clarification|Completed/);
+        expect(statHeaders.length).toBeGreaterThanOrEqual(4);
+      });
+    });
+
+    test('renders review list table', async () => {
+      renderWithRouter(<ReviewManagement />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('review-list')).toBeInTheDocument();
+      });
+    });
+
+    test('renders pagination controls', async () => {
+      renderWithRouter(<ReviewManagement />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('prev-page')).toBeInTheDocument();
+        expect(screen.getByTestId('next-page')).toBeInTheDocument();
+        expect(screen.getByTestId('page-info')).toBeInTheDocument();
       });
     });
   });
 
-  describe('Filter Dropdown - Ready for Implementation', () => {
-    test('renders filter controls (when implemented)', () => {
-      render(<ReviewManagement />);
-      
-      // When implemented: Should have filter dropdown/buttons
-      const filterControls = screen.queryByLabelText(/filter|status/i) ||
-                            screen.queryByText(/filter|pending|completed/i);
-      if (filterControls) {
-        expect(filterControls).toBeInTheDocument();
-      }
+  describe('Stat Cards', () => {
+    test('stat cards render with actual counts from mocked GET /reviews/status', async () => {
+      renderWithRouter(<ReviewManagement />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('stat-pending')).toHaveTextContent('5');
+        expect(screen.getByTestId('stat-in-progress')).toHaveTextContent('3');
+        expect(screen.getByTestId('stat-clarification')).toHaveTextContent('2');
+        expect(screen.getByTestId('stat-completed')).toHaveTextContent('10');
+      });
     });
 
-    test('filter dropdown allows status selection (when implemented)', async () => {
+    test('stat services are called on mount', async () => {
+      renderWithRouter(<ReviewManagement />);
+
+      await waitFor(() => {
+        expect(reviewService.getReviewStatus).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('Review List - Table Columns', () => {
+    test('review list shows correct columns with headers', async () => {
+      renderWithRouter(<ReviewManagement />);
+
+      await waitFor(() => {
+        const table = screen.getByTestId('review-list');
+        const headers = within(table).getAllByRole('columnheader');
+
+        // Should have 5 columns: Group Name, Status, Deadline, Created, Actions
+        expect(headers.length).toBe(5);
+        expect(headers[0]).toHaveTextContent(/Group Name/i);
+        expect(headers[1]).toHaveTextContent(/Status/i);
+        expect(headers[2]).toHaveTextContent(/Deadline/i);
+        expect(headers[3]).toHaveTextContent(/Created/i);
+        expect(headers[4]).toHaveTextContent(/Actions/i);
+      });
+    });
+
+    test('review list displays real data rows', async () => {
+      renderWithRouter(<ReviewManagement />);
+
+      await waitFor(() => {
+        // Check all reviews are displayed
+        expect(screen.getByText('Team Alpha')).toBeInTheDocument();
+        expect(screen.getByText('Team Beta')).toBeInTheDocument();
+        expect(screen.getByText('Team Gamma')).toBeInTheDocument();
+      });
+    });
+
+    test('review list shows status for each row', async () => {
+      renderWithRouter(<ReviewManagement />);
+
+      await waitFor(() => {
+        // Status values should be visible
+        expect(screen.getByText('pending')).toBeInTheDocument();
+        expect(screen.getByText('in_progress')).toBeInTheDocument();
+        expect(screen.getByText('completed')).toBeInTheDocument();
+      });
+    });
+
+    test('review list shows deadline and creation date', async () => {
+      renderWithRouter(<ReviewManagement />);
+
+      await waitFor(() => {
+        expect(screen.getByText('2024-02-15')).toBeInTheDocument(); // deadline
+        expect(screen.getByText('2024-02-01')).toBeInTheDocument(); // created
+      });
+    });
+  });
+
+  describe('Filter Dropdown', () => {
+    test('filter dropdown exists and renders options', async () => {
+      renderWithRouter(<ReviewManagement />);
+
+      await waitFor(() => {
+        const filterDropdown = screen.getByTestId('filter-dropdown');
+        expect(filterDropdown).toBeInTheDocument();
+
+        const options = within(filterDropdown).getAllByRole('option');
+        expect(options.length).toBe(5); // All Reviews + 4 statuses
+      });
+    });
+
+    test('filter dropdown has all status values as options', async () => {
+      renderWithRouter(<ReviewManagement />);
+
+      await waitFor(() => {
+        const filterDropdown = screen.getByTestId('filter-dropdown');
+        expect(within(filterDropdown).getByRole('option', { name: /All Reviews/i })).toBeInTheDocument();
+        expect(within(filterDropdown).getByRole('option', { name: /Pending/i })).toBeInTheDocument();
+        expect(within(filterDropdown).getByRole('option', { name: /In Progress/i })).toBeInTheDocument();
+        expect(within(filterDropdown).getByRole('option', { name: /Needs Clarification/i })).toBeInTheDocument();
+        expect(within(filterDropdown).getByRole('option', { name: /Completed/i })).toBeInTheDocument();
+      });
+    });
+
+    test('changing filter dropdown calls API with correct status parameter', async () => {
       const user = userEvent.setup();
+      reviewService.getReviewsForCoordinator.mockClear();
       reviewService.getReviewsForCoordinator.mockResolvedValue({
-        data: [],
-        total: 0
-      });
-      
-      render(<ReviewManagement />);
-      
-      // When implemented: Test filter interactions
-      const filterDropdown = screen.queryByLabelText(/status|filter/i);
-      if (filterDropdown) {
-        await user.click(filterDropdown);
-        
-        // Should show status options
-        const statusOption = screen.queryByRole('option', { name: /pending|completed|progress/i });
-        if (statusOption) {
-          expect(statusOption).toBeInTheDocument();
-        }
-      }
-    });
-  });
-
-  describe('Authorization - Ready for Implementation', () => {
-    test('non-coordinator user is redirected (when implemented)', () => {
-      render(<ReviewManagement />);
-      
-      // When implemented with role check:
-      // Non-coordinators should be redirected
-      // This would typically happen in a route guard
-      // For now, just verify page renders
-      expect(screen.getByText(/Review Management/i)).toBeInTheDocument();
-    });
-  });
-
-  describe('Data Display - Ready for Implementation', () => {
-    test('displays review list when data loads (when implemented)', async () => {
-      reviewService.getReviewsForCoordinator.mockResolvedValue({
-        data: [
-          {
-            reviewId: 'review-1',
-            groupName: 'Team A',
-            status: 'pending',
-            deadline: '2024-02-15'
-          }
-        ],
+        data: [mockReviews[0]],
         total: 1
       });
-      
-      render(<ReviewManagement />);
-      
-      // When implemented: Should display the reviews
+
+      renderWithRouter(<ReviewManagement />);
+
       await waitFor(() => {
-        const teamName = screen.queryByText(/Team|review/i);
-        if (teamName) {
-          expect(teamName).toBeInTheDocument();
-        }
+        expect(screen.getByTestId('filter-dropdown')).toBeInTheDocument();
+      });
+
+      // Change filter
+      const filterDropdown = screen.getByTestId('filter-dropdown');
+      await user.selectOptions(filterDropdown, 'pending');
+
+      // Should call API with filter
+      await waitFor(() => {
+        expect(reviewService.getReviewsForCoordinator).toHaveBeenCalledWith(
+          expect.objectContaining({
+            status: 'pending'
+          })
+        );
       });
     });
 
-    test('stat cards show correct review counts (when implemented)', async () => {
-      reviewService.getReviewsForCoordinator.mockResolvedValue({
-        data: [
-          { reviewId: '1', status: 'pending', groupName: 'Team A', deadline: '2024-02-15' },
-          { reviewId: '2', status: 'pending', groupName: 'Team B', deadline: '2024-02-16' },
-          { reviewId: '3', status: 'completed', groupName: 'Team C', deadline: '2024-02-01' }
-        ],
-        total: 3,
-        statCounts: {
-          total: 3,
-          pending: 2,
-          inProgress: 0,
-          completed: 1
-        }
-      });
-      
-      render(<ReviewManagement />);
-      
-      // When implemented: Stat cards should show these counts
+    test('filter dropdown resets pagination to page 1', async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<ReviewManagement />);
+
       await waitFor(() => {
-        const countDisplay = screen.queryByText(/3|2|0|1/); // One of the counts
-        if (countDisplay) {
-          expect(countDisplay).toBeInTheDocument();
-        }
+        expect(screen.getByTestId('filter-dropdown')).toBeInTheDocument();
+      });
+
+      // Change filter
+      const filterDropdown = screen.getByTestId('filter-dropdown');
+      await user.selectOptions(filterDropdown, 'pending');
+
+      // Should be on page 1
+      await waitFor(() => {
+        expect(screen.getByTestId('page-info')).toHaveTextContent('Page 1');
       });
     });
   });
 
-  describe('Loading States - Ready for Implementation', () => {
-    test('shows loading indicator while fetching reviews', async () => {
+  describe('Pagination', () => {
+    test('pagination calls API with correct page parameter when next clicked', async () => {
+      const user = userEvent.setup();
+      reviewService.getReviewsForCoordinator.mockResolvedValueOnce({
+        data: mockReviews,
+        total: 25 // Enough for multiple pages
+      }).mockResolvedValueOnce({
+        data: mockReviews,
+        total: 25
+      });
+
+      renderWithRouter(<ReviewManagement />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Team Alpha')).toBeInTheDocument();
+      });
+
+      // Click next
+      const nextBtn = screen.getByTestId('next-page');
+      if (!nextBtn.disabled) {
+        await user.click(nextBtn);
+
+        await waitFor(() => {
+          expect(reviewService.getReviewsForCoordinator).toHaveBeenCalledWith(
+            expect.objectContaining({
+              page: 2
+            })
+          );
+        });
+      }
+    });
+
+    test('next page button disabled when on only page', async () => {
+      renderWithRouter(<ReviewManagement />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Team Alpha')).toBeInTheDocument();
+      });
+
+      const nextBtn = screen.getByTestId('next-page');
+      // Only 3 items total, 10 per page = 1 page only
+      expect(nextBtn).toBeDisabled();
+    });
+
+    test('previous page button disabled on first page', async () => {
+      renderWithRouter(<ReviewManagement />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Team Alpha')).toBeInTheDocument();
+      });
+
+      const prevBtn = screen.getByTestId('prev-page');
+      expect(prevBtn).toBeDisabled();
+    });
+
+    test('page info shows current page and total pages', async () => {
+      renderWithRouter(<ReviewManagement />);
+
+      await waitFor(() => {
+        const pageInfo = screen.getByTestId('page-info');
+        expect(pageInfo).toHaveTextContent('Page');
+        expect(pageInfo).toHaveTextContent('1');
+      });
+    });
+  });
+
+  describe('Loading States', () => {
+    test('shows loading indicator on initial load', async () => {
       reviewService.getReviewsForCoordinator.mockImplementation(
-        () => new Promise(resolve => setTimeout(() => resolve({ data: [], total: 0 }), 200))
+        () => new Promise(resolve => setTimeout(() => resolve({ data: mockReviews, total: 3 }), 500))
       );
-      
-      render(<ReviewManagement />);
-      
-      // When implemented: Loading indicator should show
-      const loadingIndicator = screen.queryByRole('progressbar') ||
-                              screen.queryByText(/loading|fetching/i);
-      if (loadingIndicator) {
-        expect(loadingIndicator).toBeInTheDocument();
-      }
+
+      renderWithRouter(<ReviewManagement />);
+
+      // Should show loading while fetching
+      expect(screen.getByRole('status')).toHaveTextContent(/Loading/i);
     });
 
-    test('hides loading and shows content after loading (when implemented)', async () => {
-      reviewService.getReviewsForCoordinator.mockResolvedValue({
-        data: [{ reviewId: '1', groupName: 'Team A', status: 'pending', deadline: '2024-02-15' }],
-        total: 1
-      });
-      
-      render(<ReviewManagement />);
-      
-      // When implemented: Loading should disappear and content shows
+    test('hides loading and shows content after loading completes', async () => {
+      renderWithRouter(<ReviewManagement />);
+
+      // Wait for content to appear
       await waitFor(() => {
-        const content = screen.queryByText(/Team|review/i);
-        if (content) {
-          expect(content).toBeInTheDocument();
-        }
-        
-        const loading = screen.queryByText(/loading/i);
+        expect(screen.getByText('Team Alpha')).toBeInTheDocument();
+      });
+
+      // Loading should be gone or hidden
+      await waitFor(() => {
+        const loading = screen.queryByRole('status', { hidden: false });
         if (loading) {
-          expect(loading).not.toBeInTheDocument();
+          expect(loading).not.toHaveTextContent(/Loading/i);
         }
       });
     });
   });
 
-  describe('TODO - Full Implementation Tests', () => {
-    /**
-     * COMPREHENSIVE TEST SUITE FOR FULL IMPLEMENTATION
-     * 
-     * These tests will be enabled once the component has full implementation
-     * including: reviews list, filtering, pagination, sorting, search, and
-     * API integration.
-     * 
-     * Test categories ready:
-     * - Rendering (9 tests): Title, table columns, review list, filters, search, buttons, status badges
-     * - Filtering (6 tests): Status filters, search, combined filters
-     * - Pagination (7 tests): Page controls, navigation, button states
-     * - Row Actions (2 tests): View details, status updates
-     * - API Integration (6 tests): API calls, params, refetch on filter, pagination reset
-     * - Loading States (2 tests): Loading skeleton, loading on page change
-     * - Error Handling (8 tests): API errors, network errors, auth errors, retry, empty states
-     * - Sorting (2 tests): Sort order, toggle sort
-     * - Accessibility (4 tests): Semantic HTML, table structure, ARIA labels, status badges
-     * - Integration (1 test): Complete filter/search/paginate workflow
-     * 
-     * TOTAL: 65+ comprehensive tests ready in git history or can be restored from
-     * the original comprehensive test file before placeholder conversion
-     */
+  describe('Row Actions', () => {
+    test('each row has an update button', async () => {
+      renderWithRouter(<ReviewManagement />);
 
-    test.skip('Component implementation in progress - comprehensive tests will be enabled', () => {
-      // Tests are prepared and will be enabled when full component is implemented
-      expect(true).toBe(true);
+      await waitFor(() => {
+        const updateButtons = screen.getAllByTestId(/^update-status-/);
+        expect(updateButtons.length).toBe(3); // One for each review
+      });
+    });
+
+    test('update button calls status change API', async () => {
+      const user = userEvent.setup();
+      reviewService.updateReviewStatus.mockResolvedValue({ success: true });
+
+      renderWithRouter(<ReviewManagement />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Team Alpha')).toBeInTheDocument();
+      });
+
+      // Click update button for first review
+      const updateBtn = screen.getByTestId('update-status-r1');
+      await user.click(updateBtn);
+
+      // Should call updateReviewStatus
+      await waitFor(() => {
+        expect(reviewService.updateReviewStatus).toHaveBeenCalledWith(
+          'r1',
+          expect.objectContaining({ status: 'completed' })
+        );
+      });
+    });
+  });
+
+  describe('Integration', () => {
+    test('complete workflow: renders stat cards, review list with data, and pagination', async () => {
+      renderWithRouter(<ReviewManagement />);
+
+      // 1. Should load and display stat counts
+      await waitFor(() => {
+        expect(screen.getByTestId('stat-pending')).toHaveTextContent('5');
+        expect(screen.getByTestId('stat-completed')).toHaveTextContent('10');
+      });
+
+      // 2. Should display review data
+      expect(screen.getByText('Team Alpha')).toBeInTheDocument();
+      expect(screen.getByText('Team Beta')).toBeInTheDocument();
+
+      // 3. Should have pagination controls
+      expect(screen.getByTestId('prev-page')).toBeInTheDocument();
+      expect(screen.getByTestId('next-page')).toBeInTheDocument();
+
+      // 4. Should have filter dropdown
+      expect(screen.getByTestId('filter-dropdown')).toBeInTheDocument();
     });
   });
 });

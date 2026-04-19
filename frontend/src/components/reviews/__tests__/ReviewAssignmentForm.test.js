@@ -3,292 +3,300 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 import ReviewAssignmentForm from '../ReviewAssignmentForm';
+import reviewService from '../../../api/reviewService';
 
-/**
- * ReviewAssignmentForm Test Suite
- * 
- * CURRENT STATUS: Component is a placeholder
- * These tests verify the placeholder rendering while comprehensive tests
- * are ready for implementation of the full form.
- * 
- * TODO: Implement full component with:
- * - Committee member selection (checkboxes)
- * - Review deadline picker
- * - Instructions textarea
- * - Form validation
- * - API integration with reviewService
- */
+jest.mock('../../../api/reviewService');
 
-// Mock API services
-jest.mock('../../../api/reviewService', () => ({
-  assignReview: jest.fn(),
-  getReviewStatus: jest.fn(),
-}));
-
-
-describe('ReviewAssignmentForm Component - Placeholder Tests', () => {
-  let reviewService;
-
+describe('ReviewAssignmentForm', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    reviewService = require('../../../api/reviewService');
   });
 
-  describe('Placeholder Rendering', () => {
-    test('renders the component', () => {
-      render(<ReviewAssignmentForm />);
-      expect(screen.getByText(/Placeholder - Implementation in progress/i)).toBeInTheDocument();
+  describe('Form Rendering', () => {
+    test('renders the form with title', () => {
+      render(<ReviewAssignmentForm deliverableId="d1" />);
+      expect(screen.getByRole('heading', { name: /Assign Review/i })).toBeInTheDocument();
     });
 
-    test('renders with correct title', () => {
-      render(<ReviewAssignmentForm />);
-      expect(screen.getByText(/Assign Review/i)).toBeInTheDocument();
+    test('renders review deadline input field', () => {
+      render(<ReviewAssignmentForm deliverableId="d1" />);
+      expect(screen.getByLabelText(/Review Deadline/i)).toBeInTheDocument();
     });
 
-    test('renders with correct CSS class', () => {
-      const { container } = render(<ReviewAssignmentForm />);
-      expect(container.querySelector('.review-assignment-form')).toBeInTheDocument();
-    });
-  });
-
-  describe('Form Field Rendering - Ready for Implementation', () => {
-    test('renders form title', () => {
-      render(<ReviewAssignmentForm />);
-      expect(screen.getByText(/Assign Review/i)).toBeInTheDocument();
+    test('renders committee member selection checkboxes', () => {
+      render(<ReviewAssignmentForm deliverableId="d1" />);
+      expect(screen.getByTestId('committee-member-member-1')).toBeInTheDocument();
+      expect(screen.getByTestId('committee-member-member-2')).toBeInTheDocument();
+      expect(screen.getByTestId('committee-member-member-3')).toBeInTheDocument();
     });
 
-    test('renders committee members selection (when implemented)', () => {
-      render(<ReviewAssignmentForm />);
-      // When implemented, should have: select label, checkboxes for members
-      const output = screen.queryByLabelText(/select.*reviewers?/i) || 
-                     screen.queryByLabelText(/committee.*members?/i);
-      // Will exist once implementation is done
-      if (output) {
-        expect(output).toBeInTheDocument();
-      }
+    test('renders instructions textarea', () => {
+      render(<ReviewAssignmentForm deliverableId="d1" />);
+      expect(screen.getByLabelText(/Instructions/i)).toBeInTheDocument();
     });
 
-    test('renders deadline date picker field (when implemented)', () => {
-      render(<ReviewAssignmentForm />);
-      // When implemented, should have: deadline label and date input
-      const output = screen.queryByLabelText(/deadline|due date/i);
-      if (output) {
-        expect(output).toBeInTheDocument();
-      }
-    });
-
-    test('renders instructions textarea (when implemented)', () => {
-      render(<ReviewAssignmentForm />);
-      // When implemented, should have: instructions label and textarea
-      const output = screen.queryByLabelText(/instructions|notes/i);
-      if (output) {
-        expect(output).toBeInTheDocument();
-      }
-    });
-
-    test('renders submit button (when implemented)', () => {
-      render(<ReviewAssignmentForm />);
-      // When implemented, should have: submit button
-      const output = screen.queryByRole('button', { name: /assign|submit/i });
-      if (output) {
-        expect(output).toBeInTheDocument();
-      }
+    test('renders submit button', () => {
+      render(<ReviewAssignmentForm deliverableId="d1" />);
+      expect(screen.getByTestId('submit-button')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Assign Review/i })).toBeInTheDocument();
     });
   });
 
-  describe('Form Validation - Ready for Implementation', () => {
-    test('reviewDeadlineDays is required', async () => {
+  describe('Form Validation', () => {
+    test('reviewDeadlineDays is required - cannot submit with empty deadline', async () => {
       const user = userEvent.setup();
-      render(<ReviewAssignmentForm />);
-      
-      // When implemented: Try to submit without deadline
-      const submitBtn = screen.queryByRole('button', { name: /assign|submit/i });
-      if (submitBtn) {
-        await user.click(submitBtn);
-        
-        // Should show error message about deadline
-        await waitFor(() => {
-          expect(
-            screen.queryByText(/deadline.*required|required.*deadline/i) ||
-            screen.queryByText(/please.*deadline|deadline.*required/i)
-          ).toBeInTheDocument();
-        });
-      }
+      render(<ReviewAssignmentForm deliverableId="d1" />);
+
+      // Leave deadline empty and try to submit
+      const submitBtn = screen.getByTestId('submit-button');
+      await user.click(submitBtn);
+
+      // Should see error message
+      await waitFor(() => {
+        expect(screen.getByText(/Review deadline is required/i)).toBeInTheDocument();
+      });
+
+      // Service should not be called
+      expect(reviewService.assignReview).not.toHaveBeenCalled();
     });
 
     test('selectedCommitteeMembers must have at least one selection', async () => {
       const user = userEvent.setup();
-      render(<ReviewAssignmentForm />);
-      
-      // When implemented: Try to submit without selecting reviewers
-      const submitBtn = screen.queryByRole('button', { name: /assign|submit/i });
-      if (submitBtn) {
-        await user.click(submitBtn);
-        
-        // Should show error about reviewers
-        await waitFor(() => {
-          expect(
-            screen.queryByText(/select.*reviewer|reviewer.*required|please choose/i)
-          ).toBeInTheDocument();
-        });
-      }
+      render(<ReviewAssignmentForm deliverableId="d1" />);
+
+      // Fill deadline
+      const deadlineInput = screen.getByTestId('deadline-input');
+      await user.type(deadlineInput, '7');
+
+      // Try to submit without selecting committee members
+      const submitBtn = screen.getByTestId('submit-button');
+      await user.click(submitBtn);
+
+      // Should see error message
+      await waitFor(() => {
+        expect(screen.getByText(/At least one committee member must be selected/i)).toBeInTheDocument();
+      });
+
+      expect(reviewService.assignReview).not.toHaveBeenCalled();
     });
   });
 
-  describe('Multi-Select Functionality - Ready for Implementation', () => {
-    test('selectedCommitteeMembers allows multiple selections', async () => {
+  describe('Multi-Select Functionality', () => {
+    test('selecting and deselecting committee members updates form state', async () => {
       const user = userEvent.setup();
-      render(<ReviewAssignmentForm />);
-      
-      // When implemented: Test multi-select behavior
-      const checkboxes = screen.queryAllByRole('checkbox');
-      if (checkboxes && checkboxes.length > 0) {
-        await user.click(checkboxes[0]);
-        expect(checkboxes[0]).toBeChecked();
-        
-        if (checkboxes.length > 1) {
-          await user.click(checkboxes[1]);
-          expect(checkboxes[1]).toBeChecked();
-          expect(checkboxes[0]).toBeChecked(); // Still checked
-        }
-      }
+      render(<ReviewAssignmentForm deliverableId="d1" />);
+
+      const checkbox1 = screen.getByTestId('committee-member-member-1');
+      const checkbox2 = screen.getByTestId('committee-member-member-2');
+
+      // Select first member
+      await user.click(checkbox1);
+      expect(checkbox1).toBeChecked();
+
+      // Select second member
+      await user.click(checkbox2);
+      expect(checkbox2).toBeChecked();
+
+      // Deselect first member
+      await user.click(checkbox1);
+      expect(checkbox1).not.toBeChecked();
+      expect(checkbox2).toBeChecked();
     });
   });
 
-  describe('API Integration - Ready for Implementation', () => {
-    test('Submit calls POST /reviews/assign with correct body structure', async () => {
+  describe('API Integration - Submit', () => {
+    test('submit calls POST /reviews/assign with correct body including reviewDeadlineDays', async () => {
       const user = userEvent.setup();
-      reviewService.assignReview.mockResolvedValue({
-        reviewId: 'review-123',
-        status: 'pending'
+      reviewService.assignReview.mockResolvedValue({ success: true });
+
+      render(<ReviewAssignmentForm deliverableId="d1" />);
+
+      // Fill form
+      await user.type(screen.getByTestId('deadline-input'), '7');
+      await user.type(screen.getByTestId('instructions-input'), 'Review thoroughly');
+      await user.click(screen.getByTestId('committee-member-member-1'));
+      await user.click(screen.getByTestId('committee-member-member-2'));
+
+      // Submit
+      await user.click(screen.getByTestId('submit-button'));
+
+      await waitFor(() => {
+        expect(reviewService.assignReview).toHaveBeenCalledWith(
+          expect.objectContaining({
+            deliverableId: 'd1',
+            reviewDeadlineDays: 7,
+            selectedCommitteeMembers: ['member-1', 'member-2'],
+            instructions: 'Review thoroughly'
+          })
+        );
       });
-      
-      render(<ReviewAssignmentForm />);
-      
-      // When implemented: Fill form and submit
-      const submitBtn = screen.queryByRole('button', { name: /assign|submit/i });
-      if (submitBtn && reviewService.assignReview) {
-        // Verify mock is set up for testing
-        expect(reviewService.assignReview).toBeDefined();
-      }
     });
 
-    test('Success shows confirmation with review details', async () => {
-      reviewService.assignReview.mockResolvedValue({
-        reviewId: 'review-123',
-        deliverableId: 'deliv-456',
-        status: 'pending',
-        deadline: '2024-02-15'
+    test('success response shows confirmation message', async () => {
+      const user = userEvent.setup();
+      reviewService.assignReview.mockResolvedValue({ success: true });
+
+      render(<ReviewAssignmentForm deliverableId="d1" />);
+
+      // Fill and submit
+      await user.type(screen.getByTestId('deadline-input'), '5');
+      await user.click(screen.getByTestId('committee-member-member-1'));
+      await user.click(screen.getByTestId('submit-button'));
+
+      // Should show success message
+      await waitFor(() => {
+        expect(screen.getByText(/Review assignment created successfully/i)).toBeInTheDocument();
       });
-      
-      render(<ReviewAssignmentForm />);
-      
-      // When implemented: After successful submission
-      // Should show success message with review ID
-      const successMsg = screen.queryByText(/success|assigned|confirmed/i);
-      if (successMsg) {
-        expect(successMsg).toBeInTheDocument();
-      }
     });
 
-    test('API error displays message with code field info', async () => {
+    test('success response calls onSuccess callback', async () => {
       const user = userEvent.setup();
+      const onSuccess = jest.fn();
+      reviewService.assignReview.mockResolvedValue({ success: true });
+
+      render(<ReviewAssignmentForm deliverableId="d1" onSuccess={onSuccess} />);
+
+      // Fill and submit
+      await user.type(screen.getByTestId('deadline-input'), '5');
+      await user.click(screen.getByTestId('committee-member-member-1'));
+      await user.click(screen.getByTestId('submit-button'));
+
+      // onSuccess should be called
+      await waitFor(() => {
+        expect(onSuccess).toHaveBeenCalled();
+      });
+    });
+
+    test('form resets after successful submission', async () => {
+      const user = userEvent.setup();
+      reviewService.assignReview.mockResolvedValue({ success: true });
+
+      render(<ReviewAssignmentForm deliverableId="d1" />);
+
+      // Fill form
+      const deadlineInput = screen.getByTestId('deadline-input');
+      const checkbox = screen.getByTestId('committee-member-member-1');
+      const instructionsInput = screen.getByTestId('instructions-input');
+
+      await user.type(deadlineInput, '5');
+      await user.click(checkbox);
+      await user.type(instructionsInput, 'Test instructions');
+
+      // Submit
+      await user.click(screen.getByTestId('submit-button'));
+
+      // Wait for success
+      await waitFor(() => {
+        expect(screen.getByText(/Review assignment created successfully/i)).toBeInTheDocument();
+      });
+
+      // Check form was reset
+      expect(deadlineInput).toHaveValue(null);
+      expect(checkbox).not.toBeChecked();
+      expect(instructionsInput).toHaveValue('');
+    });
+  });
+
+  describe('Error Handling', () => {
+    test('API error shows error message with code field', async () => {
+      const user = userEvent.setup();
+      const errorCode = 'DUPLICATE_ASSIGNMENT';
       reviewService.assignReview.mockRejectedValue({
         response: {
-          status: 409,
-          data: { 
-            message: 'Review already exists',
-            code: 'REVIEW_EXISTS'
+          data: {
+            code: errorCode
           }
         }
       });
-      
-      render(<ReviewAssignmentForm />);
-      
-      // When implemented: Try to submit
-      const submitBtn = screen.queryByRole('button', { name: /assign|submit/i });
-      if (submitBtn) {
-        await user.click(submitBtn);
-        
-        // Should display error with code information
-        await waitFor(() => {
-          const errorMsg = screen.queryByText(/error|already exists|failed/i);
-          if (errorMsg) {
-            expect(errorMsg).toBeInTheDocument();
-          }
-        });
-      }
+
+      render(<ReviewAssignmentForm deliverableId="d1" />);
+
+      // Fill and submit
+      await user.type(screen.getByTestId('deadline-input'), '5');
+      await user.click(screen.getByTestId('committee-member-member-1'));
+      await user.click(screen.getByTestId('submit-button'));
+
+      // Should show error message with code
+      await waitFor(() => {
+        expect(screen.getByText(new RegExp(errorCode))).toBeInTheDocument();
+      });
+    });
+
+    test('generic error message shown when code field missing', async () => {
+      const user = userEvent.setup();
+      reviewService.assignReview.mockRejectedValue(new Error('Network error'));
+
+      render(<ReviewAssignmentForm deliverableId="d1" />);
+
+      // Fill and submit
+      await user.type(screen.getByTestId('deadline-input'), '5');
+      await user.click(screen.getByTestId('committee-member-member-1'));
+      await user.click(screen.getByTestId('submit-button'));
+
+      // Should show error message
+      await waitFor(() => {
+        expect(screen.getByText(/Network error/i)).toBeInTheDocument();
+      });
     });
   });
 
-  describe('Loading States - Ready for Implementation', () => {
-    test('Shows loading indicator while submitting', async () => {
+  describe('Loading States', () => {
+    test('loading indicator visible during API call', async () => {
       const user = userEvent.setup();
       reviewService.assignReview.mockImplementation(
-        () => new Promise(resolve => setTimeout(() => resolve({ reviewId: 'test' }), 200))
+        () => new Promise(resolve => setTimeout(() => resolve({ success: true }), 100))
       );
-      
-      render(<ReviewAssignmentForm />);
-      
-      // When implemented: Triggers loading state during submission
-      const submitBtn = screen.queryByRole('button', { name: /assign|submit/i });
-      if (submitBtn) {
-        // Loading indicator should be present during API call
-        const loadingIndicator = screen.queryByRole('progressbar') || 
-                                  screen.queryByText(/loading|submitting/i);
-        if (loadingIndicator) {
-          expect(loadingIndicator).toBeInTheDocument();
-        }
-      }
+
+      render(<ReviewAssignmentForm deliverableId="d1" />);
+
+      // Fill and submit
+      await user.type(screen.getByTestId('deadline-input'), '5');
+      await user.click(screen.getByTestId('committee-member-member-1'));
+      await user.click(screen.getByTestId('submit-button'));
+
+      // Loading indicator should show
+      expect(screen.getByText(/Loading/i)).toBeInTheDocument();
     });
 
-    test('Submit button text changes during loading', async () => {
+    test('submit button disabled during loading', async () => {
       const user = userEvent.setup();
       reviewService.assignReview.mockImplementation(
-        () => new Promise(resolve => setTimeout(() => resolve({ reviewId: 'test' }), 200))
+        () => new Promise(resolve => setTimeout(() => resolve({ success: true }), 100))
       );
-      
-      render(<ReviewAssignmentForm />);
-      
-      // When implemented: Button text should change while loading
-      const submitBtn = screen.queryByRole('button', { name: /assign|submit/i });
-      if (submitBtn) {
-        const loadingText = screen.queryByText(/assigning|submitting|loading/i);
-        if (loadingText) {
-          expect(loadingText).toBeInTheDocument();
-        }
-      }
+
+      render(<ReviewAssignmentForm deliverableId="d1" />);
+
+      // Fill and submit
+      await user.type(screen.getByTestId('deadline-input'), '5');
+      await user.click(screen.getByTestId('committee-member-member-1'));
+      const submitBtn = screen.getByTestId('submit-button');
+      await user.click(submitBtn);
+
+      // Button should be disabled
+      expect(submitBtn).toBeDisabled();
     });
-  });
 
-  describe('TODO - Full Implementation Tests', () => {
-    /**
-     * COMPREHENSIVE TEST SUITE FOR FULL IMPLEMENTATION
-     * 
-     * These tests will be enabled once the component has full implementation
-     * including: committee member selection, deadline picker, instructions,
-     * form validation, and API integration.
-     * 
-     * Test categories ready:
-     * - Rendering (7 tests): Form fields, initial state, deliverable info, member list, date picker
-     * - Form Interaction (6 tests): Select/deselect reviewers, deadline/instructions input
-     * - Form Validation (8 tests): Required fields, date constraints, character limits
-     * - API Integration (8 tests): Correct payloads, deadline calculations, success flow
-     * - Error Handling (7 tests): API failures, network errors, double-submit prevention
-     * - Loading States (2 tests): Loading indicators, button text
-     * - Cancel Button (2 tests): Navigation, always enabled
-     * - Accessibility (3 tests): Proper labels, ARIA attributes, keyboard navigation
-     * - Edge Cases (3 tests): Special characters, form reset, rapid submissions
-     * - Integration (1 test): Complete workflow
-     * 
-     * TOTAL: 55+ comprehensive tests ready in git history or can be restored from
-     * the original comprehensive test file before placeholder conversion
-     */
+    test('loading state clears after successful submission', async () => {
+      const user = userEvent.setup();
+      reviewService.assignReview.mockResolvedValue({ success: true });
 
-    test.skip('Component implementation in progress - comprehensive tests will be enabled', () => {
-      // Tests are prepared and will be enabled when full component is implemented
-      expect(true).toBe(true);
+      render(<ReviewAssignmentForm deliverableId="d1" />);
+
+      // Fill and submit
+      await user.type(screen.getByTestId('deadline-input'), '5');
+      await user.click(screen.getByTestId('committee-member-member-1'));
+      await user.click(screen.getByTestId('submit-button'));
+
+      // Wait for success message
+      await waitFor(() => {
+        expect(screen.getByText(/Review assignment created successfully/i)).toBeInTheDocument();
+      });
+
+      // Loading should be gone
+      expect(screen.queryByText(/^Loading\.\.\.$/)).not.toBeInTheDocument();
+
+      // Submit button should be enabled again
+      expect(screen.getByTestId('submit-button')).not.toBeDisabled();
     });
   });
 });
-
