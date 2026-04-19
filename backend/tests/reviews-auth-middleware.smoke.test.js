@@ -126,7 +126,7 @@ describe('POST /api/v1/reviews/assign', () => {
     expect(res.status).toBe(403);
   });
 
-  it('501 — coordinator reaches stub (auth + role passed)', async () => {
+  it('400 — coordinator passes auth+role; handler rejects missing deliverableId', async () => {
     const token = makeToken(unique('coord'), 'coordinator');
 
     const res = await request(app)
@@ -134,8 +134,8 @@ describe('POST /api/v1/reviews/assign', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({});
 
-    expect(res.status).toBe(501);
-    expect(res.body.code).toBe('NOT_IMPLEMENTED');
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_REQUEST');
   });
 });
 
@@ -182,15 +182,15 @@ describe('GET /api/v1/reviews/status', () => {
     expect(res.status).toBe(403);
   });
 
-  it('501 — coordinator reaches stub (auth + role passed)', async () => {
+  it('400 — coordinator passes auth+role; handler rejects missing deliverableId param', async () => {
     const token = makeToken(unique('coord'), 'coordinator');
 
     const res = await request(app)
       .get(ENDPOINT)
       .set('Authorization', `Bearer ${token}`);
 
-    expect(res.status).toBe(501);
-    expect(res.body.code).toBe('NOT_IMPLEMENTED');
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_REQUEST');
   });
 });
 
@@ -300,7 +300,7 @@ describe('POST /api/v1/deliverables/:deliverableId/comments/:commentId/reply', (
     expect(res.status).toBe(403);
   });
 
-  it('501 — student reaches stub (students may reply)', async () => {
+  it('400 — student passes auth+role; handler rejects missing content', async () => {
     const { studentId } = await seedGroupWithStudent();
     const token = makeToken(studentId, 'student');
 
@@ -309,11 +309,11 @@ describe('POST /api/v1/deliverables/:deliverableId/comments/:commentId/reply', (
       .set('Authorization', `Bearer ${token}`)
       .send({});
 
-    expect(res.status).toBe(501);
-    expect(res.body.code).toBe('NOT_IMPLEMENTED');
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_REQUEST');
   });
 
-  it('501 — committee_member reaches stub', async () => {
+  it('400 — committee_member passes auth+role; handler rejects missing content', async () => {
     const token = makeToken(unique('cm'), 'committee_member');
 
     const res = await request(app)
@@ -321,11 +321,11 @@ describe('POST /api/v1/deliverables/:deliverableId/comments/:commentId/reply', (
       .set('Authorization', `Bearer ${token}`)
       .send({});
 
-    expect(res.status).toBe(501);
-    expect(res.body.code).toBe('NOT_IMPLEMENTED');
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_REQUEST');
   });
 
-  it('501 — coordinator reaches stub', async () => {
+  it('400 — coordinator passes auth+role; handler rejects missing content', async () => {
     const token = makeToken(unique('coord'), 'coordinator');
 
     const res = await request(app)
@@ -333,8 +333,8 @@ describe('POST /api/v1/deliverables/:deliverableId/comments/:commentId/reply', (
       .set('Authorization', `Bearer ${token}`)
       .send({});
 
-    expect(res.status).toBe(501);
-    expect(res.body.code).toBe('NOT_IMPLEMENTED');
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_REQUEST');
   });
 });
 
@@ -343,8 +343,9 @@ describe('POST /api/v1/deliverables/:deliverableId/comments/:commentId/reply', (
 // ---------------------------------------------------------------------------
 describe('req.user shape on review routes', () => {
   it('coordinator req.user has userId and role set (groupId null when not in group)', async () => {
-    // We verify indirectly: a valid coordinator token reaches the 501 stub,
+    // Verify indirectly: a valid coordinator token reaches the handler,
     // confirming deliverableAuthMiddleware ran and set req.user without error.
+    // Handler returns 400 (missing deliverableId) — proof auth+middleware ran.
     const coordId = unique('coord');
     const token = makeToken(coordId, 'coordinator');
 
@@ -353,12 +354,12 @@ describe('req.user shape on review routes', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({});
 
-    // 501 means auth passed and req.user was set correctly
-    expect(res.status).toBe(501);
+    expect(res.status).toBe(400);
   });
 
   it('student req.user.groupId is populated when student belongs to a group', async () => {
-    // Student can reach reply endpoint — confirms groupId lookup ran successfully
+    // Student can reach the reply handler — confirms groupId lookup ran successfully.
+    // Handler returns 400 (missing content) — proof auth+middleware ran.
     const { studentId } = await seedGroupWithStudent();
     const token = makeToken(studentId, 'student');
 
@@ -367,6 +368,6 @@ describe('req.user shape on review routes', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({});
 
-    expect(res.status).toBe(501);
+    expect(res.status).toBe(400);
   });
 });
