@@ -1,0 +1,9 @@
+The review of your deliverable #{{deliverableId}} is complete.
+
+Section feedback summary: {{sectionSummary}}
+All clarifications resolved.
+
+Please log in to the Senior Project Management System to view the full review.
+
+---
+Senior Project Management System

@@ -113,6 +113,14 @@ const auditLogSchema = new mongoose.Schema(
         'COMMENT_REPLIED',
         'COMMENT_RESOLVED',
 
+        // --- Deliverable Storage (Process 5.5) ---
+        'DELIVERABLE_STORED',
+
+        // --- Deliverable Notifications (Process 5.6 & 6) ---
+        'NOTIFICATION_SENT',
+        'NOTIFICATION_FAILED',
+        'DELIVERABLE_NOTIFIED',
+
         // --- System & Test ---
         'TEST_ACTION',
       ],

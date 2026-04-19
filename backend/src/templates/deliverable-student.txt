@@ -1,0 +1,7 @@
+Submission received — ID #{{id}}, Time: {{timestamp}}
+
+Your deliverable has been successfully submitted and stored.
+You will be notified when the review process begins.
+
+---
+Senior Project Management System

@@ -1,0 +1,9 @@
+You have been assigned to review deliverable #{{deliverableId}} from {{groupName}}.
+
+Deadline: {{deadline}}
+Instructions: {{instructions}}
+
+Please log in to the Senior Project Management System to begin your review.
+
+---
+Senior Project Management System

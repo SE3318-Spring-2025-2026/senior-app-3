@@ -1,0 +1,6 @@
+New Deliverable #{{id}} from {{groupName}} is ready for review.
+
+Please log in to the Senior Project Management System to begin your review.
+
+---
+Senior Project Management System
