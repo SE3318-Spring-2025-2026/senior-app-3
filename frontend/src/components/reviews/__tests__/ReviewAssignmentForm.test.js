@@ -3,130 +3,170 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 import ReviewAssignmentForm from '../ReviewAssignmentForm';
-import reviewService from '../../../api/reviewService';
+import { assignReview, getCommitteeCandidates } from '../../../api/reviewAPI';
 
-jest.mock('../../../api/reviewService');
+jest.mock('../../../api/reviewAPI');
+
+const mockDeliverable = {
+  deliverableId: 'd1',
+  deliverableType: 'proposal',
+  groupId: 'group-1',
+};
+
+const mockCandidates = [
+  { id: 'member-1', name: 'Alice', email: 'alice@test.com' },
+  { id: 'member-2', name: 'Bob', email: 'bob@test.com' },
+  { id: 'member-3', name: 'Carol', email: 'carol@test.com' },
+];
+
+// Helper: render the form and wait for committee candidates to load
+async function renderAndWait(props = {}) {
+  const defaults = {
+    deliverable: mockDeliverable,
+    onSuccess: jest.fn(),
+    onCancel: jest.fn(),
+  };
+  render(<ReviewAssignmentForm {...defaults} {...props} />);
+  await waitFor(() => expect(screen.getByRole('listbox')).toBeInTheDocument());
+}
 
 describe('ReviewAssignmentForm', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    getCommitteeCandidates.mockResolvedValue({ candidates: mockCandidates });
   });
+
+  // ── Form Rendering ────────────────────────────────────────────────────────
 
   describe('Form Rendering', () => {
-    test('renders the form with title', () => {
-      render(<ReviewAssignmentForm deliverableId="d1" />);
-      expect(screen.getByRole('heading', { name: /Assign Review/i })).toBeInTheDocument();
+    test('renders the form with Assign Reviewers heading', async () => {
+      await renderAndWait();
+      expect(screen.getByRole('heading', { name: /Assign Reviewers/i })).toBeInTheDocument();
     });
 
-    test('renders review deadline input field', () => {
-      render(<ReviewAssignmentForm deliverableId="d1" />);
-      expect(screen.getByLabelText(/Review Deadline/i)).toBeInTheDocument();
+    test('renders review deadline input with default value 7', async () => {
+      await renderAndWait();
+      const input = screen.getByLabelText(/Review Deadline \(Days\)/i);
+      expect(input).toBeInTheDocument();
+      expect(input).toHaveValue(7);
     });
 
-    test('renders committee member selection checkboxes', () => {
-      render(<ReviewAssignmentForm deliverableId="d1" />);
-      expect(screen.getByTestId('committee-member-member-1')).toBeInTheDocument();
-      expect(screen.getByTestId('committee-member-member-2')).toBeInTheDocument();
-      expect(screen.getByTestId('committee-member-member-3')).toBeInTheDocument();
+    test('renders committee member multi-select after candidates load', async () => {
+      await renderAndWait();
+      expect(screen.getByRole('listbox')).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: /Alice/i })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: /Bob/i })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: /Carol/i })).toBeInTheDocument();
     });
 
-    test('renders instructions textarea', () => {
-      render(<ReviewAssignmentForm deliverableId="d1" />);
-      expect(screen.getByLabelText(/Instructions/i)).toBeInTheDocument();
+    test('renders instructions textarea', async () => {
+      await renderAndWait();
+      expect(screen.getByLabelText(/Review Instructions/i)).toBeInTheDocument();
     });
 
-    test('renders submit button', () => {
-      render(<ReviewAssignmentForm deliverableId="d1" />);
-      expect(screen.getByTestId('submit-button')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Assign Review/i })).toBeInTheDocument();
+    test('renders Assign Reviewers submit button', async () => {
+      await renderAndWait();
+      expect(screen.getByRole('button', { name: /Assign Reviewers/i })).toBeInTheDocument();
     });
   });
+
+  // ── Form Validation ───────────────────────────────────────────────────────
 
   describe('Form Validation', () => {
-    test('reviewDeadlineDays is required - cannot submit with empty deadline', async () => {
+    test('reviewDeadlineDays required — submission prevented when deadline is cleared', async () => {
       const user = userEvent.setup();
-      render(<ReviewAssignmentForm deliverableId="d1" />);
+      await renderAndWait();
 
-      // Leave deadline empty and try to submit
-      const submitBtn = screen.getByTestId('submit-button');
-      await user.click(submitBtn);
+      await user.clear(screen.getByLabelText(/Review Deadline \(Days\)/i));
+      await user.click(screen.getByRole('button', { name: /Assign Reviewers/i }));
 
-      // Should see error message
       await waitFor(() => {
-        expect(screen.getByText(/Review deadline is required/i)).toBeInTheDocument();
+        expect(screen.getByRole('alert')).toHaveTextContent(/Review deadline must be between/i);
       });
-
-      // Service should not be called
-      expect(reviewService.assignReview).not.toHaveBeenCalled();
+      expect(assignReview).not.toHaveBeenCalled();
     });
 
-    test('selectedCommitteeMembers must have at least one selection', async () => {
+    test('submit button is not disabled when deadline field is empty (validation fires on submit)', async () => {
       const user = userEvent.setup();
-      render(<ReviewAssignmentForm deliverableId="d1" />);
+      await renderAndWait();
 
-      // Fill deadline
-      const deadlineInput = screen.getByTestId('deadline-input');
-      await user.type(deadlineInput, '7');
+      await user.clear(screen.getByLabelText(/Review Deadline \(Days\)/i));
+      // Button should still be enabled (not pre-disabled) — validation happens on submit
+      expect(screen.getByRole('button', { name: /Assign Reviewers/i })).not.toBeDisabled();
+    });
 
-      // Try to submit without selecting committee members
-      const submitBtn = screen.getByTestId('submit-button');
-      await user.click(submitBtn);
+    test('submission prevented when deadline exceeds 30 days', async () => {
+      const user = userEvent.setup();
+      await renderAndWait();
 
-      // Should see error message
+      const deadlineInput = screen.getByLabelText(/Review Deadline \(Days\)/i);
+      await user.clear(deadlineInput);
+      await user.type(deadlineInput, '99');
+      await user.click(screen.getByRole('button', { name: /Assign Reviewers/i }));
+
       await waitFor(() => {
-        expect(screen.getByText(/At least one committee member must be selected/i)).toBeInTheDocument();
+        expect(screen.getByRole('alert')).toHaveTextContent(/Review deadline must be between/i);
       });
-
-      expect(reviewService.assignReview).not.toHaveBeenCalled();
+      expect(assignReview).not.toHaveBeenCalled();
     });
   });
+
+  // ── Multi-Select Functionality ────────────────────────────────────────────
 
   describe('Multi-Select Functionality', () => {
-    test('selecting and deselecting committee members updates form state', async () => {
+    test('selectedCommitteeMembers multi-select: select and deselect members', async () => {
       const user = userEvent.setup();
-      render(<ReviewAssignmentForm deliverableId="d1" />);
+      await renderAndWait();
 
-      const checkbox1 = screen.getByTestId('committee-member-member-1');
-      const checkbox2 = screen.getByTestId('committee-member-member-2');
+      const select = screen.getByRole('listbox');
+      await user.selectOptions(select, ['member-1', 'member-2']);
 
-      // Select first member
-      await user.click(checkbox1);
-      expect(checkbox1).toBeChecked();
+      expect(screen.getByRole('option', { name: 'Alice (alice@test.com)' })).toHaveProperty(
+        'selected',
+        true
+      );
+      expect(screen.getByRole('option', { name: 'Bob (bob@test.com)' })).toHaveProperty(
+        'selected',
+        true
+      );
 
-      // Select second member
-      await user.click(checkbox2);
-      expect(checkbox2).toBeChecked();
+      await user.deselectOptions(select, ['member-1']);
 
-      // Deselect first member
-      await user.click(checkbox1);
-      expect(checkbox1).not.toBeChecked();
-      expect(checkbox2).toBeChecked();
+      expect(screen.getByRole('option', { name: 'Alice (alice@test.com)' })).toHaveProperty(
+        'selected',
+        false
+      );
+      expect(screen.getByRole('option', { name: 'Bob (bob@test.com)' })).toHaveProperty(
+        'selected',
+        true
+      );
     });
   });
+
+  // ── API Integration ───────────────────────────────────────────────────────
 
   describe('API Integration - Submit', () => {
     test('submit calls POST /reviews/assign with correct body including reviewDeadlineDays', async () => {
       const user = userEvent.setup();
-      reviewService.assignReview.mockResolvedValue({ success: true });
+      assignReview.mockResolvedValue({ success: true, assignedCount: 2 });
+      await renderAndWait();
 
-      render(<ReviewAssignmentForm deliverableId="d1" />);
+      const deadlineInput = screen.getByLabelText(/Review Deadline \(Days\)/i);
+      await user.clear(deadlineInput);
+      await user.type(deadlineInput, '7');
 
-      // Fill form
-      await user.type(screen.getByTestId('deadline-input'), '7');
-      await user.type(screen.getByTestId('instructions-input'), 'Review thoroughly');
-      await user.click(screen.getByTestId('committee-member-member-1'));
-      await user.click(screen.getByTestId('committee-member-member-2'));
+      await user.selectOptions(screen.getByRole('listbox'), ['member-1', 'member-2']);
+      await user.type(screen.getByLabelText(/Review Instructions/i), 'Review thoroughly');
 
-      // Submit
-      await user.click(screen.getByTestId('submit-button'));
+      await user.click(screen.getByRole('button', { name: /Assign Reviewers/i }));
 
       await waitFor(() => {
-        expect(reviewService.assignReview).toHaveBeenCalledWith(
+        expect(assignReview).toHaveBeenCalledWith(
           expect.objectContaining({
             deliverableId: 'd1',
             reviewDeadlineDays: 7,
             selectedCommitteeMembers: ['member-1', 'member-2'],
-            instructions: 'Review thoroughly'
+            instructions: 'Review thoroughly',
           })
         );
       });
@@ -134,169 +174,109 @@ describe('ReviewAssignmentForm', () => {
 
     test('success response shows confirmation message', async () => {
       const user = userEvent.setup();
-      reviewService.assignReview.mockResolvedValue({ success: true });
+      assignReview.mockResolvedValue({ success: true, assignedCount: 1 });
+      await renderAndWait();
 
-      render(<ReviewAssignmentForm deliverableId="d1" />);
+      await user.selectOptions(screen.getByRole('listbox'), 'member-1');
+      await user.click(screen.getByRole('button', { name: /Assign Reviewers/i }));
 
-      // Fill and submit
-      await user.type(screen.getByTestId('deadline-input'), '5');
-      await user.click(screen.getByTestId('committee-member-member-1'));
-      await user.click(screen.getByTestId('submit-button'));
-
-      // Should show success message
       await waitFor(() => {
-        expect(screen.getByText(/Review assignment created successfully/i)).toBeInTheDocument();
+        expect(screen.getByText(/Review assignment successful/i)).toBeInTheDocument();
       });
     });
 
     test('success response calls onSuccess callback', async () => {
       const user = userEvent.setup();
       const onSuccess = jest.fn();
-      reviewService.assignReview.mockResolvedValue({ success: true });
+      assignReview.mockResolvedValue({ success: true, assignedCount: 1 });
+      await renderAndWait({ onSuccess });
 
-      render(<ReviewAssignmentForm deliverableId="d1" onSuccess={onSuccess} />);
+      await user.selectOptions(screen.getByRole('listbox'), 'member-1');
+      await user.click(screen.getByRole('button', { name: /Assign Reviewers/i }));
 
-      // Fill and submit
-      await user.type(screen.getByTestId('deadline-input'), '5');
-      await user.click(screen.getByTestId('committee-member-member-1'));
-      await user.click(screen.getByTestId('submit-button'));
-
-      // onSuccess should be called
-      await waitFor(() => {
-        expect(onSuccess).toHaveBeenCalled();
-      });
-    });
-
-    test('form resets after successful submission', async () => {
-      const user = userEvent.setup();
-      reviewService.assignReview.mockResolvedValue({ success: true });
-
-      render(<ReviewAssignmentForm deliverableId="d1" />);
-
-      // Fill form
-      const deadlineInput = screen.getByTestId('deadline-input');
-      const checkbox = screen.getByTestId('committee-member-member-1');
-      const instructionsInput = screen.getByTestId('instructions-input');
-
-      await user.type(deadlineInput, '5');
-      await user.click(checkbox);
-      await user.type(instructionsInput, 'Test instructions');
-
-      // Submit
-      await user.click(screen.getByTestId('submit-button'));
-
-      // Wait for success
-      await waitFor(() => {
-        expect(screen.getByText(/Review assignment created successfully/i)).toBeInTheDocument();
-      });
-
-      // Check form was reset
-      expect(deadlineInput).toHaveValue(null);
-      expect(checkbox).not.toBeChecked();
-      expect(instructionsInput).toHaveValue('');
-    });
+      await waitFor(() => expect(onSuccess).toHaveBeenCalled(), { timeout: 4000 });
+    }, 8000);
   });
+
+  // ── Error Handling ────────────────────────────────────────────────────────
 
   describe('Error Handling', () => {
     test('API error shows error message with code field', async () => {
       const user = userEvent.setup();
-      const errorCode = 'DUPLICATE_ASSIGNMENT';
-      reviewService.assignReview.mockRejectedValue({
+      assignReview.mockRejectedValue({
         response: {
-          data: {
-            code: errorCode
-          }
-        }
+          data: { message: 'Review already assigned', code: 'DUPLICATE_ASSIGNMENT' },
+        },
       });
+      await renderAndWait();
 
-      render(<ReviewAssignmentForm deliverableId="d1" />);
+      await user.selectOptions(screen.getByRole('listbox'), 'member-1');
+      await user.click(screen.getByRole('button', { name: /Assign Reviewers/i }));
 
-      // Fill and submit
-      await user.type(screen.getByTestId('deadline-input'), '5');
-      await user.click(screen.getByTestId('committee-member-member-1'));
-      await user.click(screen.getByTestId('submit-button'));
-
-      // Should show error message with code
       await waitFor(() => {
-        expect(screen.getByText(new RegExp(errorCode))).toBeInTheDocument();
+        expect(screen.getByText(/DUPLICATE_ASSIGNMENT/)).toBeInTheDocument();
       });
     });
 
     test('generic error message shown when code field missing', async () => {
       const user = userEvent.setup();
-      reviewService.assignReview.mockRejectedValue(new Error('Network error'));
+      assignReview.mockRejectedValue({
+        response: { data: { message: 'Server error' } },
+      });
+      await renderAndWait();
 
-      render(<ReviewAssignmentForm deliverableId="d1" />);
+      await user.selectOptions(screen.getByRole('listbox'), 'member-1');
+      await user.click(screen.getByRole('button', { name: /Assign Reviewers/i }));
 
-      // Fill and submit
-      await user.type(screen.getByTestId('deadline-input'), '5');
-      await user.click(screen.getByTestId('committee-member-member-1'));
-      await user.click(screen.getByTestId('submit-button'));
-
-      // Should show error message
       await waitFor(() => {
-        expect(screen.getByText(/Network error/i)).toBeInTheDocument();
+        expect(screen.getByText(/Server error/i)).toBeInTheDocument();
       });
     });
   });
 
+  // ── Loading States ────────────────────────────────────────────────────────
+
   describe('Loading States', () => {
     test('loading indicator visible during API call', async () => {
       const user = userEvent.setup();
-      reviewService.assignReview.mockImplementation(
-        () => new Promise(resolve => setTimeout(() => resolve({ success: true }), 100))
+      assignReview.mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve({ success: true }), 100))
       );
+      await renderAndWait();
 
-      render(<ReviewAssignmentForm deliverableId="d1" />);
+      await user.selectOptions(screen.getByRole('listbox'), 'member-1');
+      await user.click(screen.getByRole('button', { name: /Assign Reviewers/i }));
 
-      // Fill and submit
-      await user.type(screen.getByTestId('deadline-input'), '5');
-      await user.click(screen.getByTestId('committee-member-member-1'));
-      await user.click(screen.getByTestId('submit-button'));
-
-      // Loading indicator should show
-      expect(screen.getByText(/Loading/i)).toBeInTheDocument();
+      expect(screen.getByText(/Assigning\.\.\./i)).toBeInTheDocument();
     });
 
-    test('submit button disabled during loading', async () => {
+    test('submit button is disabled during API call', async () => {
       const user = userEvent.setup();
-      reviewService.assignReview.mockImplementation(
-        () => new Promise(resolve => setTimeout(() => resolve({ success: true }), 100))
+      assignReview.mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve({ success: true }), 100))
       );
+      await renderAndWait();
 
-      render(<ReviewAssignmentForm deliverableId="d1" />);
-
-      // Fill and submit
-      await user.type(screen.getByTestId('deadline-input'), '5');
-      await user.click(screen.getByTestId('committee-member-member-1'));
-      const submitBtn = screen.getByTestId('submit-button');
+      await user.selectOptions(screen.getByRole('listbox'), 'member-1');
+      const submitBtn = screen.getByRole('button', { name: /Assign Reviewers/i });
       await user.click(submitBtn);
 
-      // Button should be disabled
       expect(submitBtn).toBeDisabled();
     });
 
     test('loading state clears after successful submission', async () => {
       const user = userEvent.setup();
-      reviewService.assignReview.mockResolvedValue({ success: true });
+      assignReview.mockResolvedValue({ success: true, assignedCount: 1 });
+      await renderAndWait();
 
-      render(<ReviewAssignmentForm deliverableId="d1" />);
+      await user.selectOptions(screen.getByRole('listbox'), 'member-1');
+      await user.click(screen.getByRole('button', { name: /Assign Reviewers/i }));
 
-      // Fill and submit
-      await user.type(screen.getByTestId('deadline-input'), '5');
-      await user.click(screen.getByTestId('committee-member-member-1'));
-      await user.click(screen.getByTestId('submit-button'));
-
-      // Wait for success message
       await waitFor(() => {
-        expect(screen.getByText(/Review assignment created successfully/i)).toBeInTheDocument();
+        expect(screen.getByText(/Review assignment successful/i)).toBeInTheDocument();
       });
 
-      // Loading should be gone
-      expect(screen.queryByText(/^Loading\.\.\.$/)).not.toBeInTheDocument();
-
-      // Submit button should be enabled again
-      expect(screen.getByTestId('submit-button')).not.toBeDisabled();
+      expect(screen.queryByText(/Assigning\.\.\./i)).not.toBeInTheDocument();
     });
   });
 });

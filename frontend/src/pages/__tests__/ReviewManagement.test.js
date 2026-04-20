@@ -4,41 +4,88 @@ import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
 import '@testing-library/jest-dom';
 import ReviewManagement from '../ReviewManagement';
-import reviewService from '../../api/reviewService';
-import authStore from '../../store/authStore';
+import { getReviews, getReviewStatus } from '../../api/reviewAPI';
+import useAuthStore from '../../store/authStore';
 
-jest.mock('../../api/reviewService');
+// Stable user objects — defined outside beforeEach so the same reference is
+// returned on every render. Without this, the inline object in mockImplementation
+// changes identity each call, causing useEffect([user]) to fire every render.
+const COORD_USER = Object.freeze({ username: 'coord1', role: 'coordinator' });
+const ADMIN_USER = Object.freeze({ username: 'admin1', role: 'admin' });
+const STUDENT_USER = Object.freeze({ username: 'student1', role: 'student' });
+
+const mockNavigate = jest.fn();
+jest.mock('react-router-dom', () => ({
+  ...jest.requireActual('react-router-dom'),
+  useNavigate: () => mockNavigate,
+}));
+jest.mock('../../api/reviewAPI');
 jest.mock('../../store/authStore');
+// Mock the child form so we control onSuccess/onCancel directly
+jest.mock('../../components/reviews/ReviewAssignmentForm', () =>
+  function MockAssignmentForm({ onSuccess, onCancel }) {
+    return (
+      <div role="dialog" aria-modal="true" data-testid="assignment-form-mock">
+        <button onClick={() => onSuccess({ success: true })}>MockSubmit</button>
+        <button onClick={onCancel}>MockCancel</button>
+      </div>
+    );
+  }
+);
 
 const mockReviews = [
   {
-    reviewId: 'r1',
-    groupName: 'Team Alpha',
-    status: 'pending',
+    deliverableId: 'del-1',
+    deliverableType: 'proposal',
+    groupId: 'group-1',
+    sprintId: 'sprint-1',
+    reviewStatus: 'pending',
     deadline: '2024-02-15',
-    createdAt: '2024-02-01'
+    commentCount: 0,
+    clarificationsRemaining: 0,
+    deliverableStatus: 'in_review',
   },
   {
-    reviewId: 'r2',
-    groupName: 'Team Beta',
-    status: 'in_progress',
+    deliverableId: 'del-2',
+    deliverableType: 'interim_report',
+    groupId: 'group-2',
+    sprintId: 'sprint-2',
+    reviewStatus: 'in_progress',
     deadline: '2024-02-20',
-    createdAt: '2024-02-05'
+    commentCount: 1,
+    clarificationsRemaining: 0,
+    deliverableStatus: 'in_review',
   },
   {
-    reviewId: 'r3',
-    groupName: 'Team Gamma',
-    status: 'completed',
+    deliverableId: 'del-3',
+    deliverableType: 'final_report',
+    groupId: 'group-3',
+    sprintId: 'sprint-3',
+    reviewStatus: 'completed',
     deadline: '2024-02-10',
-    createdAt: '2024-01-30'
-  }
+    commentCount: 5,
+    clarificationsRemaining: 0,
+    deliverableStatus: 'in_review',
+  },
 ];
+
+// A review that triggers the Assign button (accepted deliverable, no review yet)
+const mockAssignableReview = {
+  deliverableId: 'del-assign',
+  deliverableType: 'demo',
+  groupId: 'group-assign',
+  sprintId: 'sprint-assign',
+  deliverableStatus: 'accepted',
+  deadline: '2024-03-01',
+  commentCount: 0,
+  clarificationsRemaining: 0,
+};
 
 const mockStats = {
   pending: 5,
   in_progress: 3,
   needs_clarification: 2,
-  completed: 10
+  completed: 10,
 };
 
 function renderWithRouter(component) {
@@ -48,349 +95,246 @@ function renderWithRouter(component) {
 describe('ReviewManagement', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    authStore.getState.mockReturnValue({
-      user: { username: 'coord1', role: 'coordinator' }
-    });
-    reviewService.getReviewsForCoordinator.mockResolvedValue({
-      data: mockReviews,
-      total: mockReviews.length
-    });
-    reviewService.getReviewStatus.mockResolvedValue({
-      data: mockStats
+    mockNavigate.mockClear();
+    useAuthStore.mockImplementation((selector) => selector({ user: COORD_USER }));
+    getReviewStatus.mockResolvedValue(mockStats);
+    getReviews.mockResolvedValue({
+      reviews: mockReviews,
+      page: 1,
+      totalPages: 1,
+      total: mockReviews.length,
     });
   });
 
-  describe('Page Layout', () => {
-    test('renders page title', async () => {
-      renderWithRouter(<ReviewManagement />);
+  // ── Authorization ─────────────────────────────────────────────────────────
 
+  describe('Authorization', () => {
+    test('non-coordinator user is redirected to /dashboard', async () => {
+      useAuthStore.mockImplementation((selector) => selector({ user: STUDENT_USER }));
+      renderWithRouter(<ReviewManagement />);
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith('/dashboard');
+      });
+    });
+
+    test('null user is redirected to /dashboard', async () => {
+      useAuthStore.mockImplementation((selector) => selector({ user: null })); // null is already stable
+      renderWithRouter(<ReviewManagement />);
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith('/dashboard');
+      });
+    });
+
+    test('coordinator can access the page', async () => {
+      renderWithRouter(<ReviewManagement />);
       await waitFor(() => {
         expect(screen.getByText('Review Management')).toBeInTheDocument();
       });
     });
 
-    test('renders stat cards section with all status labels', async () => {
+    test('admin can access the page', async () => {
+      useAuthStore.mockImplementation((selector) => selector({ user: ADMIN_USER }));
       renderWithRouter(<ReviewManagement />);
-
       await waitFor(() => {
-        const statHeaders = screen.getAllByText(/Pending|In Progress|Needs Clarification|Completed/);
-        expect(statHeaders.length).toBeGreaterThanOrEqual(4);
-      });
-    });
-
-    test('renders review list table', async () => {
-      renderWithRouter(<ReviewManagement />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId('review-list')).toBeInTheDocument();
-      });
-    });
-
-    test('renders pagination controls', async () => {
-      renderWithRouter(<ReviewManagement />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId('prev-page')).toBeInTheDocument();
-        expect(screen.getByTestId('next-page')).toBeInTheDocument();
-        expect(screen.getByTestId('page-info')).toBeInTheDocument();
+        expect(screen.getByText('Review Management')).toBeInTheDocument();
       });
     });
   });
+
+  // ── Stat Cards ────────────────────────────────────────────────────────────
 
   describe('Stat Cards', () => {
-    test('stat cards render with actual counts from mocked GET /reviews/status', async () => {
-      renderWithRouter(<ReviewManagement />);
-
+    test('stat cards render with correct counts from GET /reviews/status', async () => {
+      const { container } = renderWithRouter(<ReviewManagement />);
       await waitFor(() => {
-        expect(screen.getByTestId('stat-pending')).toHaveTextContent('5');
-        expect(screen.getByTestId('stat-in-progress')).toHaveTextContent('3');
-        expect(screen.getByTestId('stat-clarification')).toHaveTextContent('2');
-        expect(screen.getByTestId('stat-completed')).toHaveTextContent('10');
+        const statsEl = container.querySelector('.review-stats-container');
+        const cards = Array.from(statsEl.querySelectorAll('.stat-card'));
+        expect(cards.find((c) => c.textContent.includes('Pending'))).toHaveTextContent('5');
+        expect(cards.find((c) => c.textContent.includes('In Progress'))).toHaveTextContent('3');
+        expect(cards.find((c) => c.textContent.includes('Clarification'))).toHaveTextContent('2');
+        expect(cards.find((c) => c.textContent.includes('Completed'))).toHaveTextContent('10');
       });
     });
 
-    test('stat services are called on mount', async () => {
+    test('getReviewStatus is called on mount', async () => {
       renderWithRouter(<ReviewManagement />);
+      await waitFor(() => expect(getReviewStatus).toHaveBeenCalled());
+    });
+  });
 
+  // ── Review List ───────────────────────────────────────────────────────────
+
+  describe('Review List', () => {
+    test('renders the review list table', async () => {
+      renderWithRouter(<ReviewManagement />);
+      await waitFor(() => expect(screen.getByRole('table')).toBeInTheDocument());
+    });
+
+    test('review list shows correct columns with data from GET /reviews', async () => {
+      renderWithRouter(<ReviewManagement />);
       await waitFor(() => {
-        expect(reviewService.getReviewStatus).toHaveBeenCalled();
+        const headers = screen.getAllByRole('columnheader');
+        expect(headers).toHaveLength(9);
+        expect(headers[0]).toHaveTextContent(/Deliverable ID/i);
+        expect(headers[1]).toHaveTextContent(/Type/i);
+        expect(headers[2]).toHaveTextContent(/Group ID/i);
+        expect(headers[8]).toHaveTextContent(/Action/i);
+      });
+    });
+
+    test('review list displays data rows from mocked GET /reviews', async () => {
+      renderWithRouter(<ReviewManagement />);
+      await waitFor(() => {
+        expect(screen.getByText('del-1')).toBeInTheDocument();
+        expect(screen.getByText('Proposal')).toBeInTheDocument();
+        expect(screen.getByText('group-1')).toBeInTheDocument();
       });
     });
   });
 
-  describe('Review List - Table Columns', () => {
-    test('review list shows correct columns with headers', async () => {
-      renderWithRouter(<ReviewManagement />);
-
-      await waitFor(() => {
-        const table = screen.getByTestId('review-list');
-        const headers = within(table).getAllByRole('columnheader');
-
-        // Should have 5 columns: Group Name, Status, Deadline, Created, Actions
-        expect(headers.length).toBe(5);
-        expect(headers[0]).toHaveTextContent(/Group Name/i);
-        expect(headers[1]).toHaveTextContent(/Status/i);
-        expect(headers[2]).toHaveTextContent(/Deadline/i);
-        expect(headers[3]).toHaveTextContent(/Created/i);
-        expect(headers[4]).toHaveTextContent(/Actions/i);
-      });
-    });
-
-    test('review list displays real data rows', async () => {
-      renderWithRouter(<ReviewManagement />);
-
-      await waitFor(() => {
-        // Check all reviews are displayed
-        expect(screen.getByText('Team Alpha')).toBeInTheDocument();
-        expect(screen.getByText('Team Beta')).toBeInTheDocument();
-        expect(screen.getByText('Team Gamma')).toBeInTheDocument();
-      });
-    });
-
-    test('review list shows status for each row', async () => {
-      renderWithRouter(<ReviewManagement />);
-
-      await waitFor(() => {
-        // Status values should be visible
-        expect(screen.getByText('pending')).toBeInTheDocument();
-        expect(screen.getByText('in_progress')).toBeInTheDocument();
-        expect(screen.getByText('completed')).toBeInTheDocument();
-      });
-    });
-
-    test('review list shows deadline and creation date', async () => {
-      renderWithRouter(<ReviewManagement />);
-
-      await waitFor(() => {
-        expect(screen.getByText('2024-02-15')).toBeInTheDocument(); // deadline
-        expect(screen.getByText('2024-02-01')).toBeInTheDocument(); // created
-      });
-    });
-  });
+  // ── Filter Dropdown ───────────────────────────────────────────────────────
 
   describe('Filter Dropdown', () => {
-    test('filter dropdown exists and renders options', async () => {
+    test('renders with all 5 status options', async () => {
       renderWithRouter(<ReviewManagement />);
-
       await waitFor(() => {
-        const filterDropdown = screen.getByTestId('filter-dropdown');
-        expect(filterDropdown).toBeInTheDocument();
-
-        const options = within(filterDropdown).getAllByRole('option');
-        expect(options.length).toBe(5); // All Reviews + 4 statuses
+        const filter = screen.getByRole('combobox');
+        expect(within(filter).getAllByRole('option')).toHaveLength(5);
       });
     });
 
-    test('filter dropdown has all status values as options', async () => {
+    test('has All Reviews, Pending, In Progress, Needs Clarification, Completed options', async () => {
       renderWithRouter(<ReviewManagement />);
-
       await waitFor(() => {
-        const filterDropdown = screen.getByTestId('filter-dropdown');
-        expect(within(filterDropdown).getByRole('option', { name: /All Reviews/i })).toBeInTheDocument();
-        expect(within(filterDropdown).getByRole('option', { name: /Pending/i })).toBeInTheDocument();
-        expect(within(filterDropdown).getByRole('option', { name: /In Progress/i })).toBeInTheDocument();
-        expect(within(filterDropdown).getByRole('option', { name: /Needs Clarification/i })).toBeInTheDocument();
-        expect(within(filterDropdown).getByRole('option', { name: /Completed/i })).toBeInTheDocument();
+        const filter = screen.getByRole('combobox');
+        expect(within(filter).getByRole('option', { name: /All Reviews/i })).toBeInTheDocument();
+        expect(within(filter).getByRole('option', { name: /^Pending$/i })).toBeInTheDocument();
+        expect(within(filter).getByRole('option', { name: /In Progress/i })).toBeInTheDocument();
+        expect(within(filter).getByRole('option', { name: /Needs Clarification/i })).toBeInTheDocument();
+        expect(within(filter).getByRole('option', { name: /^Completed$/i })).toBeInTheDocument();
       });
     });
 
-    test('changing filter dropdown calls API with correct status parameter', async () => {
+    test('changing filter calls GET /reviews with correct status parameter', async () => {
       const user = userEvent.setup();
-      reviewService.getReviewsForCoordinator.mockClear();
-      reviewService.getReviewsForCoordinator.mockResolvedValue({
-        data: [mockReviews[0]],
-        total: 1
-      });
-
       renderWithRouter(<ReviewManagement />);
-
+      await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument());
+      await user.selectOptions(screen.getByRole('combobox'), 'pending');
       await waitFor(() => {
-        expect(screen.getByTestId('filter-dropdown')).toBeInTheDocument();
+        expect(getReviews).toHaveBeenCalledWith(expect.objectContaining({ status: 'pending' }));
       });
+    });
 
-      // Change filter
-      const filterDropdown = screen.getByTestId('filter-dropdown');
-      await user.selectOptions(filterDropdown, 'pending');
-
-      // Should call API with filter
+    test('changing filter resets pagination to page 1', async () => {
+      const user = userEvent.setup();
+      renderWithRouter(<ReviewManagement />);
+      await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument());
+      await user.selectOptions(screen.getByRole('combobox'), 'in_progress');
       await waitFor(() => {
-        expect(reviewService.getReviewsForCoordinator).toHaveBeenCalledWith(
-          expect.objectContaining({
-            status: 'pending'
-          })
+        expect(getReviews).toHaveBeenCalledWith(
+          expect.objectContaining({ page: 1, status: 'in_progress' })
         );
       });
     });
-
-    test('filter dropdown resets pagination to page 1', async () => {
-      const user = userEvent.setup();
-      renderWithRouter(<ReviewManagement />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId('filter-dropdown')).toBeInTheDocument();
-      });
-
-      // Change filter
-      const filterDropdown = screen.getByTestId('filter-dropdown');
-      await user.selectOptions(filterDropdown, 'pending');
-
-      // Should be on page 1
-      await waitFor(() => {
-        expect(screen.getByTestId('page-info')).toHaveTextContent('Page 1');
-      });
-    });
   });
 
+  // ── Pagination ────────────────────────────────────────────────────────────
+
   describe('Pagination', () => {
-    test('pagination calls API with correct page parameter when next clicked', async () => {
+    beforeEach(() => {
+      getReviews.mockResolvedValue({ reviews: mockReviews, page: 1, totalPages: 3, total: 50 });
+    });
+
+    test('next page button fetches page 2 from GET /reviews', async () => {
       const user = userEvent.setup();
-      reviewService.getReviewsForCoordinator.mockResolvedValueOnce({
-        data: mockReviews,
-        total: 25 // Enough for multiple pages
-      }).mockResolvedValueOnce({
-        data: mockReviews,
-        total: 25
-      });
-
       renderWithRouter(<ReviewManagement />);
-
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Next page' })).toBeInTheDocument()
+      );
+      getReviews.mockClear();
+      await user.click(screen.getByRole('button', { name: 'Next page' }));
       await waitFor(() => {
-        expect(screen.getByText('Team Alpha')).toBeInTheDocument();
+        expect(getReviews).toHaveBeenCalledWith(expect.objectContaining({ page: 2 }));
       });
-
-      // Click next
-      const nextBtn = screen.getByTestId('next-page');
-      if (!nextBtn.disabled) {
-        await user.click(nextBtn);
-
-        await waitFor(() => {
-          expect(reviewService.getReviewsForCoordinator).toHaveBeenCalledWith(
-            expect.objectContaining({
-              page: 2
-            })
-          );
-        });
-      }
     });
 
-    test('next page button disabled when on only page', async () => {
+    test('previous page button is disabled on first page', async () => {
       renderWithRouter(<ReviewManagement />);
-
       await waitFor(() => {
-        expect(screen.getByText('Team Alpha')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
       });
-
-      const nextBtn = screen.getByTestId('next-page');
-      // Only 3 items total, 10 per page = 1 page only
-      expect(nextBtn).toBeDisabled();
     });
 
-    test('previous page button disabled on first page', async () => {
+    test('next page button is disabled on last page', async () => {
+      getReviews.mockResolvedValue({ reviews: mockReviews, page: 3, totalPages: 3, total: 50 });
       renderWithRouter(<ReviewManagement />);
-
       await waitFor(() => {
-        expect(screen.getByText('Team Alpha')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
       });
-
-      const prevBtn = screen.getByTestId('prev-page');
-      expect(prevBtn).toBeDisabled();
     });
 
     test('page info shows current page and total pages', async () => {
       renderWithRouter(<ReviewManagement />);
-
       await waitFor(() => {
-        const pageInfo = screen.getByTestId('page-info');
-        expect(pageInfo).toHaveTextContent('Page');
-        expect(pageInfo).toHaveTextContent('1');
+        expect(screen.getByText(/Page 1 of 3/)).toBeInTheDocument();
       });
     });
   });
+
+  // ── Assignment Form ───────────────────────────────────────────────────────
+
+  describe('Assignment Form', () => {
+    test('clicking Assign on an accepted deliverable opens the assignment form', async () => {
+      const user = userEvent.setup();
+      getReviews.mockResolvedValue({
+        reviews: [mockAssignableReview],
+        page: 1,
+        totalPages: 1,
+        total: 1,
+      });
+      renderWithRouter(<ReviewManagement />);
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Assign' })).toBeInTheDocument()
+      );
+      await user.click(screen.getByRole('button', { name: 'Assign' }));
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
+
+    test('after successful assignment, review list is refreshed', async () => {
+      const user = userEvent.setup();
+      getReviews.mockResolvedValue({
+        reviews: [mockAssignableReview],
+        page: 1,
+        totalPages: 1,
+        total: 1,
+      });
+      renderWithRouter(<ReviewManagement />);
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Assign' })).toBeInTheDocument()
+      );
+      const callsBefore = getReviews.mock.calls.length;
+      await user.click(screen.getByRole('button', { name: 'Assign' }));
+      await user.click(screen.getByRole('button', { name: 'MockSubmit' }));
+      await waitFor(() => {
+        expect(getReviews.mock.calls.length).toBeGreaterThan(callsBefore);
+      });
+    });
+  });
+
+  // ── Loading States ────────────────────────────────────────────────────────
 
   describe('Loading States', () => {
-    test('shows loading indicator on initial load', async () => {
-      reviewService.getReviewsForCoordinator.mockImplementation(
-        () => new Promise(resolve => setTimeout(() => resolve({ data: mockReviews, total: 3 }), 500))
-      );
-
+    test('shows loading indicator while fetching data', () => {
+      getReviews.mockImplementation(() => new Promise(() => {}));
       renderWithRouter(<ReviewManagement />);
-
-      // Should show loading while fetching
-      expect(screen.getByRole('status')).toHaveTextContent(/Loading/i);
+      expect(screen.getByText(/Loading reviews/i)).toBeInTheDocument();
     });
 
-    test('hides loading and shows content after loading completes', async () => {
+    test('loading indicator is hidden after data is fetched', async () => {
       renderWithRouter(<ReviewManagement />);
-
-      // Wait for content to appear
       await waitFor(() => {
-        expect(screen.getByText('Team Alpha')).toBeInTheDocument();
+        expect(screen.queryByText(/Loading reviews/i)).not.toBeInTheDocument();
       });
-
-      // Loading should be gone or hidden
-      await waitFor(() => {
-        const loading = screen.queryByRole('status', { hidden: false });
-        if (loading) {
-          expect(loading).not.toHaveTextContent(/Loading/i);
-        }
-      });
-    });
-  });
-
-  describe('Row Actions', () => {
-    test('each row has an update button', async () => {
-      renderWithRouter(<ReviewManagement />);
-
-      await waitFor(() => {
-        const updateButtons = screen.getAllByTestId(/^update-status-/);
-        expect(updateButtons.length).toBe(3); // One for each review
-      });
-    });
-
-    test('update button calls status change API', async () => {
-      const user = userEvent.setup();
-      reviewService.updateReviewStatus.mockResolvedValue({ success: true });
-
-      renderWithRouter(<ReviewManagement />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Team Alpha')).toBeInTheDocument();
-      });
-
-      // Click update button for first review
-      const updateBtn = screen.getByTestId('update-status-r1');
-      await user.click(updateBtn);
-
-      // Should call updateReviewStatus
-      await waitFor(() => {
-        expect(reviewService.updateReviewStatus).toHaveBeenCalledWith(
-          'r1',
-          expect.objectContaining({ status: 'completed' })
-        );
-      });
-    });
-  });
-
-  describe('Integration', () => {
-    test('complete workflow: renders stat cards, review list with data, and pagination', async () => {
-      renderWithRouter(<ReviewManagement />);
-
-      // 1. Should load and display stat counts
-      await waitFor(() => {
-        expect(screen.getByTestId('stat-pending')).toHaveTextContent('5');
-        expect(screen.getByTestId('stat-completed')).toHaveTextContent('10');
-      });
-
-      // 2. Should display review data
-      expect(screen.getByText('Team Alpha')).toBeInTheDocument();
-      expect(screen.getByText('Team Beta')).toBeInTheDocument();
-
-      // 3. Should have pagination controls
-      expect(screen.getByTestId('prev-page')).toBeInTheDocument();
-      expect(screen.getByTestId('next-page')).toBeInTheDocument();
-
-      // 4. Should have filter dropdown
-      expect(screen.getByTestId('filter-dropdown')).toBeInTheDocument();
     });
   });
 });
