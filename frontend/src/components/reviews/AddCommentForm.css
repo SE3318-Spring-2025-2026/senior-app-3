@@ -1,0 +1,154 @@
+/* AddCommentForm Component Styles */
+
+.add-comment-form {
+  background-color: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  border: 1px solid #e5e7eb;
+}
+
+.add-comment-form h3 {
+  margin-bottom: 20px;
+  color: #111827;
+}
+
+.add-comment-form form {
+  display: flex;
+  flex-direction: column;
+}
+
+.add-comment-form textarea,
+.add-comment-form input,
+.add-comment-form select {
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.add-comment-form textarea {
+  min-height: 150px;
+}
+
+.add-comment-form textarea:focus,
+.add-comment-form input:focus,
+.add-comment-form select:focus {
+  border-color: #667eea;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.add-comment-form textarea:disabled,
+.add-comment-form input:disabled,
+.add-comment-form select:disabled {
+  background-color: #f9fafb;
+  cursor: not-allowed;
+}
+
+.add-comment-form button {
+  transition: all 0.2s ease;
+  font-size: 14px;
+}
+
+.add-comment-form button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.add-comment-form button:disabled {
+  opacity: 0.6;
+}
+
+/*
+  BUG FIX: The original rule `.add-comment-form label { display: flex; ... }`
+  applied flex layout to ALL labels inside the form — including the block-level
+  field labels for "Comment", "Comment Type", and "Section Number". This caused
+  those labels to render inline instead of as block elements, breaking alignment.
+
+  The fix: remove the blanket `label` selector. The checkbox row now uses a
+  dedicated `.checkbox-row` wrapper div that carries the flex layout, so only
+  the checkbox row gets inline-flex behaviour without affecting field labels.
+*/
+.add-comment-form .checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.add-comment-form .checkbox-row input[type="checkbox"] {
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .add-comment-form {
+    padding: 16px;
+  }
+
+  .add-comment-form form {
+    gap: 16px;
+  }
+}
+
+/* Char count styling */
+#comment-char-count {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+/* Success and error messages */
+.bg-red-50 {
+  background-color: #fef2f2;
+}
+
+.border-red-200 {
+  border-color: #fecaca;
+}
+
+.text-red-800 {
+  color: #991b1b;
+}
+
+.bg-green-50 {
+  background-color: #f0fdf4;
+}
+
+.border-green-200 {
+  border-color: #bbf7d0;
+}
+
+.text-green-800 {
+  color: #166534;
+}
+
+.bg-orange-50 {
+  background-color: #fffbeb;
+}
+
+.border-orange-200 {
+  border-color: #fed7aa;
+}
+
+.text-orange-600 {
+  color: #ea580c;
+}
+
+.bg-blue-50 {
+  background-color: #eff6ff;
+}
+
+.border-blue-200 {
+  border-color: #bfdbfe;
+}
+
+.text-blue-800 {
+  color: #1e40af;
+}
+.add-comment-form textarea,
+.add-comment-form input,
+.add-comment-form select {
+  font-size: 14px;
+  font-family: inherit;
+  color: #111827;
+  background-color: #ffffff; 
+}

@@ -30,6 +30,7 @@ const options = {
       { name: 'Advisor Requests', description: 'Advisor assignment flow' },
       { name: 'Committees', description: 'Committee creation & publishing' },
       { name: 'Deliverables', description: 'Deliverable submission & validation' },
+      { name: 'Reviews', description: 'Process 6 — Review assignment & status' },
       { name: 'Schedule Windows', description: 'Operation schedule management' },
       { name: 'Audit Logs', description: 'Audit trail & logging' },
     ],
@@ -1110,6 +1111,142 @@ const options = {
             200: { description: 'Deliverable retracted successfully' },
             400: { description: 'Cannot retract — deadline passed or status prevents retraction' },
             404: { description: 'Deliverable not found' },
+          },
+        },
+      },
+
+      // ── REVIEWS ──────────────────────────────────────────────────────────
+      '/reviews/assign': {
+        post: {
+          tags: ['Reviews'],
+          summary: 'Process 6.1 — Assign committee members to review a deliverable',
+          description: 'Coordinator only. Creates a Review record in D5, updates the Deliverable status to `under_review`, and triggers async notifications to each assigned committee member. If `selectedCommitteeMembers` is omitted, all advisors in the deliverable\'s committee are assigned automatically.',
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['deliverableId', 'reviewDeadlineDays'],
+                  properties: {
+                    deliverableId: {
+                      type: 'string',
+                      example: 'del_5e8f9d2a3c',
+                      description: 'ID of the deliverable to assign for review (must have status "accepted")',
+                    },
+                    reviewDeadlineDays: {
+                      type: 'integer',
+                      minimum: 1,
+                      maximum: 30,
+                      example: 7,
+                      description: 'Number of days from now for the review deadline (integer, 1–30)',
+                    },
+                    selectedCommitteeMembers: {
+                      type: 'array',
+                      items: { type: 'string' },
+                      example: ['prof_abc123', 'prof_def456'],
+                      description: 'Optional. User IDs of committee members to assign. If omitted, all committee advisors are selected.',
+                    },
+                    instructions: {
+                      type: 'string',
+                      nullable: true,
+                      example: 'Focus on the architecture section.',
+                      description: 'Optional free-text instructions for reviewers.',
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            201: {
+              description: 'Review assigned successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      deliverableId: { type: 'string', example: 'del_5e8f9d2a3c' },
+                      reviewId: { type: 'string', example: 'rev_5e8f9d2a3c' },
+                      assignedCommitteeMembers: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            memberId: { type: 'string', example: 'prof_abc123' },
+                            name: { type: 'string', example: 'ali@uni.edu' },
+                            email: { type: 'string', example: 'ali@uni.edu' },
+                            status: { type: 'string', enum: ['notified'], example: 'notified' },
+                          },
+                        },
+                      },
+                      assignedCount: { type: 'integer', example: 3 },
+                      deadline: { type: 'string', format: 'date-time', example: '2026-04-26T07:00:00.000Z' },
+                      notificationsSent: { type: 'integer', example: 3 },
+                      instructions: { type: 'string', nullable: true, example: 'Focus on the architecture section.' },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: 'Invalid request — missing/bad deliverableId, reviewDeadlineDays out of range, wrong deliverable status, or invalid member IDs' },
+            401: { description: 'No or invalid JWT' },
+            403: { description: 'Insufficient role — coordinator required' },
+            404: { description: 'Deliverable not found' },
+            409: { description: 'A review is already assigned for this deliverable' },
+          },
+        },
+      },
+      '/reviews/status': {
+        get: {
+          tags: ['Reviews'],
+          summary: 'Process 6 — Get review status for a deliverable',
+          description: 'Coordinator only. Returns the Review record for the given deliverable.',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: 'deliverableId',
+              in: 'query',
+              required: true,
+              schema: { type: 'string', example: 'del_5e8f9d2a3c' },
+              description: 'The deliverable to look up',
+            },
+          ],
+          responses: {
+            200: {
+              description: 'Review record',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      reviewId: { type: 'string', example: 'rev_5e8f9d2a3c' },
+                      deliverableId: { type: 'string', example: 'del_5e8f9d2a3c' },
+                      groupId: { type: 'string', example: 'grp_abc123' },
+                      status: { type: 'string', enum: ['pending', 'in_progress', 'needs_clarification', 'completed'], example: 'pending' },
+                      assignedMembers: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            memberId: { type: 'string' },
+                            status: { type: 'string', enum: ['notified', 'accepted', 'started'] },
+                          },
+                        },
+                      },
+                      deadline: { type: 'string', format: 'date-time' },
+                      instructions: { type: 'string', nullable: true },
+                      createdAt: { type: 'string', format: 'date-time' },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: 'Missing deliverableId query parameter' },
+            401: { description: 'No or invalid JWT' },
+            403: { description: 'Insufficient role — coordinator required' },
+            404: { description: 'No review found for this deliverable' },
           },
         },
       },

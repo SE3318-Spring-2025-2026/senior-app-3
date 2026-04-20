@@ -275,8 +275,12 @@ exports.addReply = async (req, res, next) => {
     // If comment was marked as needing response, update status to acknowledged
     if (comment.needsResponse && comment.status === 'open') {
       comment.status = 'acknowledged';
+    }
 
-      // Update Review status - if no more open clarifications, move back to in_progress
+    await comment.save();
+
+    // After saving, check if all needsResponse clarifications are now resolved/acknowledged
+    if (comment.needsResponse) {
       const review = await Review.findOne({ deliverableId: comment.deliverableId });
       if (review) {
         const openClarifications = await Comment.countDocuments({
@@ -286,14 +290,12 @@ exports.addReply = async (req, res, next) => {
           status: 'open',
         });
 
-        if (openClarifications === 0) {
-          review.status = 'in_progress';
+        if (openClarifications === 0 && ['in_progress', 'needs_clarification'].includes(review.status)) {
+          review.status = 'completed';
           await review.save();
         }
       }
     }
-
-    await comment.save();
 
     // Create audit log
     await AuditLog.create({
@@ -350,11 +352,11 @@ exports.resolveComment = async (req, res, next) => {
       status: 'open',
     });
 
-    // If no more open clarifications, update Review status
+    // If no more open clarifications, mark Review as completed
     if (openClarifications === 0) {
       const review = await Review.findOne({ deliverableId: comment.deliverableId });
-      if (review && review.status === 'needs_clarification') {
-        review.status = 'in_progress';
+      if (review && ['in_progress', 'needs_clarification'].includes(review.status)) {
+        review.status = 'completed';
         await review.save();
       }
     }

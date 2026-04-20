@@ -8,6 +8,7 @@ const User = require('../models/User');
 const Deliverable = require('../models/Deliverable');
 const AuditLog = require('../models/AuditLog');
 const Group = require('../models/Group');
+const Committee = require('../models/Committee');
 
 const NOTIFICATION_SERVICE_URL = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:4000';
 
@@ -135,7 +136,7 @@ const updateCommentHandler = async (req, res) => {
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Failed to update comment' });
   }
 
-  // If no open needsResponse comments remain, revert Review to 'in_progress'
+  // If no open needsResponse comments remain, mark Review as 'completed'
   try {
     const openCount = await Comment.countDocuments({
       deliverableId,
@@ -143,10 +144,13 @@ const updateCommentHandler = async (req, res) => {
       needsResponse: true,
     });
     if (openCount === 0) {
-      await Review.updateOne({ deliverableId }, { $set: { status: 'in_progress' } });
+      await Review.updateOne(
+        { deliverableId, status: { $in: ['in_progress', 'needs_clarification'] } },
+        { $set: { status: 'completed' } }
+      );
     }
   } catch (err) {
-    console.warn('[updateCommentHandler] Review status revert failed:', err.message);
+    console.warn('[updateCommentHandler] Review status update failed:', err.message);
   }
 
   return res.status(200).json(formatComment(comment));
@@ -491,4 +495,220 @@ const getComments = async (req, res) => {
   });
 };
 
-module.exports = { updateCommentHandler, replyToCommentHandler, addComment, getComments };
+/**
+ * POST /api/v1/reviews/assign
+ *
+ * Process 6.1 — Coordinator assigns a deliverable to committee members for review.
+ * Fetches committee members from D3, creates a Review record in D5, updates the
+ * Deliverable status to 'under_review', and triggers async assignment notifications.
+ *
+ * Requires: JWT (coordinator role only).
+ */
+const assignReview = async (req, res) => {
+  const { userId } = req.user;
+  const { deliverableId, reviewDeadlineDays, selectedCommitteeMembers, instructions } = req.body;
+
+  if (!deliverableId) {
+    return res.status(400).json({ code: 'INVALID_REQUEST', message: 'deliverableId is required' });
+  }
+
+  if (reviewDeadlineDays === undefined || reviewDeadlineDays === null) {
+    return res.status(400).json({ code: 'INVALID_REQUEST', message: 'reviewDeadlineDays is required' });
+  }
+
+  if (!Number.isInteger(reviewDeadlineDays) || reviewDeadlineDays < 1 || reviewDeadlineDays > 30) {
+    return res.status(400).json({
+      code: 'INVALID_REQUEST',
+      message: 'reviewDeadlineDays must be an integer between 1 and 30',
+    });
+  }
+
+  let deliverable;
+  try {
+    deliverable = await Deliverable.findOne({ deliverableId }).lean();
+  } catch (err) {
+    console.error('[assignReview] deliverable query error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Database query failed' });
+  }
+
+  if (!deliverable) {
+    return res.status(404).json({ code: 'DELIVERABLE_NOT_FOUND', message: 'Deliverable not found' });
+  }
+
+  let existingReview;
+  try {
+    existingReview = await Review.findOne({ deliverableId }).lean();
+  } catch (err) {
+    console.error('[assignReview] review query error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Database query failed' });
+  }
+
+  if (existingReview) {
+    return res.status(409).json({
+      code: 'REVIEW_ALREADY_EXISTS',
+      message: 'A review is already assigned for this deliverable',
+    });
+  }
+
+  if (deliverable.status !== 'accepted') {
+    return res.status(400).json({
+      code: 'INVALID_DELIVERABLE_STATUS',
+      message: `Deliverable must have status 'accepted'; current: ${deliverable.status}`,
+    });
+  }
+
+  let committee;
+  try {
+    committee = await Committee.findOne({ committeeId: deliverable.committeeId }).lean();
+  } catch (err) {
+    console.error('[assignReview] committee query error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Database query failed' });
+  }
+
+  if (!committee) {
+    return res.status(400).json({ code: 'COMMITTEE_NOT_FOUND', message: 'Committee not found for this deliverable' });
+  }
+
+  const membersToAssign =
+    selectedCommitteeMembers && selectedCommitteeMembers.length > 0
+      ? selectedCommitteeMembers
+      : committee.advisorIds;
+
+  const invalidMemberIds = membersToAssign.filter((id) => !committee.advisorIds.includes(id));
+  if (invalidMemberIds.length > 0) {
+    return res.status(400).json({
+      code: 'INVALID_MEMBER_IDS',
+      message: 'Some member IDs are not valid active committee members',
+      invalidMemberIds,
+    });
+  }
+
+  const deadline = new Date();
+  deadline.setDate(deadline.getDate() + reviewDeadlineDays);
+
+  const assignedMembersData = membersToAssign.map((memberId) => ({ memberId, status: 'notified' }));
+
+  let review;
+  try {
+    review = await Review.create({
+      deliverableId,
+      groupId: deliverable.groupId,
+      status: 'pending',
+      assignedMembers: assignedMembersData,
+      deadline,
+      instructions: instructions || null,
+    });
+  } catch (err) {
+    console.error('[assignReview] review create error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Failed to create review' });
+  }
+
+  // Update deliverable status (fire-and-forget — response should not wait on this)
+  Deliverable.findOneAndUpdate({ deliverableId }, { status: 'under_review' }).catch((err) => {
+    console.error('[assignReview] deliverable update error:', err.message);
+  });
+
+  // Fetch member details for response (name/email from User collection)
+  let memberDetails;
+  try {
+    const memberUsers = await User.find({ userId: { $in: membersToAssign } })
+      .select('userId email')
+      .lean();
+    const userMap = Object.fromEntries(memberUsers.map((u) => [u.userId, u]));
+    memberDetails = assignedMembersData.map((m) => ({
+      memberId: m.memberId,
+      name: userMap[m.memberId]?.email ?? m.memberId,
+      email: userMap[m.memberId]?.email ?? null,
+      status: m.status,
+    }));
+  } catch (err) {
+    console.error('[assignReview] user fetch error:', err.message);
+    memberDetails = assignedMembersData.map((m) => ({
+      memberId: m.memberId,
+      name: m.memberId,
+      email: null,
+      status: m.status,
+    }));
+  }
+
+  // Audit log (fire-and-forget)
+  AuditLog.create({
+    action: 'REVIEW_ASSIGNED',
+    actorId: userId,
+    targetId: review.reviewId,
+    groupId: deliverable.groupId,
+    payload: { reviewId: review.reviewId, deliverableId, assignedMemberCount: assignedMembersData.length },
+    ipAddress: req.ip ?? null,
+    userAgent: req.headers['user-agent'] ?? null,
+  }).catch((err) => console.error('[assignReview] audit log error:', err.message));
+
+  // Dispatch notifications async (DFD f14: 6.1 → Notification Service); does not block response
+  const notificationsSent = membersToAssign.length;
+  setImmediate(async () => {
+    try {
+      await axios.post(
+        `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+        {
+          type: 'review_assignment',
+          reviewId: review.reviewId,
+          deliverableId,
+          groupId: deliverable.groupId,
+          recipients: membersToAssign,
+          instructions: instructions || null,
+        },
+        { timeout: 5000 }
+      );
+    } catch (err) {
+      console.error('[assignReview] notification dispatch error:', err.message);
+    }
+  });
+
+  return res.status(201).json({
+    deliverableId,
+    reviewId: review.reviewId,
+    assignedCommitteeMembers: memberDetails,
+    assignedCount: memberDetails.length,
+    deadline: review.deadline.toISOString(),
+    notificationsSent,
+    instructions: review.instructions,
+  });
+};
+
+/**
+ * GET /api/v1/reviews/status
+ *
+ * Process 6 — Return the current review record for a given deliverable.
+ * Requires: JWT (coordinator role only). Query param: deliverableId.
+ */
+const getReviewStatus = async (req, res) => {
+  const { deliverableId } = req.query;
+
+  if (!deliverableId) {
+    return res.status(400).json({ code: 'INVALID_REQUEST', message: 'deliverableId query parameter is required' });
+  }
+
+  let review;
+  try {
+    review = await Review.findOne({ deliverableId }).lean();
+  } catch (err) {
+    console.error('[getReviewStatus] DB error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Database query failed' });
+  }
+
+  if (!review) {
+    return res.status(404).json({ code: 'REVIEW_NOT_FOUND', message: 'No review found for this deliverable' });
+  }
+
+  return res.status(200).json({
+    reviewId: review.reviewId,
+    deliverableId: review.deliverableId,
+    groupId: review.groupId,
+    status: review.status,
+    assignedMembers: review.assignedMembers,
+    deadline: review.deadline,
+    instructions: review.instructions,
+    createdAt: review.createdAt,
+  });
+};
+
+module.exports = { updateCommentHandler, replyToCommentHandler, addComment, getComments, assignReview, getReviewStatus };

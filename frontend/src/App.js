@@ -27,6 +27,8 @@ import './components/layout/Sidebar.css';
 import AdvisorAssociationPanel from './components/AdvisorAssociationPanel';
 import DeliverableSubmissionForm from './components/DeliverableSubmissionForm.jsx';
 import SubmitDeliverablePage from './pages/SubmitDeliverablePage.jsx';
+import ReviewPage from './pages/ReviewPage.jsx';
+import ReviewManagement from './pages/ReviewManagement.jsx';
 
 
 const Profile = () => <div className="page">Profile - Coming Soon</div>;
@@ -122,6 +124,14 @@ function App() {
             <Route
               path="/dashboard/submit-deliverable"
               element={<ProtectedRoute component={SubmitDeliverablePage} requiredRoles={['student']} />}
+            />
+            <Route
+              path="/dashboard/reviews/:deliverableId"
+              element={<ProtectedRoute component={ReviewPage} requiredRoles={['professor', 'coordinator', 'committee_member', 'admin']} />}
+            />
+            <Route
+              path="/dashboard/reviews"
+              element={<ProtectedRoute component={ReviewManagement} requiredRoles={['coordinator', 'admin']} />}
             />
             <Route
               path="/jury/committees"
