@@ -179,7 +179,7 @@ Full Process 5.1 → 5.4 flow via curl:
 
 STEP 1 — Get a validationToken (Process 5.1):
 
-  curl -s -X POST http://localhost:5000/api/v1/deliverables/validate-group \\
+  curl -s -X POST http://localhost:5002/api/v1/deliverables/validate-group \\
     -H "Authorization: Bearer ${token}" \\
     -H "Content-Type: application/json" \\
     -d '{"groupId": "${groupId}"}' | jq .
@@ -188,7 +188,7 @@ STEP 2 — Submit a deliverable, get stagingId (Process 5.2):
 
   echo "%PDF-1.4 test" > /tmp/test.pdf
 
-  curl -s -X POST http://localhost:5000/api/v1/deliverables/submit \\
+  curl -s -X POST http://localhost:5002/api/v1/deliverables/submit \\
     -H "Authorization: Bearer ${token}" \\
     -H "Authorization-Validation: <VALIDATION_TOKEN>" \\
     -F "groupId=${groupId}" \\
@@ -199,12 +199,12 @@ STEP 2 — Submit a deliverable, get stagingId (Process 5.2):
 
 STEP 3 — Validate format (Process 5.3):
 
-  curl -s -X POST http://localhost:5000/api/v1/deliverables/<STAGING_ID>/validate-format \\
+  curl -s -X POST http://localhost:5002/api/v1/deliverables/<STAGING_ID>/validate-format \\
     -H "Authorization: Bearer ${token}" | jq .
 
 STEP 4 — Validate deadline + team requirements (Process 5.4):
 
-  curl -s -X POST http://localhost:5000/api/v1/deliverables/<STAGING_ID>/validate-deadline \\
+  curl -s -X POST http://localhost:5002/api/v1/deliverables/<STAGING_ID>/validate-deadline \\
     -H "Authorization: Bearer ${token}" \\
     -H "Content-Type: application/json" \\
     -d '{"sprintId": "sprint_1"}' | jq .

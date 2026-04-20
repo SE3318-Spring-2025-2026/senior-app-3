@@ -52,7 +52,7 @@ The authentication system includes:
 
    Edit `.env` with your configuration:
    ```env
-   PORT=5000
+  PORT=5002
    NODE_ENV=development
    MONGODB_URI=mongodb://localhost:27017/senior-app
    JWT_SECRET=your-super-secret-jwt-key
@@ -78,7 +78,7 @@ The authentication system includes:
    npm run dev
    ```
 
-   Server will run on `http://localhost:5000`
+  Server will run on `http://localhost:5002`
 
 ### API Endpoints
 
@@ -250,7 +250,7 @@ Response (200):
 
    Edit `.env.local`:
    ```env
-   REACT_APP_API_URL=http://localhost:5000/api/v1
+  REACT_APP_API_URL=http://localhost:5002/api/v1
    REACT_APP_GITHUB_CLIENT_ID=your-github-client-id
    REACT_APP_ENVIRONMENT=development
    ```
@@ -433,7 +433,7 @@ const { user, accessToken, refreshToken } = useAuthStore();
 
 **Login locally**
 ```bash
-curl -X POST http://localhost:5000/api/v1/auth/login \
+curl -X POST http://localhost:5002/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "test@university.edu",
@@ -443,13 +443,13 @@ curl -X POST http://localhost:5000/api/v1/auth/login \
 
 **Access protected endpoint**
 ```bash
-curl -X GET http://localhost:5000/api/v1/onboarding/accounts/usr_abc123 \
+curl -X GET http://localhost:5002/api/v1/onboarding/accounts/usr_abc123 \
   -H "Authorization: Bearer <accessToken>"
 ```
 
 **Refresh token**
 ```bash
-curl -X POST http://localhost:5000/api/v1/auth/refresh \
+curl -X POST http://localhost:5002/api/v1/auth/refresh \
   -H "Content-Type: application/json" \
   -d '{
     "refreshToken": "<refreshToken>"
@@ -495,7 +495,7 @@ Solution: Start MongoDB or update MONGODB_URI in .env
 ```
 Error: listen EADDRINUSE: address already in use :::5000
 ```
-Solution: Kill process on port 5000 or change PORT in .env
+Solution: Kill process on port 5002 or change PORT in .env
 
 ### Frontend Issues
 

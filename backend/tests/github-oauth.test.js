@@ -64,7 +64,7 @@ describe('GitHub OAuth (integration)', () => {
     // Set env vars used by the controller
     process.env.GITHUB_CLIENT_ID = 'test-client-id';
     process.env.GITHUB_CLIENT_SECRET = 'test-client-secret';
-    process.env.GITHUB_REDIRECT_URI = 'http://localhost:5000/api/v1/auth/github/oauth/callback';
+    process.env.GITHUB_REDIRECT_URI = 'http://localhost:5002/api/v1/auth/github/oauth/callback';
     process.env.FRONTEND_URL = 'http://localhost:3000';
   });
 

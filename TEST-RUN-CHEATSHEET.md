@@ -36,13 +36,13 @@ npm run dev
 ```
 
 Beklenen log:
-- `Server is running on port 5000`
+- `Server is running on port 5002`
 - `MongoDB connected successfully`
 
 Health check (ayri terminal):
 
 ```powershell
-Invoke-RestMethod -Method Get -Uri "http://localhost:5000/health"
+Invoke-RestMethod -Method Get -Uri "http://localhost:5002/health"
 ```
 
 Beklenen cikti:

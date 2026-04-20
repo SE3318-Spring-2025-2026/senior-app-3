@@ -1,6 +1,6 @@
 # 🛠️ System Bootup (Localhost Setup)
 
-This runbook matches the **Senior App** layout: a **Node.js + Express** API under `backend/` and a **Create React App** (`react-scripts`) client under `frontend/`. The frontend proxies API calls to the backend via `frontend/package.json` → `"proxy": "http://localhost:5000"`, so the backend should listen on **port 5000** during local demos unless you change both sides.
+This runbook matches the **Senior App** layout: a **Node.js + Express** API under `backend/` and a **Create React App** (`react-scripts`) client under `frontend/`. The frontend proxies API calls to the backend via `frontend/package.json` → `"proxy": "http://localhost:5002"`, so the backend should listen on **port 5002** during local demos unless you change both sides.
 
 ---
 
@@ -21,11 +21,11 @@ This runbook matches the **Senior App** layout: a **Node.js + Express** API unde
 
 ## Environment Variables
 
-Create **`backend/.env`** (you may copy from `backend/.env.example` and adjust). Below is a **minimal local demo template** aligned with `backend/src/index.js` (default `PORT` **5000**, URI variable **`MONGODB_URI`**):
+Create **`backend/.env`** (you may copy from `backend/.env.example` and adjust). Below is a **minimal local demo template** aligned with `backend/src/index.js` (default `PORT` **5002**, URI variable **`MONGODB_URI`**):
 
 ```env
 # Server
-PORT=5000
+PORT=5002
 NODE_ENV=development
 
 # Database (required for Mongoose)
@@ -43,7 +43,7 @@ FRONTEND_URL=http://localhost:3000
 # Optional: GitHub OAuth — only if you demo OAuth; placeholders are fine for Process 3.0 / 4.0 UI paths
 GITHUB_CLIENT_ID=your-github-client-id
 GITHUB_CLIENT_SECRET=your-github-client-secret
-GITHUB_REDIRECT_URI=http://localhost:5000/api/v1/auth/github/oauth/callback
+GITHUB_REDIRECT_URI=http://localhost:5002/api/v1/auth/github/oauth/callback
 
 # Email — dev mode often logs only; placeholders are acceptable for local demos
 EMAIL_USER=your-email@gmail.com
@@ -51,7 +51,7 @@ EMAIL_SERVICE=gmail
 EMAIL_PASSWORD=your-app-password
 ```
 
-**Important:** If you change `PORT` away from **5000**, update `frontend/package.json` `proxy` to the same origin, or configure the frontend API base URL accordingly.
+**Important:** If you change `PORT` away from **5002**, update `frontend/package.json` `proxy` to the same origin, or configure the frontend API base URL accordingly.
 
 ---
 
@@ -91,11 +91,11 @@ npm run dev
 
 **Expected console output (normal startup):**
 
-- `Server is running on port 5000` (or your `PORT`)
+- `Server is running on port 5002` (or your `PORT`)
 - `Environment: development`
 - `MongoDB connected successfully`
 
-**Health check:** open [http://localhost:5000/health](http://localhost:5000/health) — expect JSON `{ "status": "ok", ... }`.
+**Health check:** open [http://localhost:5002/health](http://localhost:5002/health) — expect JSON `{ "status": "ok", ... }`.
 
 **Scripts (from `backend/package.json`):** `npm run dev` → `nodemon src/index.js`; `npm start` → `node src/index.js`.
 
@@ -112,7 +112,7 @@ npm start
 ```
 
 - **URL:** [http://localhost:3000](http://localhost:3000) (CRA default).
-- The dev server proxies `/api` to `http://localhost:5000` per `proxy` in `frontend/package.json`.
+- The dev server proxies `/api` to `http://localhost:5002` per `proxy` in `frontend/package.json`.
 
 ---
 
