@@ -15,7 +15,7 @@ Use this checklist to verify all components are properly installed and working.
 - [ ] Frontend: `.env.local` file created from `.env.example`
 - [ ] Backend: JWT secrets configured
 - [ ] Backend: MongoDB URI configured
-- [ ] Frontend: API URL matches backend (http://localhost:5000/api/v1)
+- [ ] Frontend: API URL matches backend (http://localhost:5002/api/v1)
 
 ---
 
@@ -47,8 +47,8 @@ npm run dev
 ```
 - [ ] Server starts without errors
 - [ ] Console shows "MongoDB connected successfully"
-- [ ] Console shows "Server is running on port 5000"
-- [ ] Health check works: `curl http://localhost:5000/health`
+- [ ] Console shows "Server is running on port 5002"
+- [ ] Health check works: `curl http://localhost:5002/health`
 
 ---
 
@@ -156,13 +156,13 @@ npm start
 
 #### Test Backend Health
 ```bash
-curl http://localhost:5000/health
+curl http://localhost:5002/health
 ```
 - [ ] Returns `{"status":"ok","timestamp":"..."}`
 
 #### Test Registration
 ```bash
-curl -X POST http://localhost:5000/api/v1/auth/register \
+curl -X POST http://localhost:5002/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{
     "validationToken": "test",
@@ -176,7 +176,7 @@ curl -X POST http://localhost:5000/api/v1/auth/register \
 
 #### Test Login
 ```bash
-curl -X POST http://localhost:5000/api/v1/auth/login \
+curl -X POST http://localhost:5002/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "curl@test.edu",
@@ -189,7 +189,7 @@ curl -X POST http://localhost:5000/api/v1/auth/login \
 #### Test Token Refresh
 ```bash
 # Use refreshToken from previous response
-curl -X POST http://localhost:5000/api/v1/auth/refresh \
+curl -X POST http://localhost:5002/api/v1/auth/refresh \
   -H "Content-Type: application/json" \
   -d '{
     "refreshToken": "<REFRESH_TOKEN_HERE>"
@@ -202,7 +202,7 @@ curl -X POST http://localhost:5000/api/v1/auth/refresh \
 #### Test Protected Endpoint
 ```bash
 # Use accessToken from previous response
-curl -X GET http://localhost:5000/api/v1/onboarding/accounts/usr_123 \
+curl -X GET http://localhost:5002/api/v1/onboarding/accounts/usr_123 \
   -H "Authorization: Bearer <ACCESS_TOKEN_HERE>"
 ```
 - [ ] Returns 200 if user exists

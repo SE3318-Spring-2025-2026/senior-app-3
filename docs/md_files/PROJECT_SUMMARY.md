@@ -245,20 +245,20 @@ npm start        # Starts on :3000
 ### Automated Testing Endpoints
 ```bash
 # Health check
-curl http://localhost:5000/health
+curl http://localhost:5002/health
 
 # Register
-curl -X POST http://localhost:5000/api/v1/auth/register \
+curl -X POST http://localhost:5002/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{"validationToken":"test","email":"test@test.edu","password":"Test123!@"}'
 
 # Login
-curl -X POST http://localhost:5000/api/v1/auth/login \
+curl -X POST http://localhost:5002/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"test@test.edu","password":"Test123!@"}'
 
 # Refresh Token
-curl -X POST http://localhost:5000/api/v1/auth/refresh \
+curl -X POST http://localhost:5002/api/v1/auth/refresh \
   -H "Content-Type: application/json" \
   -d '{"refreshToken":"<YOUR_REFRESH_TOKEN>"}'
 ```

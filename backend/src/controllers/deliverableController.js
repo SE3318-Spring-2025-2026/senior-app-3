@@ -392,40 +392,34 @@ const storeDeliverableHandler = async (req, res) => {
     });
   }
 
-  // 2–4. Move file, create DB record, and delete staging — all in a transaction so
-  //      createFinalRecord and deleteOne are atomic. persistDeliverableFile is
-  //      synchronous file I/O and cannot participate in the DB session; if it
-  //      succeeds but the transaction aborts, the permanent file is left orphaned
-  //      (acceptable trade-off — the staging record is preserved for retry).
+  // 2–4. Move file, create DB record, and delete staging.
+  // Note: transactions require a replica set; standalone MongoDB is not supported.
+  // The staging TTL index handles cleanup of any stale records if deleteOne fails.
   let fileInfo;
   let deliverable;
-  const session = await mongoose.startSession();
-  session.startTransaction();
 
   try {
     fileInfo = persistDeliverableFile(staging);
-    deliverable = await createFinalRecord(staging, fileInfo.savedPath, session);
-    await DeliverableStaging.deleteOne({ stagingId }, { session });
-    await session.commitTransaction();
   } catch (err) {
-    await session.abortTransaction();
-
     if (err.statusCode === 507 || err.code === 'DISK_FULL') {
       return res.status(507).json({ code: 'DISK_FULL', message: 'Insufficient disk space — please retry later' });
     }
-
     if (err.statusCode === 400 && err.code === 'CHECKSUM_MISMATCH') {
       return res.status(400).json({ code: 'CHECKSUM_MISMATCH', message: err.message });
     }
-
     if (err.statusCode === 404 && err.code === 'FILE_NOT_FOUND') {
       return res.status(404).json({ code: 'STAGING_FILE_NOT_FOUND', message: err.message });
     }
-
-    console.error('[storeDeliverableHandler] Transaction error:', err);
+    console.error('[storeDeliverableHandler] File persist error:', err);
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Failed to store deliverable' });
-  } finally {
-    session.endSession();
+  }
+
+  try {
+    deliverable = await createFinalRecord(staging, fileInfo.savedPath);
+    await DeliverableStaging.deleteOne({ stagingId });
+  } catch (err) {
+    console.error('[storeDeliverableHandler] DB error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Failed to store deliverable' });
   }
 
   AuditLog.create({
