@@ -29,6 +29,7 @@ import DeliverableSubmissionForm from './components/DeliverableSubmissionForm.js
 import SubmitDeliverablePage from './pages/SubmitDeliverablePage.jsx';
 import ReviewPage from './pages/ReviewPage.jsx';
 import ReviewManagement from './pages/ReviewManagement.jsx';
+import SprintContributionDashboard from './pages/SprintContributionDashboard.jsx';
 
 
 const Profile = () => <div className="page">Profile - Coming Soon</div>;
@@ -120,6 +121,10 @@ function App() {
             <Route
               path="/groups/:group_id/deliverables/submit"
               element={<ProtectedRoute component={DeliverableSubmissionForm} requiredRoles={['student']} />}
+            />
+            <Route
+              path="/groups/:groupId/sprints/:sprintId/contributions"
+              element={<ProtectedRoute component={SprintContributionDashboard} requiredRoles={['professor', 'committee_member', 'admin']} />}
             />
             <Route
               path="/dashboard/submit-deliverable"
