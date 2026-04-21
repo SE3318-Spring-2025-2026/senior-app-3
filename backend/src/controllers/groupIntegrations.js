@@ -2,6 +2,7 @@ const axios = require('axios');
 const Group = require('../models/Group');
 const SyncErrorLog = require('../models/SyncErrorLog');
 const { createAuditLog } = require('../services/auditService');
+const { encrypt } = require('../utils/cryptoUtils');
 
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 100;
@@ -170,8 +171,8 @@ const configureGithub = async (req, res) => {
       return res.status(503).json({ code: 'GITHUB_API_UNAVAILABLE', message: 'GitHub API unavailable after maximum retry attempts' });
     }
 
-    // f24: store config in D2
-    group.githubPat = pat.trim();
+    // f24: store config in D2 (PAT stored encrypted)
+    group.githubPat = encrypt(pat.trim());
     group.githubOrg = org_name.trim();
     group.githubOrgId = orgData.id;
     group.githubOrgName = orgData.name;
@@ -427,7 +428,7 @@ const configureJira = async (req, res) => {
     // jiraStoryPointOnly: true — JIRA is strictly scoped to story point retrieval
     group.jiraUrl = baseUrl;
     group.jiraUsername = email.trim();
-    group.jiraToken = api_token.trim();
+    group.jiraToken = encrypt(api_token.trim());
     group.projectKey = project_key.trim();
     group.jiraProjectId = String(projectData.id);
     group.jiraProject = projectData.name || project_key.trim();
