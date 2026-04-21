@@ -67,6 +67,7 @@
 .sprint-contribution-state,
 .sprint-contribution-error,
 .sprint-contribution-empty,
+.sprint-contribution-note,
 .sprint-contribution-panel,
 .sprint-contribution-metrics {
   margin-left: auto;
@@ -128,6 +129,16 @@
   display: block;
   font-size: 22px;
   line-height: 1.1;
+}
+
+.sprint-contribution-note {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  color: #1e3a8a;
+  font-size: 13px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
 }
 
 .sprint-contribution-panel {

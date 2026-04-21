@@ -77,7 +77,7 @@ const buildCsv = (summary, contributions) => {
       'targetStoryPoints',
       'groupTotalStoryPoints',
       'contributionRatio',
-      'locked',
+      'status',
       'recalculatedAt',
     ],
     ...contributions.map((entry) => [
@@ -89,7 +89,7 @@ const buildCsv = (summary, contributions) => {
       entry.targetStoryPoints,
       entry.groupTotalStoryPoints,
       entry.contributionRatio,
-      entry.locked === true,
+      entry.locked ? 'Locked' : 'Open',
       summary.recalculatedAt,
     ]),
   ];
@@ -133,8 +133,8 @@ const SprintContributionDashboard = () => {
     [summary]
   );
 
-  const groupTotalStoryPoints = contributions[0]?.groupTotalStoryPoints ?? 0;
-  const lockedCount = contributions.filter((entry) => entry.locked === true).length;
+  const groupTotalStoryPoints = summary?.groupTotalStoryPoints ?? 0;
+  const lockedCount = summary?.lockedCount ?? 0;
 
   const handleCsvExport = () => {
     if (!summary) return;
@@ -214,6 +214,10 @@ const SprintContributionDashboard = () => {
               <strong>{lockedCount}</strong>
             </div>
           </section>
+
+          <div className="sprint-contribution-note">
+            Trend data is not available from the current Process 7 API, so this view shows the selected sprint only.
+          </div>
 
           <section className="sprint-contribution-panel">
             <div className="sprint-contribution-panel-header">

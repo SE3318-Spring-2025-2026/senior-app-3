@@ -124,7 +124,7 @@ function App() {
             />
             <Route
               path="/groups/:groupId/sprints/:sprintId/contributions"
-              element={<ProtectedRoute component={SprintContributionDashboard} requiredRoles={['professor', 'committee_member', 'admin']} />}
+              element={<ProtectedRoute component={SprintContributionDashboard} requiredRoles={['professor', 'advisor', 'committee_member']} />}
             />
             <Route
               path="/dashboard/submit-deliverable"
