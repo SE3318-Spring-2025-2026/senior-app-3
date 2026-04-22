@@ -12,6 +12,7 @@ const {
   createGroup,
   getGroup,
   getAllGroups,
+  getSprintContributionSummary,
   createMemberRequest,
   decideMemberRequest,
   coordinatorOverride,
@@ -67,6 +68,19 @@ router.get('/', authMiddleware, roleMiddleware(['coordinator']), getAllGroups);
 
 // GET /api/v1/groups/:groupId — Detailed group record
 router.get('/:groupId', authMiddleware, getGroup);
+
+/**
+ * GET /api/v1/groups/:groupId/committee-status — Committee status lookup (From your branch)
+ */
+router.get('/:groupId/committee-status', authMiddleware, getGroupCommitteeStatus);
+
+// GET /api/v1/groups/:groupId/sprints/:sprintId/contributions — read-only Process 7.x summary
+router.get(
+  '/:groupId/sprints/:sprintId/contributions',
+  authMiddleware,
+  roleMiddleware(['professor', 'advisor', 'committee_member']),
+  getSprintContributionSummary
+);
 
 // ============================================================================
 // MEMBERSHIP & APPROVALS (Process 2.3 - 2.5)
