@@ -2,12 +2,44 @@ const axios = require('axios');
 const Group = require('../models/Group');
 const SyncErrorLog = require('../models/SyncErrorLog');
 const { createAuditLog } = require('../services/auditService');
-const { encrypt } = require('../utils/cryptoUtils');
+const {
+  getGroupOrThrow,
+  overwriteGithubCredentials,
+  overwriteJiraCredentials,
+} = require('../services/integrationCoordinatorService');
+const {
+  REQUIRED_GITHUB_SCOPES,
+  parseScopes,
+  missingScopes,
+  maskSecret,
+  logSecurityAudit,
+} = require('../services/integrationSecurityService');
 
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 100;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function ensureLeader(group, userId) {
+  if (group.leaderId !== userId) {
+    const err = new Error('Only the group leader can configure this integration');
+    err.status = 403;
+    err.code = 'FORBIDDEN';
+    throw err;
+  }
+}
+
+function tryHandleKnownError(err, res) {
+  if (err?.code === 'GROUP_NOT_FOUND') {
+    res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
+    return true;
+  }
+  if (err?.code === 'FORBIDDEN') {
+    res.status(403).json({ code: 'FORBIDDEN', message: err.message });
+    return true;
+  }
+  return false;
+}
 
 /**
  * Retry wrapper: calls fn up to maxAttempts times with exponential back-off.
@@ -79,27 +111,49 @@ const configureGithub = async (req, res) => {
       return res.status(400).json({ code: 'INVALID_VISIBILITY', message: 'visibility must be one of: private, public, internal' });
     }
 
-    const group = await Group.findOne({ groupId });
-    if (!group) {
-      return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
-    }
-
-    if (group.leaderId !== req.user.userId) {
-      return res.status(403).json({ code: 'FORBIDDEN', message: 'Only the group leader can configure GitHub' });
-    }
+    const group = await getGroupOrThrow(groupId);
+    ensureLeader(group, req.user.userId);
 
     // f11: validate PAT against GitHub API (with retry)
     let orgData;
     try {
-      await withRetry(() =>
+      const githubUserResponse = await withRetry(() =>
         axios.get('https://api.github.com/user', {
           headers: { Authorization: `Bearer ${pat.trim()}`, 'User-Agent': 'senior-app' },
           timeout: 5000,
         })
       );
+
+      const grantedScopes = parseScopes(githubUserResponse.headers['x-oauth-scopes']);
+      const missing = missingScopes(grantedScopes);
+      if (missing.length > 0) {
+        await logSecurityAudit({
+          actorId: req.user.userId,
+          groupId,
+          targetId: groupId,
+          provider: 'github',
+          reason: 'insufficient_scopes',
+          statusCode: 403,
+          req,
+        });
+        return res.status(422).json({
+          code: 'INSUFFICIENT_GITHUB_SCOPES',
+          message: `GitHub PAT is missing minimum scopes: ${missing.join(', ')}`,
+          required_scopes: REQUIRED_GITHUB_SCOPES,
+        });
+      }
     } catch (err) {
       const status = err.response?.status;
       if (status === 401 || status === 403) {
+        await logSecurityAudit({
+          actorId: req.user.userId,
+          groupId,
+          targetId: groupId,
+          provider: 'github',
+          reason: 'unauthorized_token_use',
+          statusCode: status,
+          req,
+        });
         return res.status(422).json({ code: 'INVALID_PAT', message: 'GitHub PAT is invalid or has insufficient permissions' });
       }
       // Network/timeout failures — log sync error
@@ -171,16 +225,17 @@ const configureGithub = async (req, res) => {
       return res.status(503).json({ code: 'GITHUB_API_UNAVAILABLE', message: 'GitHub API unavailable after maximum retry attempts' });
     }
 
-    // f24: store config in D2 (PAT stored encrypted)
-    group.githubPat = encrypt(pat.trim());
-    group.githubOrg = org_name.trim();
-    group.githubOrgId = orgData.id;
-    group.githubOrgName = orgData.name;
-    group.githubRepoName = repo_name.trim();
-    group.githubVisibility = visibility;
-    group.githubRepoUrl = `https://github.com/${org_name.trim()}/${repo_name.trim()}`;
-    group.githubLastSynced = new Date();
-    await group.save();
+    // f24: store config in D2 (PAT stored encrypted + rotated)
+    await overwriteGithubCredentials({
+      group,
+      pat: pat.trim(),
+      orgName: org_name.trim(),
+      orgData,
+      repoName: repo_name.trim(),
+      visibility,
+      actorId: req.user.userId,
+      req,
+    });
 
     // Audit log: github_integration_setup (non-fatal)
     try {
@@ -213,6 +268,7 @@ const configureGithub = async (req, res) => {
       },
     });
   } catch (err) {
+    if (tryHandleKnownError(err, res)) return;
     console.error('configureGithub error:', err);
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
   }
@@ -239,10 +295,7 @@ const getGithub = async (req, res) => {
   try {
     const { groupId } = req.params;
 
-    const group = await Group.findOne({ groupId });
-    if (!group) {
-      return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
-    }
+    const group = await getGroupOrThrow(groupId);
 
     // Check if GitHub integration is connected
     const isConnected = !!(group.githubOrg && group.githubPat && group.githubRepoUrl);
@@ -273,6 +326,8 @@ const getGithub = async (req, res) => {
     // Include confirmation data only if successfully connected
     if (isConnected) {
       response.repo_url = group.githubRepoUrl;
+      response.token_masked = maskSecret(null);
+      response.required_scopes = REQUIRED_GITHUB_SCOPES;
       response.org = {
         id: group.githubOrgId,
         login: group.githubOrg,
@@ -283,6 +338,7 @@ const getGithub = async (req, res) => {
 
     return res.status(200).json(response);
   } catch (err) {
+    if (tryHandleKnownError(err, res)) return;
     console.error('getGithub error:', err);
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
   }
@@ -335,14 +391,8 @@ const configureJira = async (req, res) => {
       return res.status(400).json({ code: 'MISSING_PROJECT_KEY', message: 'project_key is required' });
     }
 
-    const group = await Group.findOne({ groupId });
-    if (!group) {
-      return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
-    }
-
-    if (group.leaderId !== req.user.userId) {
-      return res.status(403).json({ code: 'FORBIDDEN', message: 'Only the group leader can configure JIRA' });
-    }
+    const group = await getGroupOrThrow(groupId);
+    ensureLeader(group, req.user.userId);
 
     const baseUrl = host.trim().replace(/\/$/, '');
     const auth = Buffer.from(`${email.trim()}:${api_token.trim()}`).toString('base64');
@@ -358,6 +408,15 @@ const configureJira = async (req, res) => {
     } catch (err) {
       const status = err.response?.status;
       if (status === 401 || status === 403) {
+        await logSecurityAudit({
+          actorId: req.user.userId,
+          groupId,
+          targetId: groupId,
+          provider: 'jira',
+          reason: 'unauthorized_token_use',
+          statusCode: status,
+          req,
+        });
         return res.status(422).json({
           code: 'INVALID_JIRA_CREDENTIALS',
           message: 'JIRA credentials are invalid or have insufficient permissions',
@@ -422,20 +481,17 @@ const configureJira = async (req, res) => {
       return res.status(503).json({ code: 'JIRA_API_UNAVAILABLE', message: 'JIRA API unavailable after maximum retry attempts' });
     }
 
-    const boardUrl = `${baseUrl}/jira/software/projects/${project_key.trim()}/boards`;
-
-    // f25: store binding confirmation in D2
-    // jiraStoryPointOnly: true — JIRA is strictly scoped to story point retrieval
-    group.jiraUrl = baseUrl;
-    group.jiraUsername = email.trim();
-    group.jiraToken = encrypt(api_token.trim());
-    group.projectKey = project_key.trim();
-    group.jiraProjectId = String(projectData.id);
-    group.jiraProject = projectData.name || project_key.trim();
-    group.jiraBoardUrl = boardUrl;
-    group.jiraLastSynced = new Date();
-    group.jiraStoryPointOnly = true;
-    await group.save();
+    // f25: store binding confirmation in D2 (credential overwrite)
+    await overwriteJiraCredentials({
+      group,
+      baseUrl,
+      email: email.trim(),
+      apiToken: api_token.trim(),
+      projectKey: project_key.trim(),
+      projectData,
+      actorId: req.user.userId,
+      req,
+    });
 
     // Audit log (non-fatal)
     try {
@@ -448,7 +504,7 @@ const configureJira = async (req, res) => {
           binding: 'confirmed',
           project_key: project_key.trim(),
           project_id: group.jiraProjectId,
-          board_url: boardUrl,
+          board_url: group.jiraBoardUrl,
           story_point_only: true,
         },
         ipAddress: req.ip,
@@ -465,6 +521,7 @@ const configureJira = async (req, res) => {
       board_url: group.jiraBoardUrl,
     });
   } catch (err) {
+    if (tryHandleKnownError(err, res)) return;
     console.error('configureJira error:', err);
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
   }
@@ -487,10 +544,7 @@ const getJira = async (req, res) => {
   try {
     const { groupId } = req.params;
 
-    const group = await Group.findOne({ groupId });
-    if (!group) {
-      return res.status(404).json({ code: 'GROUP_NOT_FOUND', message: 'Group not found' });
-    }
+    const group = await getGroupOrThrow(groupId);
 
     const isConnected = !!(group.jiraUrl && group.projectKey && group.jiraBoardUrl);
 
@@ -515,10 +569,12 @@ const getJira = async (req, res) => {
     if (isConnected) {
       response.project_key = group.projectKey;
       response.board_url = group.jiraBoardUrl;
+      response.token_masked = maskSecret(null);
     }
 
     return res.status(200).json(response);
   } catch (err) {
+    if (tryHandleKnownError(err, res)) return;
     console.error('getJira error:', err);
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
   }

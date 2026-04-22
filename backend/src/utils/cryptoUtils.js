@@ -12,13 +12,21 @@ const crypto = require('crypto');
  */
 
 const ALGORITHM = 'aes-256-gcm';
-const IV_LENGTH = 16;
-const AUTH_TAG_LENGTH = 16;
+const IV_LENGTH = 12;
+const KEY_VERSION = 'v1';
 
-// Fallback key for development only. In production, this must be in process.env.ENCRYPTION_KEY
-const KEY = process.env.ENCRYPTION_KEY 
-  ? Buffer.from(process.env.ENCRYPTION_KEY, 'hex') 
-  : Buffer.from('8f1e6f7c9a2b5d4e3f1a2c3d4e5f607182930415263748596071829304152637', 'hex');
+function getKey() {
+  const keyHex = process.env.ENCRYPTION_KEY;
+  if (!keyHex) {
+    throw new Error('ENCRYPTION_KEY is required. Load it from environment or a secure vault provider.');
+  }
+
+  const key = Buffer.from(keyHex, 'hex');
+  if (key.length !== 32) {
+    throw new Error('ENCRYPTION_KEY must be 32 bytes in hex format for AES-256-GCM.');
+  }
+  return key;
+}
 
 /**
  * Encrypts a string.
@@ -26,16 +34,17 @@ const KEY = process.env.ENCRYPTION_KEY
  */
 function encrypt(text) {
   if (!text) return null;
-  
+
+  const key = getKey();
   const iv = crypto.randomBytes(IV_LENGTH);
-  const cipher = crypto.createCipheriv(ALGORITHM, KEY, iv);
-  
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+
   let encrypted = cipher.update(text, 'utf8', 'hex');
   encrypted += cipher.final('hex');
-  
+
   const authTag = cipher.getAuthTag().toString('hex');
-  
-  return `${iv.toString('hex')}:${authTag}:${encrypted}`;
+
+  return `${KEY_VERSION}:${iv.toString('hex')}:${authTag}:${encrypted}`;
 }
 
 /**
@@ -44,23 +53,31 @@ function encrypt(text) {
  */
 function decrypt(ciphertext) {
   if (!ciphertext) return null;
-  
+
   try {
-    const [ivHex, authTagHex, encryptedHex] = ciphertext.split(':');
+    const key = getKey();
+    const parts = ciphertext.split(':');
+    const [version, ivHex, authTagHex, encryptedHex] =
+      parts.length === 4 ? parts : ['legacy', ...parts];
+
     if (!ivHex || !authTagHex || !encryptedHex) {
       // If it doesn't match our format, it might be legacy plain text (for migration safety)
       return ciphertext;
     }
-    
+
+    if (version !== KEY_VERSION && version !== 'legacy') {
+      throw new Error(`Unsupported key version: ${version}`);
+    }
+
     const iv = Buffer.from(ivHex, 'hex');
     const authTag = Buffer.from(authTagHex, 'hex');
-    const decipher = crypto.createDecipheriv(ALGORITHM, KEY, iv);
-    
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+
     decipher.setAuthTag(authTag);
-    
+
     let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
-    
+
     return decrypted;
   } catch (err) {
     console.error('[cryptoUtils] Decryption failed:', err.message);

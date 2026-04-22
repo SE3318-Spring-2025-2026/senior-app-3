@@ -16,6 +16,10 @@ const deliverableRoutes = require('./routes/deliverables');
 const reviewRoutes = require('./routes/reviews');
 const commentsRoutes = require('./routes/comments');
 const { errorHandler } = require('./middleware/auth');
+const {
+  patchConsoleForRedaction,
+  requestLogMiddleware,
+} = require('./middleware/securityLogging');
 
 const app = express();
 const PORT = process.env.PORT || 5002;
@@ -24,10 +28,8 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-  next();
-});
+patchConsoleForRedaction();
+app.use(requestLogMiddleware);
 
 app.get('/health', (req, res) => {
   res.status(200).json({
