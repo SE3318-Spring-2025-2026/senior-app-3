@@ -2,7 +2,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { authMiddleware, roleMiddleware } = require('../middleware/auth');
+const { authMiddleware, roleMiddleware, serviceOrBearerAuth } = require('../middleware/auth');
 const { checkScheduleWindow, checkAdvisorOperationWindow } = require('../middleware/scheduleWindow');
 const OPERATION_TYPES = require('../utils/operationTypes');
 
@@ -13,6 +13,7 @@ const {
   getGroup,
   getAllGroups,
   getSprintContributionSummary,
+  getGroupCommitteeStatus,
   createMemberRequest,
   decideMemberRequest,
   coordinatorOverride,
@@ -31,6 +32,7 @@ const {
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
 const { triggerGitHubSync, getSyncJobStatus, getLatestSyncJob } = require('../controllers/githubSync');
+const { triggerJiraSync } = require('../controllers/jiraSync');
 
 // Integrated Controllers from both branches
 const { submitDeliverableHandler } = require('../controllers/deliverables'); // From main
@@ -116,6 +118,12 @@ router.post('/:groupId/github', authMiddleware, configureGithub);
 router.get('/:groupId/github', authMiddleware, getGithub);
 router.post('/:groupId/jira', authMiddleware, configureJira);
 router.get('/:groupId/jira', authMiddleware, getJira);
+router.post(
+  '/:groupId/sprints/:sprintId/jira-sync',
+  serviceOrBearerAuth,
+  roleMiddleware(['coordinator']),
+  triggerJiraSync
+);
 
 // ============================================================================
 // PROCESS 7.2 — GitHub PR Sync (async validation bridge)
