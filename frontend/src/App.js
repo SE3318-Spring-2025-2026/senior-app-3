@@ -30,6 +30,7 @@ import SubmitDeliverablePage from './pages/SubmitDeliverablePage.jsx';
 import ReviewPage from './pages/ReviewPage.jsx';
 import ReviewManagement from './pages/ReviewManagement.jsx';
 import SprintContributionDashboard from './pages/SprintContributionDashboard.jsx';
+import StudentFinalGradesPage from './pages/StudentFinalGradesPage.jsx';
 
 
 const Profile = () => <div className="page">Profile - Coming Soon</div>;
@@ -97,6 +98,10 @@ function App() {
             <Route
               path="/dashboard"
               element={<ProtectedRoute component={Dashboard} />}
+            />
+            <Route
+              path="/me/final-grades"
+              element={<ProtectedRoute component={StudentFinalGradesPage} requiredRoles={['student']} />}
             />
             <Route
               path="/groups/new"
