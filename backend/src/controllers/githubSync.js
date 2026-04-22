@@ -141,6 +141,7 @@ const triggerGitHubSync = async (req, res) => {
       status: 'queued',
       source: 'github',
       message: 'GitHub sync job accepted. PR validation will run asynchronously.',
+      createdAt: job.createdAt,
     });
 
     // ── Fire async worker (detached — does NOT await response) ──────────────

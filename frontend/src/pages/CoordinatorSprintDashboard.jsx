@@ -165,6 +165,16 @@ const CoordinatorSprintDashboard = () => {
   };
 
   const handleViewLogs = async (job) => {
+    // Toggle: if logs for this source are already shown, hide them
+    if (jobLogs[job.source]) {
+      setJobLogs((prev) => {
+        const copy = { ...prev };
+        delete copy[job.source];
+        return copy;
+      });
+      return;
+    }
+
     try {
       const details = job?.jobId
         ? await getSyncJobById({

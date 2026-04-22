@@ -241,16 +241,13 @@ const runJiraSyncWorker = async ({ jobId, groupId, sprintId, sprintKey }) => {
         storyPointsCompleted: 0,
         issuesResolved: 0,
       };
-      const primaryIssueKey =
-        aggregate.issueKeys.length === 1 ? aggregate.issueKeys[0] : aggregate.issueKeys[0] || null;
-
       const existing = existingByStudent.get(studentId);
       if (!existing) {
         await ContributionRecord.create({
           groupId,
           sprintId,
           studentId,
-          jiraIssueKey: primaryIssueKey,
+          jiraIssueKeys: aggregate.issueKeys,
           storyPointsAssigned: aggregate.storyPointsAssigned,
           storyPointsCompleted: aggregate.storyPointsCompleted,
           issuesResolved: aggregate.issuesResolved,
@@ -263,7 +260,7 @@ const runJiraSyncWorker = async ({ jobId, groupId, sprintId, sprintKey }) => {
         { contributionRecordId: existing.contributionRecordId },
         {
           $set: {
-            jiraIssueKey: primaryIssueKey,
+            jiraIssueKeys: aggregate.issueKeys,
             storyPointsAssigned: aggregate.storyPointsAssigned,
             storyPointsCompleted: aggregate.storyPointsCompleted,
             issuesResolved: aggregate.issuesResolved,
@@ -472,16 +469,32 @@ const recalculateContributions = async (req, res) => {
     const usersById = new Map(users.map((user) => [user.userId, user]));
 
     const projectedRows = allRecords.map((record) => {
-      const completedFromMerge = mergedIssueKeys.has(record.jiraIssueKey)
-        ? Number(record.storyPointsAssigned || record.storyPointsCompleted || 0)
-        : 0;
+      const keys = record.jiraIssueKeys || [];
+      const mergedKeys = keys.filter((key) => mergedIssueKeys.has(key));
+      const unmergedKeys = keys.filter((key) => !mergedIssueKeys.has(key));
+
+      let completedFromMerge = 0;
+      if (keys.length > 0) {
+        // Heuristic: proportional credit if per-issue SP isn't stored
+        completedFromMerge =
+          (mergedKeys.length / keys.length) *
+          Number(record.storyPointsAssigned || record.storyPointsCompleted || 0);
+      }
+
       const warnings = [];
-      if (!record.jiraIssueKey) warnings.push('No JIRA issue mapping found for student record.');
-      if (record.jiraIssueKey && validationRecords.length > 0 && !mergedIssueKeys.has(record.jiraIssueKey)) {
-        warnings.push(`Mapped issue ${record.jiraIssueKey} is not merged in latest GitHub sync.`);
+      if (keys.length === 0) {
+        warnings.push('No JIRA issue mapping found for student record.');
+      }
+      if (validationRecords.length > 0) {
+        unmergedKeys.forEach((key) => {
+          warnings.push(`Mapped issue ${key} is not merged in latest GitHub sync.`);
+        });
       }
       if (validationRecords.length === 0) {
-        warnings.push('No completed GitHub sync validation found; using zero completed SP from merge mapping.');
+        warnings.push(
+          'No completed GitHub sync validation found; using zero completed SP from merge mapping.'
+        );
+        completedFromMerge = 0;
       }
       return {
         record,

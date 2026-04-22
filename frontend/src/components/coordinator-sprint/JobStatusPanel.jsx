@@ -48,46 +48,57 @@ const JobStatusPanel = ({ jobs, onViewLogs, logDetailsBySource = {} }) => {
               <div className="mt-3 rounded-md bg-red-50 border border-red-200 p-3">
                 <p className="text-sm font-medium text-red-700 mb-1">Last error</p>
                 <p className="text-xs text-red-700">{job.lastError}</p>
+              </div>
+            )}
+
+            {(job.status === 'completed' || job.status === 'failed') && (
+              <div className="mt-3">
                 <button
                   type="button"
                   onClick={() => onViewLogs?.(job)}
-                  className="text-xs underline text-red-700 mt-2 inline-block"
+                  className="text-xs font-medium text-indigo-600 hover:text-indigo-800 underline transition-colors"
                 >
-                  View Logs
+                  {logDetailsBySource[job.source] ? 'Hide Logs' : 'View Logs'}
                 </button>
+              </div>
+            )}
 
-                {logDetailsBySource[job.source] && (
-                  <div className="mt-2 rounded bg-white border border-red-100 p-2">
-                    <p className="text-xs text-slate-700">
-                      Error Code: {logDetailsBySource[job.source].errorCode || 'N/A'}
+            {logDetailsBySource[job.source] && (
+              <div className="mt-3 rounded-md bg-slate-50 border border-slate-200 p-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+                  <p className="text-xs text-slate-700 font-medium">
+                    Status Code: <span className="font-normal">{logDetailsBySource[job.source].errorCode || 'SUCCESS'}</span>
+                  </p>
+                  {logDetailsBySource[job.source].errorMessage && (
+                    <p className="text-xs text-red-600 font-medium">
+                      Error: <span className="font-normal">{logDetailsBySource[job.source].errorMessage}</span>
                     </p>
-                    <p className="text-xs text-slate-700">
-                      Started: {formatDate(logDetailsBySource[job.source].startedAt)}
+                  )}
+                </div>
+                
+                {Array.isArray(logDetailsBySource[job.source].validationRecords) &&
+                  logDetailsBySource[job.source].validationRecords.length > 0 && (
+                    <p className="text-xs text-slate-700 mb-2">
+                      Validation records: <span className="font-semibold">{logDetailsBySource[job.source].validationRecords.length}</span>
                     </p>
-                    <p className="text-xs text-slate-700">
-                      Ended: {formatDate(logDetailsBySource[job.source].completedAt)}
-                    </p>
-                    {Array.isArray(logDetailsBySource[job.source].validationRecords) &&
-                      logDetailsBySource[job.source].validationRecords.length > 0 && (
-                        <p className="text-xs text-slate-700">
-                          Validation records: {logDetailsBySource[job.source].validationRecords.length}
-                        </p>
-                      )}
-                    {Array.isArray(logDetailsBySource[job.source].logs) &&
-                      logDetailsBySource[job.source].logs.length > 0 && (
-                        <div className="mt-2 border-t border-slate-100 pt-2">
-                          <p className="text-xs font-semibold text-slate-700 mb-1">Log entries</p>
-                          <ul className="space-y-1">
-                            {logDetailsBySource[job.source].logs.slice(-5).map((entry, index) => (
-                              <li key={`${job.source}-log-${index}`} className="text-xs text-slate-700">
-                                [{entry.level || 'info'}] {formatDate(entry.at)} - {entry.message}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                  </div>
-                )}
+                  )}
+                
+                {Array.isArray(logDetailsBySource[job.source].logs) &&
+                  logDetailsBySource[job.source].logs.length > 0 && (
+                    <div className="mt-2 border-t border-slate-200 pt-2">
+                      <p className="text-xs font-semibold text-slate-700 mb-1">Recent log entries:</p>
+                      <ul className="space-y-1">
+                        {logDetailsBySource[job.source].logs.slice(-5).map((entry, index) => (
+                          <li key={`${job.source}-log-${index}`} className="text-xs text-slate-600 leading-relaxed">
+                            <span className={`font-mono uppercase ${entry.level === 'error' ? 'text-red-500' : 'text-slate-400'}`}>
+                              [{entry.level || 'info'}]
+                            </span>{' '}
+                            <span className="text-slate-400">{formatDate(entry.at)}:</span> {entry.message}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
               </div>
             )}
           </article>

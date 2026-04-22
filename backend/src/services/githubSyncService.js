@@ -181,16 +181,21 @@ async function getSprintIssues(sprintId, groupId) {
 
   // Source 2: ContributionRecord entries (unique student work items)
   for (const contrib of contributions) {
-    // FIX D: Use actual jiraIssueKey if available, fallback to student-specific key
-    const key = contrib.jiraIssueKey || `${sprintId}-${contrib.studentId}`;
-    const alreadyAdded = issues.some((i) => i.key === key);
-    if (!alreadyAdded) {
-      issues.push({
-        key,
-        prLink: null,
-        source: 'contribution_record',
-        studentId: contrib.studentId,
-      });
+    const studentKeys =
+      Array.isArray(contrib.jiraIssueKeys) && contrib.jiraIssueKeys.length > 0
+        ? contrib.jiraIssueKeys
+        : [`${sprintId}-${contrib.studentId}`];
+
+    for (const key of studentKeys) {
+      const alreadyAdded = issues.some((i) => i.key === key);
+      if (!alreadyAdded) {
+        issues.push({
+          key,
+          prLink: null,
+          source: 'contribution_record',
+          studentId: contrib.studentId,
+        });
+      }
     }
   }
 
