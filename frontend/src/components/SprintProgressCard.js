@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getMySprintProgress } from '../api/sprintContributionService';
+import { getMySprintProgress, isReadOnlySprintProgress } from '../api/sprintContributionService';
 import './SprintProgressCard.css';
 
 const formatDateTime = (value) => {
@@ -95,6 +95,8 @@ const SprintProgressCard = ({ groupId, sprintId }) => {
     );
   }
 
+  const isReadOnly = isReadOnlySprintProgress(progress);
+
   return (
     <section className="sprint-progress-card">
       <div className="sprint-progress-header">
@@ -102,7 +104,7 @@ const SprintProgressCard = ({ groupId, sprintId }) => {
           <h2>Sprint Progress</h2>
           <p>Read-only contribution metrics from JIRA story points and GitHub merged PR validation.</p>
         </div>
-        {progress?.locked && <span className="sprint-progress-badge">Read-only finalized</span>}
+        {isReadOnly && <span className="sprint-progress-badge">Read-only</span>}
       </div>
 
       <div className="sprint-progress-meta">
@@ -129,7 +131,13 @@ const SprintProgressCard = ({ groupId, sprintId }) => {
         </div>
         <div className="sprint-progress-row">
           <span>Target configuration applied</span>
-          <strong>{progress?.basedOnTargets === false ? 'No' : 'Yes'}</strong>
+          <strong>
+            {progress?.basedOnTargets == null
+              ? 'Not available'
+              : progress.basedOnTargets === false
+                ? 'No'
+                : 'Yes'}
+          </strong>
         </div>
       </div>
     </section>
