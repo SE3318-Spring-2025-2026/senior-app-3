@@ -23,6 +23,13 @@ const Sidebar = () => {
     return user.role.charAt(0).toUpperCase() + user.role.slice(1).replace(/_/g, ' ');
   };
 
+  const reviewGroupId = [
+    user?.groupId,
+    user?.advisedGroupId,
+    user?.advisorGroupId,
+    user?.currentGroupId,
+  ].find((value) => typeof value === 'string' && value.trim() && !value.includes(':'));
+
   const navSections = [
     {
       title: 'Main',
@@ -54,6 +61,13 @@ const Sidebar = () => {
             </svg>
           ), requiredRoles: ['professor']
         },
+        ...(reviewGroupId ? [{
+          label: 'Grade Review', path: `/groups/${reviewGroupId}/final-grades/review`, icon: (
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-6m4 6V7m4 10v-4M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            </svg>
+          ), requiredRoles: ['professor']
+        }] : []),
         {
           label: 'Jury Committees', path: '/jury/committees', icon: (
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
