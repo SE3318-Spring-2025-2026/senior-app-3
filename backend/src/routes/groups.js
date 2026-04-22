@@ -29,7 +29,13 @@ const {
 
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
-const { triggerGitHubSync, getSyncJobStatus, getLatestSyncJob } = require('../controllers/githubSync');
+const { triggerGitHubSync, getSyncJobStatus, getLatestSyncJob, getSyncJobLogs } = require('../controllers/githubSync');
+const {
+  triggerJiraSync,
+  getJiraSyncStatus,
+  getJiraSyncLogs,
+  recalculateContributions,
+} = require('../controllers/sprintTracking');
 
 // Integrated Controllers from both branches
 const { submitDeliverableHandler } = require('../controllers/deliverables'); // From main
@@ -114,20 +120,70 @@ router.get('/:groupId/jira', authMiddleware, getJira);
 router.post(
   '/:groupId/sprints/:sprintId/github-sync',
   authMiddleware,
-  roleMiddleware(['coordinator', 'professor']),
+  roleMiddleware(['coordinator', 'admin']),
   triggerGitHubSync
 );
 
 router.get(
   '/:groupId/sprints/:sprintId/github-sync',
   authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
   getLatestSyncJob
 );
 
 router.get(
   '/:groupId/sprints/:sprintId/github-sync/:jobId',
   authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
   getSyncJobStatus
+);
+
+router.get(
+  '/:groupId/sprints/:sprintId/github-sync/:jobId/logs',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
+  getSyncJobLogs
+);
+
+// ============================================================================
+// PROCESS 7.1 — JIRA Sprint Sync (async ingestion bridge)
+// ============================================================================
+router.post(
+  '/:groupId/sprints/:sprintId/jira-sync',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
+  triggerJiraSync
+);
+
+router.get(
+  '/:groupId/sprints/:sprintId/jira-sync',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
+  getJiraSyncStatus
+);
+
+router.get(
+  '/:groupId/sprints/:sprintId/jira-sync/:jobId',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
+  getJiraSyncStatus
+);
+
+router.get(
+  '/:groupId/sprints/:sprintId/jira-sync/:jobId/logs',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
+  getJiraSyncLogs
+);
+
+// ============================================================================
+// PROCESS 7.3/7.4/7.5 — Contribution recalculation (sync response)
+// ============================================================================
+router.post(
+  '/:groupId/sprints/:sprintId/contributions/recalculate',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
+  recalculateContributions
 );
 
 router.patch(

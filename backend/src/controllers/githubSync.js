@@ -11,7 +11,7 @@
  *   - Returns 409 Conflict if a sync is already IN_PROGRESS for the same key
  *
  * Error mapping (see spec §3):
- *   202  — job_id + status: "PENDING"    → Job accepted and worker dispatched
+ *   202  — jobId + status: "queued"      → Job accepted and worker dispatched
  *   409  — SYNC_ALREADY_RUNNING          → Lock already held
  *   400  — INVALID_GITHUB_CREDENTIALS    → D2 missing/invalid PAT or repo binding
  *   404  — JIRA_DATA_MISSING             → D6 empty for this sprint (Process 7.1 hasn't run)
@@ -19,7 +19,7 @@
  *   504  — GATEWAY_TIMEOUT              → GitHub API timed-out after all retries (worker-side)
  *
  * Auth:
- *   Requires coordinator or advisor role (group members cannot self-trigger a mass sync)
+ *   Requires coordinator/admin role (group members cannot self-trigger a mass sync)
  *
  * DFD flows:
  *   f29 — Coordinator → 7.2 (trigger sync)
@@ -32,6 +32,14 @@ const Group = require('../models/Group');
 const SprintRecord = require('../models/SprintRecord');
 const { githubSyncWorker, GitHubSyncError } = require('../services/githubSyncService');
 const { createAuditLog } = require('../services/auditService');
+
+const toPublicStatus = (status) => {
+  if (status === 'PENDING') return 'queued';
+  if (status === 'IN_PROGRESS') return 'running';
+  if (status === 'COMPLETED') return 'completed';
+  if (status === 'FAILED') return 'failed';
+  return 'queued';
+};
 
 /**
  * POST /groups/:groupId/sprints/:sprintId/github-sync
@@ -82,7 +90,7 @@ const triggerGitHubSync = async (req, res) => {
       return res.status(409).json({
         error: 'SYNC_ALREADY_RUNNING',
         message: `A GitHub sync is already in progress for group ${groupId} / sprint ${sprintId}`,
-        job_id: existingLock.jobId,
+        jobId: existingLock.jobId,
       });
     }
 
@@ -106,7 +114,7 @@ const triggerGitHubSync = async (req, res) => {
         return res.status(409).json({
           error: 'SYNC_ALREADY_RUNNING',
           message: `A GitHub sync was just triggered for group ${groupId} / sprint ${sprintId}`,
-          job_id: racingJob?.jobId,
+          jobId: racingJob?.jobId,
         });
       }
       throw err; // rethrow other DB errors
@@ -129,8 +137,9 @@ const triggerGitHubSync = async (req, res) => {
 
     // ── Respond 202 immediately ──────────────────────────────────────────────
     res.status(202).json({
-      job_id: job.jobId,
-      status: 'PENDING',
+      jobId: job.jobId,
+      status: 'queued',
+      source: 'github',
       message: 'GitHub sync job accepted. PR validation will run asynchronously.',
     });
 
@@ -195,8 +204,9 @@ const getSyncJobStatus = async (req, res) => {
     }
 
     return res.status(200).json({
-      job_id: job.jobId,
-      status: job.status,
+      jobId: job.jobId,
+      status: toPublicStatus(job.status),
+      source: 'github',
       mappedHttpStatus: mapJobToHttpStatus(job.status, job.errorCode),
       groupId: job.groupId,
       sprintId: job.sprintId,
@@ -240,8 +250,9 @@ const getLatestSyncJob = async (req, res) => {
     }
 
     return res.status(200).json({
-      job_id: job.jobId,
-      status: job.status,
+      jobId: job.jobId,
+      status: toPublicStatus(job.status),
+      source: 'github',
       mappedHttpStatus: mapJobToHttpStatus(job.status, job.errorCode),
       groupId: job.groupId,
       sprintId: job.sprintId,
@@ -261,4 +272,50 @@ const getLatestSyncJob = async (req, res) => {
   }
 };
 
-module.exports = { triggerGitHubSync, getSyncJobStatus, getLatestSyncJob };
+const getSyncJobLogs = async (req, res) => {
+  const { groupId, sprintId, jobId } = req.params;
+  try {
+    const job = await GitHubSyncJob.findOne({ jobId, groupId, sprintId }).lean();
+    if (!job) {
+      return res.status(404).json({
+        error: 'JOB_NOT_FOUND',
+        message: `Sync job ${jobId} not found for group ${groupId} / sprint ${sprintId}`,
+      });
+    }
+
+    const logs = [
+      { level: 'info', at: job.createdAt, message: 'GitHub sync job created.' },
+      job.startedAt ? { level: 'info', at: job.startedAt, message: 'GitHub sync worker started.' } : null,
+      Array.isArray(job.validationRecords)
+        ? {
+            level: 'info',
+            at: job.completedAt || job.updatedAt || job.createdAt,
+            message: `Validation records processed: ${job.validationRecords.length}`,
+          }
+        : null,
+      job.errorMessage ? { level: 'error', at: job.completedAt || job.updatedAt, message: job.errorMessage } : null,
+      job.completedAt
+        ? {
+            level: 'info',
+            at: job.completedAt,
+            message: `GitHub sync finished with status ${toPublicStatus(job.status)}.`,
+          }
+        : null,
+    ].filter(Boolean);
+
+    return res.status(200).json({
+      jobId: job.jobId,
+      source: 'github',
+      status: toPublicStatus(job.status),
+      logs,
+    });
+  } catch (err) {
+    console.error('[getSyncJobLogs] Error:', err);
+    return res.status(500).json({
+      error: 'INTERNAL_ERROR',
+      message: 'An unexpected error occurred',
+    });
+  }
+};
+
+module.exports = { triggerGitHubSync, getSyncJobStatus, getLatestSyncJob, getSyncJobLogs };

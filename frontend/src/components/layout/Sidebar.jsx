@@ -130,6 +130,13 @@ const Sidebar = () => {
           )
         },
         {
+          label: 'Sprint Dashboard', path: '/coordinator/sprint-dashboard', icon: (
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-6m3 6V7m3 10v-4m5 6H4a1 1 0 01-1-1V4a1 1 0 011-1h16a1 1 0 011 1v14a1 1 0 01-1 1z" />
+            </svg>
+          ), requiredRoles: ['coordinator']
+        },
+        {
           label: 'New Committee', path: '/coordinator/committees/new', icon: (
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
