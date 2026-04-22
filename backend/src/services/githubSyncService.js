@@ -61,6 +61,26 @@ const MERGE_STATE_MAP = {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function isTimeoutError(err) {
+  const status = err.response?.status;
+  return status === 504 || err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT';
+}
+
+function isUpstreamProviderError(err) {
+  const status = err.response?.status;
+  return status === 502 || status === 503 || (status >= 500 && status < 600);
+}
+
+function mapUpstreamError(err) {
+  if (isTimeoutError(err)) {
+    return { status: 504, code: 'GATEWAY_TIMEOUT' };
+  }
+  if (isUpstreamProviderError(err)) {
+    return { status: 502, code: 'UPSTREAM_PROVIDER_ERROR' };
+  }
+  return null;
+}
+
 /**
  * withRetry — calls fn up to maxAttempts times with exponential back-off.
  * 4xx client errors are NOT retried (they indicate a business-rule failure).
@@ -71,7 +91,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  */
 async function withRetry(fn, maxAttempts = MAX_RETRY_ATTEMPTS) {
   let lastError;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  for (let attempt = 0; attempt <= maxAttempts; attempt++) {
     try {
       return await fn();
     } catch (err) {
@@ -81,7 +101,10 @@ async function withRetry(fn, maxAttempts = MAX_RETRY_ATTEMPTS) {
       }
       lastError = err;
       if (attempt < maxAttempts) {
-        await sleep(RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1));
+        const backoffMs = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+        // Full jitter: random wait in [0, backoffMs]
+        const jitterMs = Math.floor(Math.random() * (backoffMs + 1));
+        await sleep(jitterMs);
       }
     }
   }
@@ -303,9 +326,11 @@ async function githubSyncWorker(groupId, sprintId, jobId) {
     return;
   }
 
-  job.status = 'IN_PROGRESS';
-  job.startedAt = new Date();
-  await job.save();
+  if (job.status !== 'IN_PROGRESS') {
+    job.status = 'IN_PROGRESS';
+    job.startedAt = new Date();
+    await job.save();
+  }
 
   try {
     // ── f31: Read D2 — GitHub config ────────────────────────────────────────
@@ -316,6 +341,8 @@ async function githubSyncWorker(groupId, sprintId, jobId) {
 
     // ── f33 + f34: Per-issue GitHub API call + D6 persistence ───────────────
     const validationRecords = [];
+    let upstreamFailureCount = 0;
+    let terminalError = null;
 
     for (const issue of issues) {
       let pr = null;
@@ -329,6 +356,14 @@ async function githubSyncWorker(groupId, sprintId, jobId) {
         // Upstream errors after retries → log but continue processing other issues
         console.error(`[githubSyncWorker] PR lookup failed for issue ${issue.key}:`, err.message);
         errorNote = err.message;
+        const mapped = mapUpstreamError(err);
+        if (mapped) {
+          upstreamFailureCount += 1;
+          terminalError = terminalError || mapped;
+          if (terminalError.code !== 'GATEWAY_TIMEOUT' && mapped.code === 'GATEWAY_TIMEOUT') {
+            terminalError = mapped;
+          }
+        }
       }
 
       validationRecords.push({
@@ -343,6 +378,16 @@ async function githubSyncWorker(groupId, sprintId, jobId) {
 
     // Persist all records
     job.validationRecords = validationRecords;
+
+    // Terminal upstream outage: fail job when every issue lookup failed upstream.
+    if (issues.length > 0 && upstreamFailureCount === issues.length && terminalError) {
+      throw new GitHubSyncError(
+        terminalError.status,
+        terminalError.code,
+        `All GitHub PR lookups failed due to upstream errors for job ${jobId}`
+      );
+    }
+
     job.status = 'COMPLETED';
     job.completedAt = new Date();
 

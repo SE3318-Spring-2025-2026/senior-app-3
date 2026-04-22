@@ -71,28 +71,31 @@ const triggerGitHubSync = async (req, res) => {
       });
     }
 
-    // ── Concurrency lock: check for existing IN_PROGRESS job ────────────────
-    const existingLock = await GitHubSyncJob.findOne({
-      groupId,
-      sprintId,
-      status: 'IN_PROGRESS',
-    }).lean();
-
-    if (existingLock) {
-      return res.status(409).json({
-        error: 'SYNC_ALREADY_RUNNING',
-        message: `A GitHub sync is already in progress for group ${groupId} / sprint ${sprintId}`,
-        job_id: existingLock.jobId,
+    // ── Acquire lock atomically (DB unique partial index) ───────────────────
+    let job;
+    try {
+      job = await GitHubSyncJob.create({
+        groupId,
+        sprintId,
+        status: 'IN_PROGRESS',
+        startedAt: new Date(),
+        triggeredBy: actorId,
       });
+    } catch (createErr) {
+      if (createErr?.code === 11000) {
+        const existingLock = await GitHubSyncJob.findOne({
+          groupId,
+          sprintId,
+          status: 'IN_PROGRESS',
+        }).lean();
+        return res.status(409).json({
+          error: 'SYNC_ALREADY_RUNNING',
+          message: `A GitHub sync is already in progress for group ${groupId} / sprint ${sprintId}`,
+          job_id: existingLock?.jobId || null,
+        });
+      }
+      throw createErr;
     }
-
-    // ── Acquire lock: create PENDING job ────────────────────────────────────
-    const job = await GitHubSyncJob.create({
-      groupId,
-      sprintId,
-      status: 'PENDING',
-      triggeredBy: actorId,
-    });
 
     // ── Audit: sync initiated (non-fatal) ───────────────────────────────────
     try {
