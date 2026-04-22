@@ -30,9 +30,9 @@ const {
 
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
+const { triggerGitHubSync, getSyncJobStatus, getLatestSyncJob } = require('../controllers/githubSync');
 
 // Integrated Controllers from both branches
-const { getGroupCommitteeStatus } = require('../controllers/committees'); // From your branch
 const { submitDeliverableHandler } = require('../controllers/deliverables'); // From main
 const { releaseAdvisor } = require('../controllers/advisorAssociation'); // From main
 const { advisorSanitization } = require('../controllers/sanitizationController'); // From main
@@ -116,6 +116,33 @@ router.post('/:groupId/github', authMiddleware, configureGithub);
 router.get('/:groupId/github', authMiddleware, getGithub);
 router.post('/:groupId/jira', authMiddleware, configureJira);
 router.get('/:groupId/jira', authMiddleware, getJira);
+
+// ============================================================================
+// PROCESS 7.2 — GitHub PR Sync (async validation bridge)
+//
+// POST   /:groupId/sprints/:sprintId/github-sync          — trigger sync job
+// GET    /:groupId/sprints/:sprintId/github-sync          — latest job status
+// GET    /:groupId/sprints/:sprintId/github-sync/:jobId   — specific job status
+// ============================================================================
+
+router.post(
+  '/:groupId/sprints/:sprintId/github-sync',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'professor']),
+  triggerGitHubSync
+);
+
+router.get(
+  '/:groupId/sprints/:sprintId/github-sync',
+  authMiddleware,
+  getLatestSyncJob
+);
+
+router.get(
+  '/:groupId/sprints/:sprintId/github-sync/:jobId',
+  authMiddleware,
+  getSyncJobStatus
+);
 
 router.patch(
   '/:groupId/override',
