@@ -77,8 +77,15 @@ const gitHubSyncJobSchema = new mongoose.Schema(
   }
 );
 
-// Compound lock key: only one IN_PROGRESS job per (group, sprint)
-gitHubSyncJobSchema.index({ groupId: 1, sprintId: 1, status: 1 });
+// Compound lock key: only one PENDING or IN_PROGRESS job per (group, sprint)
+gitHubSyncJobSchema.index(
+  { groupId: 1, sprintId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: { $in: ['PENDING', 'IN_PROGRESS'] } },
+    name: 'uniq_active_sync_lock',
+  }
+);
 // Fast job retrieval by jobId
 gitHubSyncJobSchema.index({ jobId: 1 }, { unique: true });
 

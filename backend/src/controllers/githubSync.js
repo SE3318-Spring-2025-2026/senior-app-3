@@ -71,11 +71,11 @@ const triggerGitHubSync = async (req, res) => {
       });
     }
 
-    // ── Concurrency lock: check for existing IN_PROGRESS job ────────────────
+    // ── Concurrency lock: check for existing active job ────────────────────
     const existingLock = await GitHubSyncJob.findOne({
       groupId,
       sprintId,
-      status: 'IN_PROGRESS',
+      status: { $in: ['PENDING', 'IN_PROGRESS'] },
     }).lean();
 
     if (existingLock) {
@@ -87,12 +87,30 @@ const triggerGitHubSync = async (req, res) => {
     }
 
     // ── Acquire lock: create PENDING job ────────────────────────────────────
-    const job = await GitHubSyncJob.create({
-      groupId,
-      sprintId,
-      status: 'PENDING',
-      triggeredBy: actorId,
-    });
+    let job;
+    try {
+      job = await GitHubSyncJob.create({
+        groupId,
+        sprintId,
+        status: 'PENDING',
+        triggeredBy: actorId,
+      });
+    } catch (err) {
+      if (err.code === 11000) {
+        // Race condition: another request created the job between our findOne and create
+        const racingJob = await GitHubSyncJob.findOne({
+          groupId,
+          sprintId,
+          status: { $in: ['PENDING', 'IN_PROGRESS'] },
+        }).lean();
+        return res.status(409).json({
+          error: 'SYNC_ALREADY_RUNNING',
+          message: `A GitHub sync was just triggered for group ${groupId} / sprint ${sprintId}`,
+          job_id: racingJob?.jobId,
+        });
+      }
+      throw err; // rethrow other DB errors
+    }
 
     // ── Audit: sync initiated (non-fatal) ───────────────────────────────────
     try {
@@ -145,6 +163,20 @@ const triggerGitHubSync = async (req, res) => {
 };
 
 /**
+ * mapJobToHttpStatus — helper to derive a frontend-friendly HTTP status
+ */
+const mapJobToHttpStatus = (status, errorCode) => {
+  if (status === 'COMPLETED') return 200;
+  if (status === 'PENDING' || status === 'IN_PROGRESS') return 202;
+  if (status === 'FAILED') {
+    if (errorCode === 'UPSTREAM_PROVIDER_ERROR') return 502;
+    if (errorCode === 'GATEWAY_TIMEOUT') return 504;
+    return 500;
+  }
+  return 200;
+};
+
+/**
  * GET /groups/:groupId/sprints/:sprintId/github-sync/:jobId
  *
  * Returns the current status and validation records for a specific sync job.
@@ -165,6 +197,7 @@ const getSyncJobStatus = async (req, res) => {
     return res.status(200).json({
       job_id: job.jobId,
       status: job.status,
+      mappedHttpStatus: mapJobToHttpStatus(job.status, job.errorCode),
       groupId: job.groupId,
       sprintId: job.sprintId,
       startedAt: job.startedAt,
@@ -209,6 +242,7 @@ const getLatestSyncJob = async (req, res) => {
     return res.status(200).json({
       job_id: job.jobId,
       status: job.status,
+      mappedHttpStatus: mapJobToHttpStatus(job.status, job.errorCode),
       groupId: job.groupId,
       sprintId: job.sprintId,
       startedAt: job.startedAt,

@@ -62,7 +62,7 @@ const MERGE_STATE_MAP = {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * withRetry — calls fn up to maxAttempts times with exponential back-off.
+ * withRetry — calls fn up to maxAttempts times with exponential back-off + jitter.
  * 4xx client errors are NOT retried (they indicate a business-rule failure).
  * Throws the last error after exhausting attempts.
  *
@@ -81,7 +81,9 @@ async function withRetry(fn, maxAttempts = MAX_RETRY_ATTEMPTS) {
       }
       lastError = err;
       if (attempt < maxAttempts) {
-        await sleep(RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1));
+        const exp = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+        const jitter = Math.floor(Math.random() * 100);
+        await sleep(exp + jitter);
       }
     }
   }
@@ -110,7 +112,7 @@ function determineMergeStatus(pr) {
 /**
  * getGitHubConfig(groupId) — reads D2
  *
- * @returns {{ pat: string, owner: string, repo: string, repoUrl: string }}
+ * @returns {{ encryptedPat: string, owner: string, repo: string, repoUrl: string }}
  * @throws {GitHubSyncError} with code INVALID_GITHUB_CREDENTIALS if not configured
  */
 async function getGitHubConfig(groupId) {
@@ -126,7 +128,7 @@ async function getGitHubConfig(groupId) {
     );
   }
   return {
-    pat: decrypt(group.githubPat),
+    encryptedPat: group.githubPat, // Defer decryption until request level
     owner: group.githubOrg,
     repo: group.githubRepoName,
     repoUrl: group.githubRepoUrl,
@@ -144,7 +146,7 @@ async function getGitHubConfig(groupId) {
  *   1. SprintRecord.deliverableRefs (deliverable IDs act as issue keys here)
  *   2. ContributionRecord entries (one per student — represents a work item)
  *
- * Returns an array of { key, prLink } objects.
+ * Returns an array of { key: string, prLink: string|null, source: string, studentId?: string }.
  * prLink is derived from D6 metadata or falls back to branch-name convention.
  *
  * @returns {Array<{ key: string, prLink: string|null }>}
@@ -169,7 +171,8 @@ async function getSprintIssues(sprintId, groupId) {
 
   // Source 2: ContributionRecord entries (unique student work items)
   for (const contrib of contributions) {
-    const key = `${sprintId}-${contrib.studentId}`;
+    // FIX D: Use actual jiraIssueKey if available, fallback to student-specific key
+    const key = contrib.jiraIssueKey || `${sprintId}-${contrib.studentId}`;
     const alreadyAdded = issues.some((i) => i.key === key);
     if (!alreadyAdded) {
       issues.push({
@@ -204,11 +207,20 @@ async function getSprintIssues(sprintId, groupId) {
  * Returns the first matching PR object, or null if none found.
  *
  * @param {{ key: string, prLink: string|null }} issue
- * @param {{ pat: string, owner: string, repo: string }} config
+ * @param {{ encryptedPat: string, owner: string, repo: string }} config
  * @returns {Promise<Object|null>}
  */
 async function getPullRequestForIssue(issue, config) {
-  const { pat, owner, repo } = config;
+  const { encryptedPat, owner, repo } = config;
+  
+  // FIX E: Decrypt PAT only at request level
+  let pat;
+  try {
+    pat = decrypt(encryptedPat);
+  } catch (err) {
+    throw new GitHubSyncError(400, 'INVALID_GITHUB_CREDENTIALS', 'Failed to decrypt GitHub PAT');
+  }
+
   const headers = {
     Authorization: `Bearer ${pat}`,
     'User-Agent': 'senior-app-github-sync',
@@ -224,6 +236,8 @@ async function getPullRequestForIssue(issue, config) {
       return res.data;
     } catch (err) {
       if (err.response?.status === 404) return null;
+      // Do not log token or token-derived values (Zero-Trust logging)
+      console.error(`[getPullRequestForIssue] API error for PR ${prNumber}:`, err.message);
       throw err;
     }
   }
@@ -258,6 +272,8 @@ async function getPullRequestForIssue(issue, config) {
     } catch (err) {
       // 422 = invalid branch ref format — skip, not a real error
       if (err.response?.status === 422) continue;
+      // Do not log token or token-derived values (Zero-Trust logging)
+      console.error(`[getPullRequestForIssue] API error for branch ${branch}:`, err.message);
       throw err;
     }
   }
@@ -316,6 +332,8 @@ async function githubSyncWorker(groupId, sprintId, jobId) {
 
     // ── f33 + f34: Per-issue GitHub API call + D6 persistence ───────────────
     const validationRecords = [];
+    let upstreamErrorCount = 0;
+    let timeoutErrorCount = 0;
 
     for (const issue of issues) {
       let pr = null;
@@ -329,6 +347,14 @@ async function githubSyncWorker(groupId, sprintId, jobId) {
         // Upstream errors after retries → log but continue processing other issues
         console.error(`[githubSyncWorker] PR lookup failed for issue ${issue.key}:`, err.message);
         errorNote = err.message;
+
+        // Classify critical upstream errors
+        if (err.code === 'ECONNABORTED') {
+          timeoutErrorCount++;
+          upstreamErrorCount++;
+        } else if (err.response?.status >= 500) {
+          upstreamErrorCount++;
+        }
       }
 
       validationRecords.push({
@@ -343,7 +369,22 @@ async function githubSyncWorker(groupId, sprintId, jobId) {
 
     // Persist all records
     job.validationRecords = validationRecords;
-    job.status = 'COMPLETED';
+
+    // ── Job Status Classification ──────────────────────────────────────────
+    // If more than 50% of issues failed due to 5xx/timeout, fail the whole job
+    if (issues.length > 0 && upstreamErrorCount / issues.length > 0.5) {
+      job.status = 'FAILED';
+      if (timeoutErrorCount > 0) {
+        job.errorCode = 'GATEWAY_TIMEOUT';
+        job.errorMessage = `GitHub API timed out for ${timeoutErrorCount} issue lookups.`;
+      } else {
+        job.errorCode = 'UPSTREAM_PROVIDER_ERROR';
+        job.errorMessage = `GitHub API returned consistent errors for ${upstreamErrorCount} issues. Check GitHub status.`;
+      }
+    } else {
+      job.status = 'COMPLETED';
+    }
+
     job.completedAt = new Date();
 
     // ── f35: Release lock ────────────────────────────────────────────────────

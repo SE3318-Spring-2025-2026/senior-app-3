@@ -58,6 +58,11 @@ const contributionRecordSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    jiraIssueKey: {
+      type: String,
+      default: null,
+      indexed: true,
+    },
     contributionRatio: {
       type: Number,
       default: 0,
