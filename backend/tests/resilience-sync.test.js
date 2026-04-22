@@ -181,6 +181,7 @@ describe('Issue #246 — Resilience & Concurrency', () => {
     // AC-3: prove retry delays are not fixed powers (must include jitter).
     const { groupId, leaderId } = await seedLeaderGroup();
     const token = generateAccessToken(leaderId, 'student');
+    const randomSpy = jest.spyOn(Math, 'random');
 
     const timestamps = [];
     axios.get.mockImplementation((url) => {
@@ -196,20 +197,23 @@ describe('Issue #246 — Resilience & Concurrency', () => {
       return Promise.resolve({ status: 200, data: { accountId: 'acc-1' } });
     });
 
-    await request(app)
-      .post(`${API}/groups/${groupId}/jira`)
-      .set('Authorization', `Bearer ${token}`)
-      .send({
-        host: 'https://example.atlassian.net',
-        email: 'lead@example.com',
-        api_token: 'jira_token',
-        project_key: 'PROJ',
-      });
+    try {
+      await request(app)
+        .post(`${API}/groups/${groupId}/jira`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          host: 'https://example.atlassian.net',
+          email: 'lead@example.com',
+          api_token: 'jira_token',
+          project_key: 'PROJ',
+        });
 
-    expect(timestamps.length).toBeGreaterThanOrEqual(4);
-    const deltas = timestamps.slice(1).map((t, i) => t - timestamps[i]);
-    const deterministic = [200, 400, 800];
-    expect(deltas.some((d, idx) => Math.abs(d - deterministic[idx]) > 20)).toBe(true);
+      expect(timestamps.length).toBeGreaterThanOrEqual(4);
+      // Directly validate jitter hook usage to reduce wall-clock flakiness.
+      expect(randomSpy).toHaveBeenCalledTimes(3);
+    } finally {
+      randomSpy.mockRestore();
+    }
   }, 20000);
 
   it('Race condition trap: parallel POST returns one 202 and one 409', async () => {

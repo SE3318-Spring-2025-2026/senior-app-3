@@ -11,7 +11,7 @@
  *   - Returns 409 Conflict if a sync is already IN_PROGRESS for the same key
  *
  * Error mapping (see spec §3):
- *   202  — job_id + status: "PENDING"    → Job accepted and worker dispatched
+ *   202  — job_id + status: "IN_PROGRESS" → Job accepted and worker dispatched
  *   409  — SYNC_ALREADY_RUNNING          → Lock already held
  *   400  — INVALID_GITHUB_CREDENTIALS    → D2 missing/invalid PAT or repo binding
  *   404  — JIRA_DATA_MISSING             → D6 empty for this sprint (Process 7.1 hasn't run)
@@ -115,7 +115,7 @@ const triggerGitHubSync = async (req, res) => {
     // ── Respond 202 immediately ──────────────────────────────────────────────
     res.status(202).json({
       job_id: job.jobId,
-      status: 'PENDING',
+      status: job.status,
       message: 'GitHub sync job accepted. PR validation will run asynchronously.',
     });
 
