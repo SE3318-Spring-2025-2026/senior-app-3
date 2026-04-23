@@ -123,6 +123,16 @@ const auditLogSchema = new mongoose.Schema(
 
         // --- System & Test ---
         'TEST_ACTION',
+
+        // --- GitHub Sync (Process 7.2) ---
+        'GITHUB_SYNC_INITIATED',
+        'GITHUB_SYNC_COMPLETED',
+        'GITHUB_SYNC_FAILED',
+
+        // --- JIRA Sync (Process 7.1) ---
+        'JIRA_SYNC_INITIATED',
+        'JIRA_SYNC_COMPLETED',
+        'JIRA_SYNC_FAILED',
       ],
     },
     actorId: {

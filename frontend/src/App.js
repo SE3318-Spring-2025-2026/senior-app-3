@@ -30,10 +30,12 @@ import SubmitDeliverablePage from './pages/SubmitDeliverablePage.jsx';
 import ReviewPage from './pages/ReviewPage.jsx';
 import ReviewManagement from './pages/ReviewManagement.jsx';
 import StudentSprintProgressPage from './pages/StudentSprintProgressPage.jsx';
+import CoordinatorSprintDashboard from './pages/CoordinatorSprintDashboard.jsx';
+import SprintContributionDashboard from './pages/SprintContributionDashboard.jsx';
 
 
 const Profile = () => <div className="page">Profile - Coming Soon</div>;
-const Unauthorized = () => <div className="page error">Unauthorized Access</div>;
+const Unauthorized = () => <div className="page error">403 Forbidden - Coordinator access required</div>;
 const NotFound = () => <div className="page error">Page Not Found</div>;
 
 function App() {
@@ -83,6 +85,10 @@ function App() {
               path="/coordinator"
               element={<ProtectedRoute component={CoordinatorPanel} requiredRoles={['coordinator', 'admin']} />}
             />
+            <Route
+              path="/coordinator/sprint-dashboard"
+              element={<ProtectedRoute component={CoordinatorSprintDashboard} requiredRoles={['coordinator']} />}
+            />
 
             {/* Committee Routes from main */}
             <Route
@@ -125,6 +131,10 @@ function App() {
             <Route
               path="/groups/:group_id/deliverables/submit"
               element={<ProtectedRoute component={DeliverableSubmissionForm} requiredRoles={['student']} />}
+            />
+            <Route
+              path="/groups/:groupId/sprints/:sprintId/contributions"
+              element={<ProtectedRoute component={SprintContributionDashboard} />}
             />
             <Route
               path="/dashboard/submit-deliverable"
