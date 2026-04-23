@@ -32,6 +32,7 @@ import ReviewManagement from './pages/ReviewManagement.jsx';
 import StudentSprintProgressPage from './pages/StudentSprintProgressPage.jsx';
 import CoordinatorSprintDashboard from './pages/CoordinatorSprintDashboard.jsx';
 import SprintContributionDashboard from './pages/SprintContributionDashboard.jsx';
+import CommitteeFinalResults from './pages/CommitteeFinalResults.jsx';
 import StudentFinalGradesPage from './pages/StudentFinalGradesPage.jsx';
 import FinalGradeReviewPanel from './pages/FinalGradeReviewPanel.jsx';
 
@@ -161,6 +162,10 @@ function App() {
             <Route
               path="/jury/committees"
               element={<ProtectedRoute component={JuryCommittees} requiredRoles={['professor', 'committee_member', 'admin']} />}
+            />
+            <Route
+              path="/committees/:committeeId/final-results"
+              element={<ProtectedRoute component={CommitteeFinalResults} requiredRoles={['committee_member', 'admin']} />}
             />
             <Route
               path="/profile"
