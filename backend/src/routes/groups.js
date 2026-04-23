@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware, roleMiddleware, serviceOrBearerAuth } = require('../middleware/auth');
+const { checkJiraSyncRateLimit } = require('../middleware/jiraSyncRateLimit');
 const { checkScheduleWindow, checkAdvisorOperationWindow } = require('../middleware/scheduleWindow');
 const OPERATION_TYPES = require('../utils/operationTypes');
 
@@ -127,6 +128,7 @@ router.post(
   '/:groupId/sprints/:sprintId/jira-sync',
   serviceOrBearerAuth,
   roleMiddleware(['coordinator']),
+  checkJiraSyncRateLimit,
   triggerJiraSync
 );
 
@@ -173,6 +175,7 @@ router.post(
   '/:groupId/sprints/:sprintId/jira-sync',
   authMiddleware,
   roleMiddleware(['coordinator', 'admin']),
+  checkJiraSyncRateLimit,
   triggerJiraSync
 );
 
