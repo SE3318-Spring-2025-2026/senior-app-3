@@ -90,7 +90,7 @@ const triggerGitHubSync = async (req, res) => {
       return res.status(409).json({
         error: 'SYNC_ALREADY_RUNNING',
         message: `A GitHub sync is already in progress for group ${groupId} / sprint ${sprintId}`,
-        jobId: existingLock.jobId,
+        job_id: existingLock.jobId,
       });
     }
 
@@ -114,7 +114,7 @@ const triggerGitHubSync = async (req, res) => {
         return res.status(409).json({
           error: 'SYNC_ALREADY_RUNNING',
           message: `A GitHub sync was just triggered for group ${groupId} / sprint ${sprintId}`,
-          jobId: racingJob?.jobId,
+          job_id: racingJob?.jobId,
         });
       }
       throw err; // rethrow other DB errors
@@ -137,8 +137,8 @@ const triggerGitHubSync = async (req, res) => {
 
     // ── Respond 202 immediately ──────────────────────────────────────────────
     res.status(202).json({
-      jobId: job.jobId,
-      status: 'queued',
+      job_id: job.jobId,
+      status: 'PENDING',
       source: 'github',
       message: 'GitHub sync job accepted. PR validation will run asynchronously.',
       createdAt: job.createdAt,
@@ -205,8 +205,8 @@ const getSyncJobStatus = async (req, res) => {
     }
 
     return res.status(200).json({
-      jobId: job.jobId,
-      status: toPublicStatus(job.status),
+      job_id: job.jobId,
+      status: job.status,
       source: 'github',
       mappedHttpStatus: mapJobToHttpStatus(job.status, job.errorCode),
       groupId: job.groupId,
@@ -251,8 +251,8 @@ const getLatestSyncJob = async (req, res) => {
     }
 
     return res.status(200).json({
-      jobId: job.jobId,
-      status: toPublicStatus(job.status),
+      job_id: job.jobId,
+      status: job.status,
       source: 'github',
       mappedHttpStatus: mapJobToHttpStatus(job.status, job.errorCode),
       groupId: job.groupId,
