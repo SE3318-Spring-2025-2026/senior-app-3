@@ -31,18 +31,28 @@ const toHttpStatus = (status, errorCode = null) => {
 
 const mapJobResponse = (job) => ({
   jobId: job.jobId,
+  job_id: job.jobId,
   status: toPublicStatus(job.status),
   source: job.source,
   message: job.message,
   groupId: job.groupId,
+  group_id: job.groupId,
   sprintId: job.sprintId,
+  sprint_id: job.sprintId,
   startedAt: job.startedAt,
+  started_at: job.startedAt,
   completedAt: job.completedAt,
+  completed_at: job.completedAt,
   errorCode: job.errorCode,
+  error_code: job.errorCode,
   errorMessage: job.errorMessage,
+  error_message: job.errorMessage,
   createdAt: job.createdAt,
+  created_at: job.createdAt,
   updatedAt: job.updatedAt,
+  updated_at: job.updatedAt,
   mappedHttpStatus: toHttpStatus(job.status, job.errorCode),
+  mapped_http_status: toHttpStatus(job.status, job.errorCode),
 });
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -406,10 +416,12 @@ const triggerJiraSync = async (req, res) => {
 
     res.status(202).json({
       jobId: job.jobId,
+      job_id: job.jobId,
       status: 'queued',
       source: 'jira',
       message: 'JIRA sync job accepted.',
       createdAt: job.createdAt,
+      created_at: job.createdAt,
     });
 
     setImmediate(() => {
@@ -472,6 +484,7 @@ const getJiraSyncLogs = async (req, res) => {
 
     return res.status(200).json({
       jobId: job.jobId,
+      job_id: job.jobId,
       source: 'jira',
       status: toPublicStatus(job.status),
       logs,
