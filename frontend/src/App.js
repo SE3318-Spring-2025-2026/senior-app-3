@@ -32,6 +32,7 @@ import ReviewManagement from './pages/ReviewManagement.jsx';
 import StudentSprintProgressPage from './pages/StudentSprintProgressPage.jsx';
 import CoordinatorSprintDashboard from './pages/CoordinatorSprintDashboard.jsx';
 import SprintContributionDashboard from './pages/SprintContributionDashboard.jsx';
+import StudentFinalGradesPage from './pages/StudentFinalGradesPage.jsx';
 import FinalGradeReviewPanel from './pages/FinalGradeReviewPanel.jsx';
 
 
@@ -104,6 +105,10 @@ function App() {
             <Route
               path="/dashboard"
               element={<ProtectedRoute component={Dashboard} />}
+            />
+            <Route
+              path="/me/final-grades"
+              element={<ProtectedRoute component={StudentFinalGradesPage} requiredRoles={['student']} />}
             />
             <Route
               path="/groups/new"
