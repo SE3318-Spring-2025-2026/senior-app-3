@@ -30,6 +30,7 @@ import SubmitDeliverablePage from './pages/SubmitDeliverablePage.jsx';
 import ReviewPage from './pages/ReviewPage.jsx';
 import ReviewManagement from './pages/ReviewManagement.jsx';
 import SprintContributionDashboard from './pages/SprintContributionDashboard.jsx';
+import CommitteeFinalResults from './pages/CommitteeFinalResults.jsx';
 
 
 const Profile = () => <div className="page">Profile - Coming Soon</div>;
@@ -141,6 +142,10 @@ function App() {
             <Route
               path="/jury/committees"
               element={<ProtectedRoute component={JuryCommittees} requiredRoles={['professor', 'committee_member', 'admin']} />}
+            />
+            <Route
+              path="/committees/:committeeId/final-results"
+              element={<ProtectedRoute component={CommitteeFinalResults} requiredRoles={['committee_member', 'admin']} />}
             />
             <Route
               path="/profile"
