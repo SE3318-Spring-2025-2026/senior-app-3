@@ -530,6 +530,37 @@ const getSprintContributionSummary = async (req, res) => {
   }
 };
 
+const getGroupCommitteeStatus = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+
+    const group = await Group.findOne({ groupId }).lean();
+    if (!group) {
+      return res.status(404).json({
+        code: 'GROUP_NOT_FOUND',
+        message: 'Group not found',
+      });
+    }
+
+    const committee = group.committeeId
+      ? await Committee.findOne({ committeeId: group.committeeId }).lean()
+      : null;
+
+    return res.status(200).json({
+      groupId,
+      committeeId: group.committeeId || null,
+      committeeStatus: committee?.status || null,
+      publishedAt: committee?.publishedAt || null,
+    });
+  } catch (error) {
+    console.error('getGroupCommitteeStatus error:', error);
+    return res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'An unexpected error occurred while retrieving committee status.',
+    });
+  }
+};
+
 /**
  * Formats a Group document into the API response shape.
  * @param {object} extras - Optional advisor enrichment from getGroup (advisorName, advisorRequest)
@@ -1693,4 +1724,5 @@ module.exports = {
   transferAdvisor,
   createAdvisorRequest,
   getSprintContributionSummary,
+  getGroupCommitteeStatus,
 };

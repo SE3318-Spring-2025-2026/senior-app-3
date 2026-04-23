@@ -29,12 +29,15 @@ import DeliverableSubmissionForm from './components/DeliverableSubmissionForm.js
 import SubmitDeliverablePage from './pages/SubmitDeliverablePage.jsx';
 import ReviewPage from './pages/ReviewPage.jsx';
 import ReviewManagement from './pages/ReviewManagement.jsx';
+import StudentSprintProgressPage from './pages/StudentSprintProgressPage.jsx';
+import CoordinatorSprintDashboard from './pages/CoordinatorSprintDashboard.jsx';
 import SprintContributionDashboard from './pages/SprintContributionDashboard.jsx';
 import StudentFinalGradesPage from './pages/StudentFinalGradesPage.jsx';
+import FinalGradeReviewPanel from './pages/FinalGradeReviewPanel.jsx';
 
 
 const Profile = () => <div className="page">Profile - Coming Soon</div>;
-const Unauthorized = () => <div className="page error">Unauthorized Access</div>;
+const Unauthorized = () => <div className="page error">403 Forbidden - Coordinator access required</div>;
 const NotFound = () => <div className="page error">Page Not Found</div>;
 
 function App() {
@@ -84,6 +87,10 @@ function App() {
               path="/coordinator"
               element={<ProtectedRoute component={CoordinatorPanel} requiredRoles={['coordinator', 'admin']} />}
             />
+            <Route
+              path="/coordinator/sprint-dashboard"
+              element={<ProtectedRoute component={CoordinatorSprintDashboard} requiredRoles={['coordinator']} />}
+            />
 
             {/* Committee Routes from main */}
             <Route
@@ -116,6 +123,10 @@ function App() {
               element={<ProtectedRoute component={GroupDashboard} />}
             />
             <Route
+              path="/groups/:group_id/sprints/:sprint_id/progress"
+              element={<ProtectedRoute component={StudentSprintProgressPage} requiredRoles={['student']} />}
+            />
+            <Route
               path="/groups/:group_id/advisor"
               element={<ProtectedRoute component={AdvisorAssociationPanel} requiredRoles={['student']} />}
             />
@@ -130,6 +141,10 @@ function App() {
             <Route
               path="/groups/:groupId/sprints/:sprintId/contributions"
               element={<ProtectedRoute component={SprintContributionDashboard} />}
+            />
+            <Route
+              path="/groups/:groupId/final-grades/review"
+              element={<ProtectedRoute component={FinalGradeReviewPanel} requiredRoles={['professor', 'advisor']} />}
             />
             <Route
               path="/dashboard/submit-deliverable"
