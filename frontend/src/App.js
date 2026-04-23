@@ -129,7 +129,7 @@ function App() {
             />
             <Route
               path="/groups/:groupId/final-grades/review"
-              element={<ProtectedRoute component={FinalGradeReviewPanel} requiredRoles={['professor']} />}
+              element={<ProtectedRoute component={FinalGradeReviewPanel} requiredRoles={['professor', 'advisor']} />}
             />
             <Route
               path="/dashboard/submit-deliverable"

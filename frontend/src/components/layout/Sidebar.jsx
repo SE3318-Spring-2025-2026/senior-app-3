@@ -52,7 +52,7 @@ const Sidebar = () => {
     },
     {
       title: 'Academic Center',
-      requiredRoles: ['professor', 'admin', 'committee_member', 'coordinator'],
+      requiredRoles: ['professor', 'advisor', 'admin', 'committee_member', 'coordinator'],
       items: [
         {
           label: 'Inbox', path: '/professor/inbox', icon: (
@@ -66,7 +66,7 @@ const Sidebar = () => {
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-6m4 6V7m4 10v-4M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" />
             </svg>
-          ), requiredRoles: ['professor']
+          ), requiredRoles: ['professor', 'advisor']
         }] : []),
         {
           label: 'Jury Committees', path: '/jury/committees', icon: (
