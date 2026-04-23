@@ -5,6 +5,7 @@ const JiraSyncJob = require('../models/JiraSyncJob');
 const { jiraSyncWorker } = require('./jiraSyncService');
 
 let schedulerHandle = null;
+let schedulerTickInProgress = false;
 
 async function enqueueEligibleSyncs() {
   const configs = await SprintConfig.find({
@@ -43,8 +44,14 @@ function startJiraSyncScheduler() {
 
   const intervalMs = Number(process.env.JIRA_SPRINT_SYNC_INTERVAL_MS || 24 * 60 * 60 * 1000);
   schedulerHandle = setInterval(() => {
+    if (schedulerTickInProgress) {
+      return;
+    }
+    schedulerTickInProgress = true;
     enqueueEligibleSyncs().catch((err) => {
       console.error('[jiraSyncScheduler] Tick failed:', err.message);
+    }).finally(() => {
+      schedulerTickInProgress = false;
     });
   }, intervalMs);
 

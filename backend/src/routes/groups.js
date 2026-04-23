@@ -33,10 +33,8 @@ const {
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
 const { triggerGitHubSync, getSyncJobStatus, getLatestSyncJob, getSyncJobLogs } = require('../controllers/githubSync');
+const { triggerJiraSync, getJiraSyncStatus, getJiraSyncLogs } = require('../controllers/jiraSync');
 const {
-  triggerJiraSync,
-  getJiraSyncStatus,
-  getJiraSyncLogs,
   recalculateContributions,
 } = require('../controllers/sprintTracking');
 
@@ -171,14 +169,6 @@ router.get(
 // ============================================================================
 // PROCESS 7.1 — JIRA Sprint Sync (async ingestion bridge)
 // ============================================================================
-router.post(
-  '/:groupId/sprints/:sprintId/jira-sync',
-  authMiddleware,
-  roleMiddleware(['coordinator', 'admin']),
-  checkJiraSyncRateLimit,
-  triggerJiraSync
-);
-
 router.get(
   '/:groupId/sprints/:sprintId/jira-sync',
   authMiddleware,

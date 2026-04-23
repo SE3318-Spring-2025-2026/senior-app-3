@@ -1,5 +1,6 @@
 'use strict';
 
+const mongoose = require('mongoose');
 const axios = require('axios');
 const Group = require('../models/Group');
 const SprintConfig = require('../models/SprintConfig');
@@ -30,7 +31,15 @@ async function withRetry(fn, maxAttempts = MAX_RETRY_ATTEMPTS) {
     try {
       return await fn();
     } catch (err) {
-      if (err.response?.status >= 400 && err.response?.status < 500) {
+      const status = err.response?.status;
+      const shouldRetry =
+        err.code === 'ECONNABORTED' ||
+        !status ||
+        status === 502 ||
+        status === 503 ||
+        status === 504;
+
+      if (!shouldRetry) {
         throw err;
       }
 
@@ -123,56 +132,84 @@ async function fetchSprintIssuesFromJira(config, sprintConfig) {
   const headers = createJiraAuthHeaders(config.email, decryptedToken);
   const storyPointFieldId = await discoverStoryPointField(config.baseUrl, headers);
   const jql = `project = "${config.projectKey}" AND sprint = "${sprintConfig.externalSprintKey}"`;
+  const issues = [];
+  let startAt = 0;
+  let total = 0;
 
-  const response = await withRetry(() =>
-    axios.get(`${config.baseUrl}/rest/api/3/search`, {
-      headers,
-      timeout: 8000,
-      params: {
-        jql,
-        maxResults: 100,
-        fields: `summary,status,assignee,${storyPointFieldId}`,
-      },
-    })
-  );
+  do {
+    const response = await withRetry(() =>
+      axios.get(`${config.baseUrl}/rest/api/3/search`, {
+        headers,
+        timeout: 8000,
+        params: {
+          jql,
+          startAt,
+          maxResults: 100,
+          fields: `summary,status,assignee,${storyPointFieldId}`,
+        },
+      })
+    );
+
+    const pageIssues = response.data?.issues || [];
+    total = Number(response.data?.total || pageIssues.length);
+    issues.push(...pageIssues);
+    startAt += pageIssues.length;
+
+    if (pageIssues.length === 0) {
+      break;
+    }
+  } while (issues.length < total);
 
   return {
-    issues: response.data?.issues || [],
+    issues,
     storyPointFieldId,
     jql,
   };
 }
 
 async function persistSprintIssues(groupId, sprintId, issues, storyPointFieldId) {
-  let upserted = 0;
+  const session = await mongoose.startSession();
 
-  for (const issue of issues) {
-    const fields = issue.fields || {};
-    const assignee = fields.assignee || {};
+  try {
+    await session.withTransaction(async () => {
+      if (issues.length === 0) {
+        return;
+      }
 
-    await SprintIssue.updateOne(
-      { groupId, sprintId, issueKey: issue.key },
-      {
-        $set: {
-          storyPoints: Number(fields[storyPointFieldId] || 0),
-          status: fields.status?.name || null,
-          assigneeAccountId: assignee.accountId || null,
-          assigneeDisplayName: assignee.displayName || null,
-          rawIssue: issue,
-          syncedAt: new Date(),
-        },
-        $setOnInsert: {
-          groupId,
-          sprintId,
-          issueKey: issue.key,
-        },
-      },
-      { upsert: true }
-    );
-    upserted++;
+      const operations = issues.map((issue) => {
+        const fields = issue.fields || {};
+        const assignee = fields.assignee || {};
+
+        return {
+          updateOne: {
+            filter: { groupId, sprintId, issueKey: issue.key },
+            update: {
+              $set: {
+                storyPoints: Number(fields[storyPointFieldId] || 0),
+                status: fields.status?.name || null,
+                assigneeAccountId: assignee.accountId || null,
+                assigneeDisplayName: assignee.displayName || null,
+                rawIssue: issue,
+                syncedAt: new Date(),
+              },
+              $setOnInsert: {
+                groupId,
+                sprintId,
+                issueKey: issue.key,
+              },
+            },
+            upsert: true,
+          },
+        };
+      });
+
+      await SprintIssue.bulkWrite(operations, { session });
+    });
+
+    return issues.length;
+  } finally {
+    await session.endSession();
   }
-
-  return upserted;
 }
 
 async function logSyncError(groupId, actorId, message) {
