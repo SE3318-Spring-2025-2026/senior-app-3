@@ -67,4 +67,4 @@ const down = async () => {
   }
 };
 
-module.exports = { up, down };
+module.exports = { name: '010_create_review_schema', up, down };
