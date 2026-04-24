@@ -30,6 +30,7 @@ const syncJobSchema = new mongoose.Schema(
     startedAt: { type: Date, default: null },
     completedAt: { type: Date, default: null },
     triggeredBy: { type: String, default: null },
+    correlationId: { type: String, default: null },
   },
   {
     timestamps: true,

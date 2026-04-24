@@ -495,6 +495,105 @@ const options = {
           responses: { 200: { description: 'Jira details' } },
         },
       },
+      '/groups/{groupId}/sprints/{sprintId}/contributions/recalculate': {
+        post: {
+          tags: ['Groups'],
+          summary: 'Recalculate sprint contributions and notify stakeholders',
+          description: 'ep_7_recalculate_contributions: Process 7.4 recalculation followed by Process 7.5 notification dispatch.',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            { name: 'groupId', in: 'path', required: true, schema: { type: 'string' } },
+            { name: 'sprintId', in: 'path', required: true, schema: { type: 'string' } },
+          ],
+          requestBody: {
+            required: false,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    notifyStudents: { type: 'boolean', default: false },
+                    notifyCoordinator: { type: 'boolean', default: true },
+                    overrideFinalized: { type: 'boolean', default: false },
+                    persistToD4: { type: 'boolean', default: true },
+                    notes: { type: 'string', maxLength: 500 },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: 'Recalculation completed; notification dispatch scheduled asynchronously',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      sprintId: { type: 'string', example: 'spr_abc123' },
+                      groupId: { type: 'string', example: 'grp_abc123' },
+                      coordinatorId: { type: 'string', example: 'usr_coord_01' },
+                      ratiosCalculated: { type: 'boolean', example: true },
+                      contributionCount: { type: 'integer', example: 4 },
+                      persistenceResult: {
+                        type: 'object',
+                        properties: {
+                          success: { type: 'boolean', example: true },
+                          recordsPersistedCount: { type: 'integer', example: 4 },
+                          d4RecordCreated: { type: 'boolean', example: true },
+                          persistedAt: { type: 'string', format: 'date-time' },
+                          durationMs: { type: 'integer', example: 120 }
+                        }
+                      },
+                      notificationResult: {
+                        type: 'object',
+                        properties: {
+                          success: { type: 'boolean', example: true },
+                          studentNotificationCount: { type: 'integer', example: 4 },
+                          coordinatorNotified: { type: 'boolean', example: true },
+                          dispatchMethod: { type: 'string', example: 'async' },
+                          correlationId: { type: 'string', example: 'contrib_1717000000000_ab12cd34' }
+                        }
+                      },
+                      contributionSummary: {
+                        type: 'object',
+                        properties: {
+                          groupTotalStoryPoints: { type: 'number', example: 42 },
+                          averageRatio: { type: 'number', example: 0.76 },
+                          maxRatio: { type: 'number', example: 1.0 },
+                          minRatio: { type: 'number', example: 0.45 }
+                        }
+                      },
+                      correlationId: { type: 'string', example: 'contrib_1717000000000_ab12cd34' },
+                      processedAt: { type: 'string', format: 'date-time' },
+                      durationMs: { type: 'integer', example: 180 }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: 'Bad request (missing/invalid parameters)' },
+            422: {
+              description: 'Closed sprint window or business validation failure',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: false },
+                      error: { type: 'string', example: 'Cannot recompute: Sprint window is closed' },
+                      code: { type: 'string', example: 'SPRINT_WINDOW_CLOSED' },
+                      correlationId: { type: 'string', example: 'contrib_1717000000000_ab12cd34' }
+                    }
+                  }
+                }
+              }
+            },
+            500: { description: 'Internal server error' },
+          },
+        },
+      },
       '/groups/{groupId}/override': {
         patch: {
           tags: ['Groups'],

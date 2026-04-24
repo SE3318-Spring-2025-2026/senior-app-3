@@ -30,7 +30,7 @@ const deliverableSchema = new mongoose.Schema(
     },
     deliverableType: {
       type: String,
-      enum: ['proposal', 'statement_of_work', 'demo', 'interim_report', 'final_report'],
+      enum: ['proposal', 'statement_of_work', 'statement-of-work', 'demo', 'demonstration', 'interim_report', 'final_report'],
       required: true,
     },
     sprintId: {

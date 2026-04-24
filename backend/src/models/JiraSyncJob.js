@@ -59,6 +59,10 @@ const jiraSyncJobSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    correlationId: {
+      type: String,
+      default: null,
+    },
   },
   {
     timestamps: true,

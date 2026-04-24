@@ -35,8 +35,12 @@ const { transitionStatus, getStatus } = require('../controllers/groupStatusTrans
 const { triggerGitHubSync, getSyncJobStatus, getLatestSyncJob, getSyncJobLogs } = require('../controllers/githubSync');
 const { triggerJiraSync, getJiraSyncStatus, getJiraSyncLogs } = require('../controllers/jiraSync');
 const {
-  recalculateContributions,
+  reconcileD4toD6,
 } = require('../controllers/sprintTracking');
+const {
+  recalculateContributions,
+  requireCoordinatorRole,
+} = require('../controllers/contributionRatios');
 
 // Integrated Controllers from both branches
 const { submitDeliverableHandler } = require('../controllers/deliverables'); // From main
@@ -197,7 +201,15 @@ router.post(
   '/:groupId/sprints/:sprintId/contributions/recalculate',
   authMiddleware,
   roleMiddleware(['coordinator', 'admin']),
+  requireCoordinatorRole,
   recalculateContributions
+);
+
+router.post(
+  '/:groupId/sprints/:sprintId/reconcile-deliverables',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
+  reconcileD4toD6
 );
 
 router.patch(

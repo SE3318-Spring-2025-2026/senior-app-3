@@ -14,6 +14,8 @@ const deliverableRoutes = require('./routes/deliverables');
 const reviewRoutes = require('./routes/reviews');
 const commentsRoutes = require('./routes/comments');
 const { errorHandler } = require('./middleware/auth');
+const { correlationIdMiddleware } = require('./middleware/correlationId');
+const { logInfo, logError } = require('./utils/structuredLogger');
 const {
   patchConsoleForRedaction,
   requestLogMiddleware,
@@ -39,7 +41,18 @@ const PORT = process.env.PORT || 5002;
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(correlationIdMiddleware());
 
+app.use((req, res, next) => {
+  logInfo('Incoming HTTP request', {
+    service_name: 'app_bootstrap',
+    correlationId: req.correlationId || null,
+    externalRequestId: req.externalRequestId || null,
+    method: req.method,
+    path: req.path
+  });
+  next();
+});
 patchConsoleForRedaction();
 app.use(requestLogMiddleware);
 
@@ -57,9 +70,14 @@ const connectDB = async () => {
       useNewUrlParser: true,
       useUnifiedTopology: true,
     });
-    console.log('MongoDB connected successfully');
+    logInfo('MongoDB connected successfully', {
+      service_name: 'app_bootstrap'
+    });
   } catch (error) {
-    console.error('MongoDB connection error:', error);
+    logError('MongoDB connection error', {
+      service_name: 'app_bootstrap',
+      error: error.message
+    });
     process.exit(1);
   }
 };
@@ -99,8 +117,11 @@ app.use(errorHandler);
 
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    logInfo('Server started', {
+      service_name: 'app_bootstrap',
+      port: PORT,
+      environment: process.env.NODE_ENV || 'development'
+    });
   });
 }
 
