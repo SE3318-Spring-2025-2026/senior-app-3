@@ -136,6 +136,10 @@ const auditLogSchema = new mongoose.Schema(
         'SPRINT_NOTIFICATION_SKIPPED',            // ISSUE #238: Notification skipped (feature disabled for sprint)
         'SPRINT_NOTIFICATION_DISPATCHER_ERROR',   // ISSUE #238: Critical error in orchestrator (unexpected failure)
         'SPRINT_GROUP_NOTIFICATION_CONFIGURED',   // ISSUE #238: Notification configuration created/updated
+        // --- JIRA Sync (Process 7.1) ---
+        'JIRA_SYNC_INITIATED',
+        'JIRA_SYNC_COMPLETED',
+        'JIRA_SYNC_FAILED',
       ],
     },
     actorId: {

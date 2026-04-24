@@ -247,6 +247,7 @@ const errorHandler = (err, req, res, next) => {
 const serviceOrBearerAuth = (req, res, next) => {
   const expected =
     process.env.SERVICE_AUTH_TOKEN ||
+    process.env.SYSTEM_SERVICE_TOKEN ||
     process.env.X_SERVICE_AUTH_SECRET ||
     process.env.INTERNAL_API_KEY;
   const headerVal = req.headers['x-service-auth'];

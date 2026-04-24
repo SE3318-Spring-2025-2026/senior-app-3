@@ -35,6 +35,7 @@ const Group = require('../src/models/Group');
 const SprintRecord = require('../src/models/SprintRecord');
 const ContributionRecord = require('../src/models/ContributionRecord');
 const GitHubSyncJob = require('../src/models/GitHubSyncJob');
+const SprintIssue = require('../src/models/SprintIssue');
 const AuditLog = require('../src/models/AuditLog');
 const { encrypt } = require('../src/utils/cryptoUtils');
 
@@ -215,7 +216,7 @@ describe('Process 7.2 — GitHub PR Sync', () => {
     it('returns config object when GitHub is fully configured', async () => {
       const { groupId } = await seedGroupWithGitHub();
       const cfg = await getGitHubConfig(groupId);
-      expect(cfg.pat).toBe('ghp_test_pat_token');
+      expect(cfg.encryptedPat).toBeTruthy();
       expect(cfg.owner).toBe('test-org');
       expect(cfg.repo).toBe('test-repo');
     });
@@ -248,6 +249,24 @@ describe('Process 7.2 — GitHub PR Sync', () => {
       expect(issues.length).toBeGreaterThanOrEqual(2);
       expect(issues.map((i) => i.key)).toContain('del_001');
       expect(issues.map((i) => i.key)).toContain('del_002');
+    });
+
+    it('prefers canonical SprintIssue rows from Process 7.1 when present', async () => {
+      const groupId = unique('grp');
+      const sprintId = unique('spr');
+
+      await SprintIssue.create({
+        groupId,
+        sprintId,
+        issueKey: 'SPM-777',
+        storyPoints: 8,
+        status: 'Done',
+      });
+
+      const { getSprintIssues: gsi } = require('../src/services/githubSyncService');
+      const issues = await gsi(sprintId, groupId);
+
+      expect(issues.some((issue) => issue.key === 'SPM-777' && issue.source === 'sprint_issue')).toBe(true);
     });
 
     it('supplements with ContributionRecord entries', async () => {
@@ -336,7 +355,7 @@ describe('Process 7.2 — GitHub PR Sync', () => {
       expect(res.body.error).toBe('JIRA_DATA_MISSING');
     });
 
-    it('returns 202 + job_id + status PENDING for a valid request', async () => {
+    it('returns 202 + SprintSyncJobStatus fields (jobId, queued, timestamps) for a valid request', async () => {
       const { token } = tokenCoordinator();
       const { groupId } = await seedGroupWithGitHub();
       const sprintId = unique('spr');
@@ -352,8 +371,11 @@ describe('Process 7.2 — GitHub PR Sync', () => {
         .set('Authorization', `Bearer ${token}`);
 
       expect(res.status).toBe(202);
-      expect(res.body.job_id).toBeTruthy();
-      expect(res.body.status).toBe('PENDING');
+      expect(res.body.jobId).toBeTruthy();
+      expect(res.body.job_id).toBe(res.body.jobId);
+      expect(res.body.status).toBe('queued');
+      expect(res.body.createdAt).toBeTruthy();
+      expect(res.body.updatedAt).toBeTruthy();
     });
 
     it('writes GITHUB_SYNC_INITIATED audit log on 202 acceptance', async () => {
@@ -399,27 +421,27 @@ describe('Process 7.2 — GitHub PR Sync', () => {
     });
 
     // ── QA checklist: 409 concurrency guard ──────────────────────────────────
-    it('returns 409 SYNC_ALREADY_RUNNING when a second POST arrives while IN_PROGRESS', async () => {
-      // QA: "Verify that a second POST request within 5 seconds returns a 409"
+    it('returns one 202 and one 409 for two concurrent POST requests', async () => {
+      // Race simulation: both requests hit the endpoint concurrently
       const { token } = tokenCoordinator();
       const { groupId } = await seedGroupWithGitHub();
       const sprintId = unique('spr');
       await seedSprintRecord(groupId, sprintId);
+      axios.get = jest.fn().mockResolvedValue({ data: [] });
 
-      // Pre-create an IN_PROGRESS lock in D6 (simulates running worker)
-      await GitHubSyncJob.create({
-        groupId,
-        sprintId,
-        status: 'IN_PROGRESS',
-        triggeredBy: 'coord_seed',
-      });
+      const [res1, res2] = await Promise.all([
+        request(app)
+          .post(`${API}/groups/${groupId}/sprints/${sprintId}/github-sync`)
+          .set('Authorization', `Bearer ${token}`),
+        request(app)
+          .post(`${API}/groups/${groupId}/sprints/${sprintId}/github-sync`)
+          .set('Authorization', `Bearer ${token}`),
+      ]);
 
-      const res = await request(app)
-        .post(`${API}/groups/${groupId}/sprints/${sprintId}/github-sync`)
-        .set('Authorization', `Bearer ${token}`);
-
-      expect(res.status).toBe(409);
-      expect(res.body.error).toBe('SYNC_ALREADY_RUNNING');
+      const statuses = [res1.status, res2.status].sort((a, b) => a - b);
+      expect(statuses).toEqual([202, 409]);
+      const conflict = res1.status === 409 ? res1 : res2;
+      expect(conflict.body.error).toBe('SYNC_ALREADY_RUNNING');
     });
 
     it('allows a new sync after the previous job is COMPLETED (lock released)', async () => {
@@ -445,7 +467,7 @@ describe('Process 7.2 — GitHub PR Sync', () => {
       expect(res.status).toBe(202);
     });
 
-    it('professor role can also trigger a sync (202)', async () => {
+    it('returns 403 when caller is a professor (coordinator/admin only)', async () => {
       const { token } = tokenProfessor();
       const { groupId } = await seedGroupWithGitHub();
       const sprintId = unique('spr');
@@ -457,7 +479,7 @@ describe('Process 7.2 — GitHub PR Sync', () => {
         .post(`${API}/groups/${groupId}/sprints/${sprintId}/github-sync`)
         .set('Authorization', `Bearer ${token}`);
 
-      expect(res.status).toBe(202);
+      expect(res.status).toBe(403);
     });
   });
 
@@ -719,7 +741,7 @@ describe('Process 7.2 — GitHub PR Sync', () => {
       expect(record?.mergeStatus).toBe('MERGED');
     }, 12000);
 
-    it('marks job FAILED when GitHub returns 503 on ALL retry attempts', async () => {
+    it('marks job FAILED with UPSTREAM_PROVIDER_ERROR when GitHub returns 503 on all retries', async () => {
       const { token } = tokenCoordinator();
       const { groupId } = await seedGroupWithGitHub();
       const sprintId = unique('spr');
@@ -743,9 +765,34 @@ describe('Process 7.2 — GitHub PR Sync', () => {
       const jobId = res.body.job_id;
       const settled = await waitForJobToSettle(jobId, 8000);
 
-      // Job should be COMPLETED with UNKNOWN records (worker catches per-issue errors)
-      // OR FAILED if the D2/D6 read itself failed — either is acceptable
-      expect(['COMPLETED', 'FAILED']).toContain(settled.status);
+      expect(settled.status).toBe('FAILED');
+      expect(settled.errorCode).toBe('UPSTREAM_PROVIDER_ERROR');
+    }, 12000);
+
+    it('marks job FAILED with GATEWAY_TIMEOUT when all retries timeout', async () => {
+      const { token } = tokenCoordinator();
+      const { groupId } = await seedGroupWithGitHub();
+      const sprintId = unique('spr');
+      await seedSprintRecord(groupId, sprintId, {
+        deliverableRefs: [{ deliverableId: 'DEL-TIMEOUT', type: 'proposal', submittedAt: new Date() }],
+      });
+
+      const timeoutError = Object.assign(new Error('timeout'), {
+        code: 'ECONNABORTED',
+      });
+
+      axios.get = jest.fn().mockRejectedValue(timeoutError);
+
+      const res = await request(app)
+        .post(`${API}/groups/${groupId}/sprints/${sprintId}/github-sync`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(202);
+      const jobId = res.body.job_id;
+      const settled = await waitForJobToSettle(jobId, 8000);
+
+      expect(settled.status).toBe('FAILED');
+      expect(settled.errorCode).toBe('GATEWAY_TIMEOUT');
     }, 12000);
 
     it('writes GITHUB_SYNC_COMPLETED audit log on success', async () => {

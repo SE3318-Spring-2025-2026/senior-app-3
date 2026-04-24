@@ -58,27 +58,65 @@ const contributionRecordSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    jiraIssueKeys: {
+      type: [String],
+      default: [],
+      indexed: true,
+    },
+    jiraIssueKey: {
+      type: String,
+      default: null,
+      indexed: true,
+    },
+    locked: {
+      type: Boolean,
+      default: false,
+    },
     contributionRatio: {
       type: Number,
       default: 0,
       min: 0,
       max: 1,
     },
-    gitHubHandle: {
+    targetStoryPoints: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    groupTotalStoryPoints: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    recalculatedAt: {
+      type: Date,
+      default: null,
+    },
+    lastHandoffEventId: {
       type: String,
       default: null,
+      index: true,
+    },
+    githubHandle: {
+      type: String,
+      default: null,
+      alias: 'gitHubHandle',
     },
     lastUpdatedAt: {
       type: Date,
       default: Date.now,
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    collection: 'sprint_contributions',
+  }
 );
 
 // Indexes for efficient querying
 contributionRecordSchema.index({ contributionRecordId: 1 });
 contributionRecordSchema.index({ sprintId: 1, studentId: 1, groupId: 1 }, { unique: true });
+contributionRecordSchema.index({ groupId: 1, sprintId: 1, studentId: 1 });
 contributionRecordSchema.index({ sprintId: 1, groupId: 1 });
 contributionRecordSchema.index({ studentId: 1, sprintId: 1 });
 
