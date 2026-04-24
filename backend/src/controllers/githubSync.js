@@ -65,10 +65,11 @@ const triggerGitHubSync = async (req, res) => {
   if (!ensureSyncAccess(req, res)) return;
   const { groupId, sprintId } = req.params;
   const actorId = req.user?.userId || 'system';
+  const correlationId = req.headers['x-correlation-id'] || `gh_${Date.now()}`;
 
   try {
     // ── Guard: verify group exists (D2 sanity check) ────────────────────────
-    const group = await Group.findOne({ groupId }).lean();
+    const group = await Group.findOne({ groupId }).select('+githubPat').lean();
     if (!group) {
       return res.status(404).json({
         error: 'JIRA_DATA_MISSING',
@@ -90,6 +91,14 @@ const triggerGitHubSync = async (req, res) => {
       return res.status(404).json({
         error: 'JIRA_DATA_MISSING',
         message: `No sprint record found in D6 for sprint ${sprintId}. Ensure Process 7.1 has completed.`,
+      });
+    }
+
+    // ── Guard: Finalized snapshot conflict ──────────────────────────────────
+    if (['completed', 'reviewed'].includes(sprintRecord.status)) {
+      return res.status(409).json({
+        error: 'SNAPSHOT_LOCKED',
+        message: `Sprint contribution snapshot for ${groupId}/${sprintId} is already finalized.`,
       });
     }
 
@@ -116,6 +125,7 @@ const triggerGitHubSync = async (req, res) => {
         sprintId,
         status: 'PENDING',
         triggeredBy: actorId,
+        correlationId,
       });
     } catch (err) {
       if (err.code === 11000) {
@@ -144,6 +154,7 @@ const triggerGitHubSync = async (req, res) => {
         payload: { sprintId, jobId: job.jobId },
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
+        correlationId,
       });
     } catch (auditErr) {
       console.error('[triggerGitHubSync] Audit log failed (non-fatal):', auditErr.message);

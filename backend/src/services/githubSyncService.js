@@ -33,6 +33,7 @@ const ContributionRecord = require('../models/ContributionRecord');
 const GitHubSyncJob = require('../models/GitHubSyncJob');
 const SprintIssue = require('../models/SprintIssue');
 const { createAuditLog } = require('./auditService');
+const { dispatchSyncNotification } = require('./notificationService');
 const { decrypt } = require('../utils/cryptoUtils');
 
 // ---------------------------------------------------------------------------
@@ -117,7 +118,7 @@ function determineMergeStatus(pr) {
  * @throws {GitHubSyncError} with code INVALID_GITHUB_CREDENTIALS if not configured
  */
 async function getGitHubConfig(groupId) {
-  const group = await Group.findOne({ groupId }).lean();
+  const group = await Group.findOne({ groupId }).select('+githubPat').lean();
   if (!group) {
     throw new GitHubSyncError(400, 'INVALID_GITHUB_CREDENTIALS', `Group ${groupId} not found`);
   }
@@ -411,6 +412,18 @@ async function githubSyncWorker(groupId, sprintId, jobId) {
     // ── f35: Release lock ────────────────────────────────────────────────────
     await job.save();
 
+    const correlationId = job.correlationId;
+
+    // Trigger completion notification
+    dispatchSyncNotification({
+      groupId,
+      sprintId,
+      status: job.status,
+      issuesProcessed: validationRecords.length,
+      triggeredBy: job.triggeredBy || 'system',
+      correlationId,
+    });
+
     // Audit (non-fatal)
     try {
       await createAuditLog({
@@ -426,6 +439,7 @@ async function githubSyncWorker(groupId, sprintId, jobId) {
           notMergedCount: validationRecords.filter((r) => r.mergeStatus === 'NOT_MERGED').length,
           unknownCount: validationRecords.filter((r) => r.mergeStatus === 'UNKNOWN').length,
         },
+        correlationId,
       });
     } catch (auditErr) {
       console.error('[githubSyncWorker] Audit log failed (non-fatal):', auditErr.message);
@@ -458,6 +472,7 @@ async function githubSyncWorker(groupId, sprintId, jobId) {
           errorCode: err.code || 'WORKER_ERROR',
           errorMessage: err.message,
         },
+        correlationId: job.correlationId,
       });
     } catch (auditErr) {
       console.error('[githubSyncWorker] Audit log failed (non-fatal):', auditErr.message);

@@ -28,7 +28,7 @@ const axios = require('axios');
 
 const mongoose = require('mongoose');
 const request = require('supertest');
-const { MongoMemoryServer } = require('mongodb-memory-server');
+const { MongoMemoryReplSet } = require('mongodb-memory-server');
 
 const { generateAccessToken } = require('../src/utils/jwt');
 const Group = require('../src/models/Group');
@@ -135,7 +135,9 @@ async function waitForJobToSettle(jobId, maxMs = 5000) {
 
 describe('Process 7.2 — GitHub PR Sync', () => {
   beforeAll(async () => {
-    mongod = await MongoMemoryServer.create();
+    mongod = await MongoMemoryReplSet.create({
+      replSet: { count: 1 },
+    });
     await mongoose.connect(mongod.getUri());
     app = require('../src/index');
   }, 60000);
@@ -528,7 +530,7 @@ describe('Process 7.2 — GitHub PR Sync', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.job_id).toBe(job.jobId);
-      expect(res.body.status).toBe('COMPLETED');
+      expect(res.body.status).toBe('completed');
       expect(res.body.validationRecords).toHaveLength(1);
       expect(res.body.validationRecords[0].mergeStatus).toBe('MERGED');
     });
@@ -564,7 +566,7 @@ describe('Process 7.2 — GitHub PR Sync', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.job_id).toBe(newer.jobId);
-      expect(res.body.status).toBe('FAILED');
+      expect(res.body.status).toBe('failed');
     });
   });
 

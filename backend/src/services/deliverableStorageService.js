@@ -175,9 +175,13 @@ const createDeliverableDocument = async (stagingRecord, permanentPath, committee
     const deliverable = await Deliverable.create({
       committeeId,
       groupId: stagingRecord.groupId,
-      studentId: stagingRecord.submittedBy,
-      type: mappedType,
-      storageRef: permanentPath,
+      submittedBy: stagingRecord.submittedBy,
+      deliverableType: mappedType,
+      sprintId: stagingRecord.sprintId || null,
+      filePath: permanentPath,
+      fileSize: stagingRecord.fileSize || 0,
+      fileHash: stagingRecord.fileHash || 'unknown',
+      format: stagingRecord.mimeType || 'unknown',
       submittedAt: new Date(),
       status: 'accepted',
     });
