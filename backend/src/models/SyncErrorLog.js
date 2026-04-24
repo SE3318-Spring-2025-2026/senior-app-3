@@ -25,10 +25,14 @@ const syncErrorLogSchema = new mongoose.Schema(
     actorId: { type: String, required: true },
     attempts: { type: Number, default: 3 },
     lastError: { type: String, default: null },
+    correlationId: { type: String, default: null, index: true },
+    serviceName: { type: String, default: null, index: true },
+    metadata: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   { timestamps: true }
 );
 
 syncErrorLogSchema.index({ groupId: 1, service: 1 });
+syncErrorLogSchema.index({ service: 1, correlationId: 1, createdAt: -1 });
 
 module.exports = mongoose.model('SyncErrorLog', syncErrorLogSchema);

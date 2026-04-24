@@ -1,6 +1,7 @@
 ﻿const axios = require('axios');
 const { retryNotificationWithBackoff, isTransientError } = require('./notificationRetry');
 const Group = require('../models/Group');
+const { logError, logInfo } = require('../utils/structuredLogger');
 
 const NOTIFICATION_SERVICE_URL =
   process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:4000';
@@ -73,9 +74,13 @@ const dispatchCommitteePublishedNotification = async (payload, publishedBy) => {
     { timeout: 5000 }
   );
 
-  console.log(
-    `[Notification] Committee ${payload.committeeId} published notification dispatched to ${payload.recipientCount} recipients`
-  );
+  logInfo('Committee published notification dispatched', {
+    service_name: 'notification_dispatch',
+    correlationId: payload?.correlationId || null,
+    externalRequestId: payload?.externalRequestId || null,
+    committeeId: payload.committeeId,
+    recipientCount: payload.recipientCount
+  });
 
   const notificationId = response.data?.notification_id || `notif_${Date.now()}`;
 
@@ -150,7 +155,13 @@ const dispatchCommitteePublishNotification = async ({
 /**
  * Issue #62: advisee_request with transient-aware retries (used by groups controller).
  */
-const dispatchAdvisorRequestWithRetry = async ({ groupId, requesterId, message }) => {
+const dispatchAdvisorRequestWithRetry = async ({
+  groupId,
+  requesterId,
+  message,
+  correlationId = null,
+  externalRequestId = null
+}) => {
   let lastError = null;
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -163,7 +174,13 @@ const dispatchAdvisorRequestWithRetry = async ({ groupId, requesterId, message }
           requesterId,
           message: message || null,
         },
-        { timeout: 5000 }
+        {
+          timeout: 5000,
+          headers: {
+            ...(correlationId ? { 'x-correlation-id': correlationId } : {}),
+            ...(externalRequestId ? { 'x-external-request-id': externalRequestId } : {})
+          }
+        }
       );
       return {
         ok: true,
@@ -285,7 +302,12 @@ const dispatchReviewAssignmentNotification = async ({
       notificationId: `notif_review_${Date.now()}`,
     };
   } catch (error) {
-    console.error('Error dispatching review assignment notification:', error);
+    logError('Error dispatching review assignment notification', {
+      service_name: 'notification_dispatch',
+      correlationId: null,
+      externalRequestId: null,
+      error: error.message
+    });
     throw error;
   }
 };
@@ -307,8 +329,46 @@ const dispatchClarificationRequiredNotification = async ({
       notificationId: `notif_clarif_${Date.now()}`,
     };
   } catch (error) {
-    console.error('Error dispatching clarification notification:', error);
+    logError('Error dispatching clarification notification', {
+      service_name: 'notification_dispatch',
+      correlationId: null,
+      externalRequestId: null,
+      error: error.message
+    });
     throw error;
+  }
+};
+
+/**
+ * Dispatch JIRA sync completion notification
+ */
+const dispatchSyncNotification = async ({ groupId, sprintId, status, issuesProcessed, triggeredBy, correlationId }) => {
+  try {
+    // Fire-and-forget call to notification service
+    const payload = {
+      type: 'sprint_sync_completed',
+      groupId,
+      sprintId,
+      status,
+      issuesProcessed,
+      triggeredBy,
+      correlationId,
+      timestamp: new Date().toISOString(),
+    };
+
+    // We don't await this to keep it fire-and-forget, but we handle errors
+    const promise = axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications`, payload, { timeout: 5000 });
+    
+    if (promise && typeof promise.catch === 'function') {
+      promise.catch(error => {
+        console.error('Error dispatching sync notification (async):', error.message || error);
+      });
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error in dispatchSyncNotification setup:', error.message || error);
+    return { success: false, error: error.message };
   }
 };
 
@@ -328,5 +388,6 @@ module.exports = {
   dispatchDisbandNotification,
   dispatchReviewAssignmentNotification,
   dispatchClarificationRequiredNotification,
+  dispatchSyncNotification,
   isTransientError,
 };

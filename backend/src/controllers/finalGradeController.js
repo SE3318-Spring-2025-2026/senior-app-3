@@ -112,6 +112,15 @@ const approveGroupGradesHandler = async (req, res) => {
       });
     }
 
+    // ISSUE #253: Strict Authorization Check (Security Fix)
+    // Prevent Audit Log Forgery by ensuring the user is acting as themselves
+    if (coordinatorId !== req.user.userId) {
+      return res.status(403).json({
+        error: 'Forbidden: You can only approve grades using your own coordinator ID',
+        code: 'FORBIDDEN_ACTOR_MISMATCH'
+      });
+    }
+
     // ISSUE #253: Validate decision field
     if (!decision || !['approve', 'reject'].includes(decision)) {
       return res.status(422).json({

@@ -107,6 +107,12 @@ const retryNotificationWithBackoff = async (
       groupId,
       actorId: 'notification_retry',
       attempts: maxAttempts,
+      correlationId: identifierType === 'requestId' ? identifier : null,
+      serviceName: 'notification_retry',
+      metadata: {
+        identifierType,
+        identifier,
+      },
       lastError: `Failed after ${maxAttempts} attempts (${identifierType}: ${identifier}): ${lastError?.message}`,
     });
   } catch (logErr) {

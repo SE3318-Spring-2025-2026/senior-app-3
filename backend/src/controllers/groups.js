@@ -7,11 +7,15 @@ const MemberInvitation = require('../models/MemberInvitation');
 const Override = require('../models/Override');
 const User = require('../models/User');
 const AdvisorRequest = require('../models/AdvisorRequest');
+const Committee = require('../models/Committee');
+const ContributionRecord = require('../models/ContributionRecord');
 const { createAuditLog } = require('../services/auditService');
 const { forwardToMemberRequestPipeline, forwardOverrideToReconciliation } = require('../services/groupService');
 const { dispatchGroupCreationNotification, dispatchAdvisorRequestNotification } = require('../services/notificationService');
+const { getCorrelationId } = require('../middleware/correlationId');
 const { INACTIVE_GROUP_STATUSES, VALID_STATUS_TRANSITIONS } = require('../utils/groupStatusEnum');
 const SyncErrorLog = require('../models/SyncErrorLog');
+const { encrypt } = require('../utils/cryptoUtils');
 
 const VALID_DECISIONS = new Set(['approved', 'rejected']);
 
@@ -183,6 +187,18 @@ const createGroup = async (req, res) => {
         message: 'leaderId is required.',
       });
     }
+    if (githubPat !== undefined && githubPat !== null && typeof githubPat !== 'string') {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'githubPat must be a string when provided.',
+      });
+    }
+    if (jiraToken !== undefined && jiraToken !== null && typeof jiraToken !== 'string') {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'jiraToken must be a string when provided.',
+      });
+    }
 
     // The authenticated user must be the declared leader.
     if (req.user.userId !== leaderId.trim()) {
@@ -252,11 +268,11 @@ const createGroup = async (req, res) => {
       groupName: normalizedName,
       leaderId: leader.userId,
       status: 'pending_validation',
-      githubPat: githubPat || null,
+      githubPat: githubPat ? encrypt(githubPat) : null,
       githubOrg: githubOrg || null,
       jiraUrl: jiraUrl || null,
       jiraUsername: jiraUsername || null,
-      jiraToken: jiraToken || null,
+      jiraToken: jiraToken ? encrypt(jiraToken) : null,
       projectKey: projectKey || null,
     });
 
@@ -425,6 +441,136 @@ const getGroup = async (req, res) => {
     return res.status(500).json({
       code: 'SERVER_ERROR',
       message: 'An unexpected error occurred while retrieving the group.',
+    });
+  }
+};
+
+/**
+ * GET /groups/:groupId/sprints/:sprintId/contributions
+ *
+ * Read-only Process 7.x dashboard data for professors/advisors and committee users.
+ * Returns D6-backed contribution records without recalculating or mutating sprint data.
+ */
+const getSprintContributionSummary = async (req, res) => {
+  try {
+    const { groupId, sprintId } = req.params;
+    const actorId = req.user?.userId;
+
+    const group = await Group.findOne({ groupId }).lean();
+    if (!group) {
+      return res.status(404).json({
+        code: 'GROUP_NOT_FOUND',
+        message: 'Group not found',
+      });
+    }
+
+    const committee = group.committeeId
+      ? await Committee.findOne({ committeeId: group.committeeId, status: 'published' }).lean()
+      : null;
+
+    const isAssignedAdvisor =
+      actorId &&
+      (String(group.advisorId || '') === String(actorId) ||
+        String(group.professorId || '') === String(actorId));
+
+    const isCommitteeMember =
+      actorId &&
+      committee &&
+      ([...(committee.advisorIds || []), ...(committee.juryIds || [])]
+        .map(String)
+        .includes(String(actorId)));
+
+    if (!isAssignedAdvisor && !isCommitteeMember) {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'You do not have permission to view this sprint contribution summary',
+      });
+    }
+
+    const records = await ContributionRecord.find({ groupId, sprintId })
+      .sort({ studentId: 1 })
+      .lean();
+
+    if (records.length === 0) {
+      return res.status(404).json({
+        code: 'CONTRIBUTIONS_NOT_FOUND',
+        message: 'No contribution records found for this group and sprint',
+      });
+    }
+
+    const groupTotalStoryPoints = records.reduce(
+      (total, record) => total + (Number(record.storyPointsCompleted) || 0),
+      0
+    );
+
+    const timestamps = records
+      .map((record) => record.lastUpdatedAt || record.updatedAt || record.createdAt)
+      .filter(Boolean)
+      .map((value) => new Date(value))
+      .filter((date) => !Number.isNaN(date.getTime()));
+
+    const recalculatedAt =
+      timestamps.length > 0
+        ? new Date(Math.max(...timestamps.map((date) => date.getTime()))).toISOString()
+        : new Date().toISOString();
+
+    const contributions = records.map((record) => ({
+      studentId: record.studentId,
+      githubUsername: record.gitHubHandle || '',
+      completedStoryPoints: record.storyPointsCompleted || 0,
+      targetStoryPoints: record.storyPointsAssigned || 0,
+      groupTotalStoryPoints,
+      contributionRatio: record.contributionRatio || 0,
+      locked: record.locked === true,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt || record.lastUpdatedAt || null,
+    }));
+
+    return res.status(200).json({
+      groupId,
+      sprintId,
+      groupTotalStoryPoints,
+      lockedCount: contributions.filter((entry) => entry.locked).length,
+      contributions,
+      recalculatedAt,
+      basedOnTargets: contributions.some((entry) => Number(entry.targetStoryPoints) > 0),
+    });
+  } catch (error) {
+    console.error('getSprintContributionSummary error:', error);
+    return res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'An unexpected error occurred while retrieving sprint contributions.',
+    });
+  }
+};
+
+const getGroupCommitteeStatus = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+
+    const group = await Group.findOne({ groupId }).lean();
+    if (!group) {
+      return res.status(404).json({
+        code: 'GROUP_NOT_FOUND',
+        message: 'Group not found',
+      });
+    }
+
+    const committee = group.committeeId
+      ? await Committee.findOne({ committeeId: group.committeeId }).lean()
+      : null;
+
+    return res.status(200).json({
+      groupId,
+      committeeId: group.committeeId || null,
+      committeeStatus: committee?.status || null,
+      publishedAt: committee?.publishedAt || null,
+    });
+  } catch (error) {
+    console.error('getGroupCommitteeStatus error:', error);
+    return res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'An unexpected error occurred while retrieving committee status.',
     });
   }
 };
@@ -1385,6 +1531,8 @@ const validateAdvisorRequest = async (groupId, professorId, requesterId, authUse
  */
 const createAdvisorRequest = async (req, res) => {
   try {
+    const correlationId = getCorrelationId(req);
+    const externalRequestId = req.externalRequestId || null;
     const { groupId, professorId, requesterId, message } = req.body;
     const { userId: authUserId } = req.user;
 
@@ -1507,6 +1655,8 @@ const createAdvisorRequest = async (req, res) => {
           groupId: requestResult.groupId,
           requesterId: requestResult.requesterId,
           message: requestResult.message || null,
+          correlationId,
+          externalRequestId,
         });
 
         if (dispatchResult.ok) {
@@ -1581,4 +1731,16 @@ const createAdvisorRequest = async (req, res) => {
   }
 };
 
-module.exports = { forwardApprovalResults, createGroup, getGroup, getAllGroups, createMemberRequest, decideMemberRequest, coordinatorOverride, transferAdvisor, createAdvisorRequest };
+module.exports = {
+  forwardApprovalResults,
+  createGroup,
+  getGroup,
+  getAllGroups,
+  createMemberRequest,
+  decideMemberRequest,
+  coordinatorOverride,
+  transferAdvisor,
+  createAdvisorRequest,
+  getSprintContributionSummary,
+  getGroupCommitteeStatus,
+};
