@@ -118,10 +118,10 @@ router.post(
 // INTEGRATIONS & OVERRIDES (Process 2.6 - 2.8)
 // ============================================================================
 
-router.post('/:groupId/github', authMiddleware, configureGithub);
-router.get('/:groupId/github', authMiddleware, getGithub);
-router.post('/:groupId/jira', authMiddleware, configureJira);
-router.get('/:groupId/jira', authMiddleware, getJira);
+router.post('/:groupId/github', authMiddleware, roleMiddleware(['coordinator']), configureGithub);
+router.get('/:groupId/github', authMiddleware, roleMiddleware(['coordinator']), getGithub);
+router.post('/:groupId/jira', authMiddleware, roleMiddleware(['coordinator']), configureJira);
+router.get('/:groupId/jira', authMiddleware, roleMiddleware(['coordinator']), getJira);
 
 // ============================================================================
 // PROCESS 7.2 — GitHub PR Sync (async validation bridge)
