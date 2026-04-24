@@ -8,9 +8,13 @@ const migration002 = require('./002_add_githubUsername_unique_constraint');
 const migration003 = require('./003_create_group_schema');
 const migration004 = require('./004_add_operation_type_to_schedule_windows');
 const migration005 = require('./005_add_github_fields_to_groups');
+const migration006a = require('./006_add_advisor_assignment_fields_to_groups');
 const migration006 = require('./006_create_deliverable_schema');
 const migration007 = require('./007_create_sprint_record_schema');
-const migration008 = require('./008_create_committee_schema'); // D3 Committee Schema eklendi
+const migration008 = require('./008_create_committee_schema');
+const migration009a = require('./009_d4_deliverables_storage_schema');
+const migration009b = require('./009_d6_schema_enhancement');
+const migration010 = require('./010_create_review_schema');
 const migration011 = require('./011_reconcile_process7_canonical_collections');
 
 // Migrations are applied in order
@@ -20,10 +24,19 @@ const migrations = [
   migration003,
   migration004,
   migration005,
+  migration006a,
   migration006,
   migration007,
-  migration008, // Sıralama korunarak listeye dahil edildi
+  migration008,
+  migration009a,
+  migration009b,
+  migration010,
   migration011,
 ];
 
-module.exports = migrations;  
+const migrationNames = migrations.map((migration) => migration?.name).filter(Boolean);
+if (new Set(migrationNames).size !== migrationNames.length) {
+  throw new Error('Duplicate migration names detected in migration registry');
+}
+
+module.exports = migrations;
