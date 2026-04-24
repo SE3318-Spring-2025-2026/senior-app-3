@@ -35,7 +35,7 @@
 const SprintRecord = require('../models/SprintRecord');
 const ContributionRecord = require('../models/ContributionRecord');
 const Group = require('../models/Group');
-const { attributeStoryPoints, getAttributionSummary } = require('./attributionService');
+const { attributeStoryPoints } = require('./attributionService');
 const { createAuditLog } = require('./auditService');
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -83,6 +83,7 @@ async function recalculateSprintContributions(sprintId, groupId, options = {}) {
   const {
     overrideExisting = true,
     notifyStudents = false,
+    enable_assignee_fallback = false,
     useJiraFallback = false,
   } = options;
 
@@ -134,7 +135,7 @@ async function recalculateSprintContributions(sprintId, groupId, options = {}) {
     console.log(`[recalculateSprintContributions] STEP 1: Calling attributionService for Process 7.3`);
 
     const attributionResult = await attributeStoryPoints(sprintId, groupId, {
-      useJiraFallback,
+      enable_assignee_fallback: enable_assignee_fallback === true || useJiraFallback === true,
       overrideExisting,
     });
 
@@ -165,26 +166,40 @@ async function recalculateSprintContributions(sprintId, groupId, options = {}) {
     // by attributionService (from Step 1). We just need to calculate ratios.
 
     const ratioCalculations = [];
+    const ratioBulkOps = [];
     for (const record of contributionRecords) {
       // PROCESS 7.4: Simple ratio calculation
       // TODO: Use actual targetStoryPoints from D8 sprint configuration
       const targetPoints = 10; // Placeholder
       const ratio = record.storyPointsCompleted / targetPoints;
 
-      // Update ratio in ContributionRecord
-      record.contributionRatio = Math.min(ratio, 1.0); // Clamp to [0, 1]
-      await record.save();
+      const contributionRatio = Math.min(ratio, 1.0); // Clamp to [0, 1]
+      ratioBulkOps.push({
+        updateOne: {
+          filter: { _id: record._id },
+          update: {
+            $set: {
+              contributionRatio,
+              lastUpdatedAt: new Date(),
+            },
+          },
+        },
+      });
 
       ratioCalculations.push({
         studentId: record.studentId,
         completedPoints: record.storyPointsCompleted,
         targetPoints,
-        ratio: record.contributionRatio,
+        ratio: contributionRatio,
       });
 
       console.log(
-        `[recalculateSprintContributions] Ratio: student ${record.studentId} = ${record.storyPointsCompleted}/${targetPoints} = ${record.contributionRatio}`
+        `[recalculateSprintContributions] Ratio: student ${record.studentId} = ${record.storyPointsCompleted}/${targetPoints} = ${contributionRatio}`
       );
+    }
+
+    if (ratioBulkOps.length > 0) {
+      await ContributionRecord.bulkWrite(ratioBulkOps, { ordered: false });
     }
 
     // ───────────────────────────────────────────────────────────────────────────
@@ -208,6 +223,7 @@ async function recalculateSprintContributions(sprintId, groupId, options = {}) {
             unattributableCount: attributionResult.unattributableCount,
           },
           warnings: attributionResult.warnings,
+          unattributableDetails: attributionResult.unattributableDetails,
           recalculatedAt: new Date(),
         },
       });
@@ -231,6 +247,7 @@ async function recalculateSprintContributions(sprintId, groupId, options = {}) {
         totalStoryPoints: attributionResult.totalStoryPoints,
         unattributablePoints: attributionResult.unattributablePoints,
         unattributableCount: attributionResult.unattributableCount,
+        unattributableDetails: attributionResult.unattributableDetails,
         warnings: attributionResult.warnings,
       },
 

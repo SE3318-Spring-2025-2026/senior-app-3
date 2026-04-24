@@ -139,15 +139,14 @@ class AttributionServiceError extends Error {
  */
 async function attributeStoryPoints(sprintId, groupId, options = {}) {
   const {
+    enable_assignee_fallback = false,
     useJiraFallback = false,
     overrideExisting = true,
     includePartialMerges = false,
   } = options;
 
   try {
-    console.log(
-      `[attributeStoryPoints] ISSUE #235 START: sprintId=${sprintId}, groupId=${groupId}, useJiraFallback=${useJiraFallback}`
-    );
+    console.log(`[attributeStoryPoints] ISSUE #235 START: sprintId=${sprintId}, groupId=${groupId}`);
 
     // ═════════════════════════════════════════════════════════════════════════════
     // STEP 1: VALIDATE GROUP & RETRIEVE GITHUB SYNC DATA (D6)
@@ -166,8 +165,16 @@ async function attributeStoryPoints(sprintId, groupId, options = {}) {
     const sprintRecord = await SprintRecord.findOne({ sprintId, groupId });
     if (!sprintRecord) {
       console.warn(`[attributeStoryPoints] No SprintRecord found for ${sprintId}/${groupId}`);
-      // Not necessarily an error — sprint may not have been created yet
     }
+
+    const group = await Group.findOne({ groupId }).select(
+      'groupId enable_assignee_fallback useJiraAssigneeForAttribution'
+    );
+    const assigneeFallbackEnabled =
+      enable_assignee_fallback === true ||
+      useJiraFallback === true ||
+      group?.enable_assignee_fallback === true ||
+      group?.useJiraAssigneeForAttribution === true;
 
     // ISSUE #235 NOTE: GitHub sync job should exist; if not, no merged issues to attribute
     const githubSyncJob = await GitHubSyncJob.findOne({ sprintId, groupId }).sort({ createdAt: -1 });
@@ -222,21 +229,33 @@ async function attributeStoryPoints(sprintId, groupId, options = {}) {
     // ISSUE #235 NOTE: We only index users in the group (optimization),
     // but we also check non-group members and mark them unattributable.
 
-    const usersInGroup = await User.find({
-      studentId: { $in: Array.from(approvedStudentIds) },
-    }).select('studentId githubUsername');
+    const validationRecords = githubSyncJob.validationRecords || [];
+    const candidateHandles = new Set();
+    for (const record of validationRecords) {
+      const prAuthor = record.prAuthor || record.pr_author || null;
+      const jiraAssignee = record.jiraAssignee || record.jira_assignee || null;
+      if (prAuthor) candidateHandles.add(prAuthor.toLowerCase());
+      if (jiraAssignee) candidateHandles.add(jiraAssignee.toLowerCase());
+    }
 
-    // Map: githubUsername (normalized) → studentId
-    const gitHubUsernameMap = new Map();
-    usersInGroup.forEach((user) => {
-      if (user.githubUsername) {
-        // Normalize to lowercase for case-insensitive matching (GitHub usernames are lowercase)
-        gitHubUsernameMap.set(user.githubUsername.toLowerCase(), user.studentId);
+    const usersByHandle = new Map();
+    if (candidateHandles.size > 0) {
+      const users = await User.find({
+        githubUsername: { $in: Array.from(candidateHandles) },
+      }).select('studentId githubUsername');
+
+      for (const user of users) {
+        if (user.githubUsername) {
+          usersByHandle.set(user.githubUsername.toLowerCase(), {
+            studentId: user.studentId,
+            inGroup: approvedStudentIds.has(user.studentId),
+          });
+        }
       }
-    });
+    }
 
     console.log(
-      `[attributeStoryPoints] D1 LOOKUP: Built GitHub username map for ${gitHubUsernameMap.size} students with GitHub accounts`
+      `[attributeStoryPoints] D1 LOOKUP: indexed ${usersByHandle.size} users for ${candidateHandles.size} handles`
     );
 
     // ═════════════════════════════════════════════════════════════════════════════
@@ -274,71 +293,59 @@ async function attributeStoryPoints(sprintId, groupId, options = {}) {
     let unattributableCount = 0;
     const warnings = [];
 
-    console.log(
-      `[attributeStoryPoints] PROCESSING ${githubSyncJob.validationRecords?.length || 0} validation records from GitHub sync`
-    );
+    const unattributableDetails = [];
 
-    for (const record of githubSyncJob.validationRecords || []) {
+    console.log(`[attributeStoryPoints] PROCESSING ${validationRecords.length} validation records from GitHub sync`);
+
+    for (const record of validationRecords) {
+      const issueKey = record.issueKey || record.issue_key || null;
+      const prId = record.prId || record.pr_id || null;
+      const prUrl = record.prUrl || record.pr_url || null;
+      const prAuthor = record.prAuthor || record.pr_author || null;
+      const jiraAssignee = record.jiraAssignee || record.jira_assignee || null;
+      const mergeStatus = record.mergeStatus || record.merge_status || 'UNKNOWN';
+      const storyPoints = record.storyPoints || record.story_points || 0;
+      const prReviewers = Array.isArray(record.prReviewers || record.pr_reviewers)
+        ? record.prReviewers || record.pr_reviewers
+        : [];
+
       // ISSUE #235 SAFETY: Only process merged issues
-      if (record.merge_status !== 'MERGED') {
-        console.log(
-          `[attributeStoryPoints] SKIP: Issue ${record.issue_key} merge_status=${record.merge_status} (not merged)`
-        );
+      if (mergeStatus !== 'MERGED') {
+        console.log(`[attributeStoryPoints] SKIP: Issue ${issueKey} mergeStatus=${mergeStatus} (not merged)`);
         continue;
       }
 
-      const storyPoints = record.story_points || 0;
       let attributedStudentId = null;
       let attributionReason = 'UNATTRIBUTABLE';
-      let gitHubHandle = null;
+      let githubHandle = null;
+      let status = 'UNATTRIBUTABLE';
 
       // ───────────────────────────────────────────────────────────────────────────
       // PRIMARY RULE: GitHub PR author
       // ───────────────────────────────────────────────────────────────────────────
       // ISSUE #235: "Primary: GitHub usernames on merged PRs mapped to studentId via D1"
 
-      if (record.pr_author) {
-        const normalizedAuthor = record.pr_author.toLowerCase();
-        const studentIdFromD1 = gitHubUsernameMap.get(normalizedAuthor);
+      if (prAuthor) {
+        const normalizedAuthor = prAuthor.toLowerCase();
+        const resolvedAuthor = usersByHandle.get(normalizedAuthor);
 
-        if (studentIdFromD1) {
-          // Author found in D1 AND in group
-          attributedStudentId = studentIdFromD1;
-          attributionReason = 'ATTRIBUTED_VIA_GITHUB_AUTHOR';
-          gitHubHandle = record.pr_author;
-
-          console.log(
-            `[attributeStoryPoints] ATTRIBUTED: Issue ${record.issue_key} → student ${studentIdFromD1} via GitHub author ${record.pr_author}`
-          );
+        if (!resolvedAuthor) {
+          attributionReason = 'GITHUB_USER_NOT_FOUND_IN_D1';
+          githubHandle = prAuthor;
+          status = 'UNMAPPED';
+        } else if (!resolvedAuthor.inGroup) {
+          attributionReason = 'STUDENT_NOT_IN_GROUP_D2';
+          githubHandle = prAuthor;
+          status = 'UNATTRIBUTABLE';
         } else {
-          // Author found but NOT in group or NOT in D1
-          const userExists = await User.findOne({ githubUsername: normalizedAuthor }).select('studentId');
-          if (userExists) {
-            // User exists but NOT approved member of group
-            attributionReason = 'REJECTED_NOT_IN_GROUP';
-            gitHubHandle = record.pr_author;
-            console.warn(
-              `[attributeStoryPoints] REJECTED: Issue ${record.issue_key} — GitHub author ${record.pr_author} exists but not in group ${groupId}`
-            );
-            warnings.push({
-              issue_key: record.issue_key,
-              reason: 'GITHUB_AUTHOR_NOT_IN_GROUP',
-              github_username: record.pr_author,
-            });
-          } else {
-            // User does not exist in D1
-            attributionReason = 'UNATTRIBUTABLE_GITHUB_NOT_FOUND';
-            gitHubHandle = record.pr_author;
-            console.warn(
-              `[attributeStoryPoints] UNATTRIBUTABLE: Issue ${record.issue_key} — GitHub author ${record.pr_author} not found in D1`
-            );
-            warnings.push({
-              issue_key: record.issue_key,
-              reason: 'GITHUB_AUTHOR_NOT_IN_D1',
-              github_username: record.pr_author,
-            });
-          }
+          attributedStudentId = resolvedAuthor.studentId;
+          attributionReason = 'ATTRIBUTED_VIA_GITHUB_AUTHOR';
+          githubHandle = prAuthor;
+          status = 'ATTRIBUTED';
         }
+      } else {
+        attributionReason = 'MISSING_PR_AUTHOR';
+        status = 'UNMAPPED';
       }
 
       // ───────────────────────────────────────────────────────────────────────────
@@ -351,37 +358,21 @@ async function attributeStoryPoints(sprintId, groupId, options = {}) {
       //   2. Group has useJiraAssigneeForAttribution === true
       //   3. JIRA assignee is present
 
-      if (!attributedStudentId && useJiraFallback && record.jira_assignee) {
-        console.log(
-          `[attributeStoryPoints] FALLBACK: Attempting JIRA assignee lookup for issue ${record.issue_key}`
-        );
+      if (!attributedStudentId && assigneeFallbackEnabled && jiraAssignee) {
+        const jiraAssigneeNormalized = jiraAssignee.toLowerCase();
+        const resolvedAssignee = usersByHandle.get(jiraAssigneeNormalized);
 
-        // Note: JIRA assignee is typically an email or JIRA username, not necessarily GitHub username.
-        // For this implementation, we assume JIRA assignee maps to githubUsername.
-        // In production, this might require a separate JIRA → D1 mapping.
-
-        const jiraAssigneeNormalized = record.jira_assignee.toLowerCase();
-        const studentIdFromJira = gitHubUsernameMap.get(jiraAssigneeNormalized);
-
-        if (studentIdFromJira) {
-          attributedStudentId = studentIdFromJira;
-          attributionReason = 'ATTRIBUTED_VIA_JIRA_ASSIGNEE_FALLBACK';
-          console.log(
-            `[attributeStoryPoints] FALLBACK MATCHED: Issue ${record.issue_key} → student ${studentIdFromJira} via JIRA assignee`
-          );
+        if (!resolvedAssignee) {
+          attributionReason = 'JIRA_ASSIGNEE_NOT_FOUND_IN_D1';
+          status = 'UNMAPPED';
+        } else if (!resolvedAssignee.inGroup) {
+          attributionReason = 'JIRA_ASSIGNEE_NOT_IN_GROUP_D2';
+          status = 'UNATTRIBUTABLE';
         } else {
-          const jiraUserExists = await User.findOne({ githubUsername: jiraAssigneeNormalized }).select('studentId');
-          if (jiraUserExists && !approvedStudentIds.has(jiraUserExists.studentId)) {
-            attributionReason = 'REJECTED_JIRA_ASSIGNEE_NOT_IN_GROUP';
-            console.warn(
-              `[attributeStoryPoints] REJECTED: Issue ${record.issue_key} — JIRA assignee not in group`
-            );
-          } else {
-            attributionReason = 'UNATTRIBUTABLE_JIRA_NOT_FOUND';
-            console.warn(
-              `[attributeStoryPoints] UNATTRIBUTABLE: Issue ${record.issue_key} — JIRA assignee not found in D1`
-            );
-          }
+          attributedStudentId = resolvedAssignee.studentId;
+          attributionReason = 'ATTRIBUTED_VIA_JIRA_ASSIGNEE_FALLBACK';
+          githubHandle = jiraAssignee;
+          status = 'ATTRIBUTED';
         }
       }
 
@@ -397,10 +388,12 @@ async function attributeStoryPoints(sprintId, groupId, options = {}) {
 
         attributionDetails.push({
           studentId: attributedStudentId,
-          issueKey: record.issue_key,
+          issueKey,
           completedPoints: storyPoints,
-          gitHubHandle,
-          mergeStatus: record.merge_status,
+          githubHandle,
+          mergeStatus,
+          prIdentifier: prUrl || prId,
+          prReviewers,
           decisionReason: attributionReason,
         });
       } else {
@@ -410,16 +403,31 @@ async function attributeStoryPoints(sprintId, groupId, options = {}) {
 
         attributionDetails.push({
           studentId: null,
-          issueKey: record.issue_key,
+          issueKey,
           completedPoints: storyPoints,
-          gitHubHandle,
-          mergeStatus: record.merge_status,
+          githubHandle,
+          mergeStatus,
+          prIdentifier: prUrl || prId,
+          prReviewers,
           decisionReason: attributionReason,
+          status,
         });
 
-        console.log(
-          `[attributeStoryPoints] UNATTRIBUTABLE: Issue ${record.issue_key} — reason: ${attributionReason}`
-        );
+        unattributableDetails.push({
+          issueKey,
+          prIdentifier: prUrl || prId,
+          reason: attributionReason,
+          status,
+        });
+
+        warnings.push({
+          issueKey,
+          reason: attributionReason,
+          githubUsername: githubHandle,
+          status,
+        });
+
+        console.log(`[attributeStoryPoints] UNATTRIBUTABLE: Issue ${issueKey} — reason: ${attributionReason}`);
       }
     }
 
@@ -433,27 +441,46 @@ async function attributeStoryPoints(sprintId, groupId, options = {}) {
     //
     // CONSTRAINT: Only create records for attributed students (not for unattributable).
 
-    const upsertedRecords = [];
+    const now = new Date();
+    const existingRecords = await ContributionRecord.find({ sprintId, groupId }).select('studentId');
+    const existingStudentIds = new Set(existingRecords.map((record) => record.studentId));
+    const finalStudentIds = new Set(attributionMap.keys());
+
+    const bulkOps = [];
 
     for (const [studentId, completedPoints] of attributionMap.entries()) {
-      const record = await ContributionRecord.findOneAndUpdate(
-        {
-          sprintId,
-          studentId,
-          groupId,
+      bulkOps.push({
+        updateOne: {
+          filter: { sprintId, studentId, groupId },
+          update: {
+            $set: {
+              storyPointsCompleted: completedPoints,
+              lastUpdatedAt: now,
+            },
+          },
+          upsert: true,
         },
-        {
-          storyPointsCompleted: completedPoints,
-          lastUpdatedAt: new Date(),
-        },
-        { upsert: true, new: true }
-      );
+      });
+    }
 
-      upsertedRecords.push(record);
+    for (const studentId of existingStudentIds) {
+      if (!finalStudentIds.has(studentId)) {
+        bulkOps.push({
+          updateOne: {
+            filter: { sprintId, studentId, groupId },
+            update: {
+              $set: {
+                storyPointsCompleted: 0,
+                lastUpdatedAt: now,
+              },
+            },
+          },
+        });
+      }
+    }
 
-      console.log(
-        `[attributeStoryPoints] UPSERTED: ContributionRecord for student ${studentId}: ${completedPoints} SP`
-      );
+    if (bulkOps.length > 0) {
+      await ContributionRecord.bulkWrite(bulkOps, { ordered: false });
     }
 
     // ═════════════════════════════════════════════════════════════════════════════
@@ -474,7 +501,9 @@ async function attributeStoryPoints(sprintId, groupId, options = {}) {
           totalStoryPoints,
           unattributablePoints,
           unattributableCount,
+          unattributableDetails,
           warnings,
+          assigneeFallbackEnabled,
         },
       });
     } catch (auditErr) {
@@ -499,9 +528,10 @@ async function attributeStoryPoints(sprintId, groupId, options = {}) {
       totalStoryPoints,
       unattributablePoints,
       unattributableCount,
+      unattributableDetails,
       attributionDetails,
       warnings,
-      upsertedRecordIds: upsertedRecords.map((r) => r.contributionRecordId),
+      assigneeFallbackEnabled,
     };
 
     console.log(

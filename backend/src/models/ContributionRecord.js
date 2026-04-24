@@ -64,9 +64,10 @@ const contributionRecordSchema = new mongoose.Schema(
       min: 0,
       max: 1,
     },
-    gitHubHandle: {
+    githubHandle: {
       type: String,
       default: null,
+      alias: 'gitHubHandle',
     },
     lastUpdatedAt: {
       type: Date,
