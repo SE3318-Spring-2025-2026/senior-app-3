@@ -25,6 +25,18 @@ const sprintReportSchema = new mongoose.Schema(
       type: String,
       default: 'coordinator_summary',
     },
+    deliverableId: {
+      type: String,
+      default: null,
+    },
+    deliverableIds: {
+      type: [String],
+      default: [],
+    },
+    sourceVersionRef: {
+      type: String,
+      default: null,
+    },
     sourceContributionCollection: {
       type: String,
       default: 'sprint_contributions',
@@ -50,5 +62,6 @@ const sprintReportSchema = new mongoose.Schema(
 
 sprintReportSchema.index({ groupId: 1, sprintId: 1 }, { unique: true });
 sprintReportSchema.index({ groupId: 1, sprintId: 1, generatedAt: -1 });
+sprintReportSchema.index({ deliverableId: 1, sprintId: 1 });
 
 module.exports = mongoose.model('SprintReport', sprintReportSchema);

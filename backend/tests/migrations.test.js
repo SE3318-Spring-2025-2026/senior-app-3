@@ -596,6 +596,72 @@ describe('Migrations - Runner and State Management', () => {
       expect(canonical.storyPointsCompleted).toBe(3);
     });
 
+    it('skips malformed legacy contributionrecords instead of collapsing them into one row', async () => {
+      await mongoose.connection.db.createCollection('contributionrecords');
+      await mongoose.connection.db.collection('contributionrecords').insertMany([
+        {
+          contributionRecordId: 'ctr_bad_1',
+          sprintId: 'spr_missing_group',
+          studentId: 'std_missing_group',
+        },
+        {
+          contributionRecordId: 'ctr_bad_2',
+          groupId: 'grp_missing_student',
+          sprintId: 'spr_missing_student',
+        },
+      ]);
+
+      const migration = migrations.find(
+        (entry) => entry.name === '011_reconcile_process7_canonical_collections'
+      );
+      await runMigrationUp(migration, mongoose);
+
+      const canonicalRows = await mongoose.connection.db
+        .collection('sprint_contributions')
+        .find({})
+        .toArray();
+
+      expect(canonicalRows).toHaveLength(0);
+    });
+
+    it('backfills github_sync_jobs validationRecords into canonical pr_validations', async () => {
+      await mongoose.connection.db.createCollection('github_sync_jobs');
+      await mongoose.connection.db.collection('github_sync_jobs').insertOne({
+        jobId: 'ghsync_test',
+        groupId: 'grp_pr',
+        sprintId: 'spr_pr',
+        status: 'COMPLETED',
+        completedAt: new Date('2026-04-24T10:00:00.000Z'),
+        validationRecords: [
+          {
+            issueKey: 'ISSUE-42',
+            prId: '123',
+            prUrl: 'https://github.com/example/repo/pull/123',
+            mergeStatus: 'MERGED',
+            rawState: 'clean',
+            lastValidated: new Date('2026-04-24T09:59:00.000Z'),
+          },
+        ],
+      });
+
+      const migration = migrations.find(
+        (entry) => entry.name === '011_reconcile_process7_canonical_collections'
+      );
+      await runMigrationUp(migration, mongoose);
+
+      const validation = await mongoose.connection.db.collection('pr_validations').findOne({
+        groupId: 'grp_pr',
+        sprintId: 'spr_pr',
+        issueKey: 'ISSUE-42',
+        prId: '123',
+      });
+
+      expect(validation).toBeTruthy();
+      expect(validation.mergeStatus).toBe('MERGED');
+      expect(validation.prUrl).toBe('https://github.com/example/repo/pull/123');
+      expect(validation.rawState).toBe('clean');
+    });
+
     it('enforces canonical unique keys for sprint issues', async () => {
       await runMigrationUp(
         migrations.find((entry) => entry.name === '011_reconcile_process7_canonical_collections'),

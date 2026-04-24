@@ -10,25 +10,80 @@ const ensureCollection = async (db, name) => {
   }
 };
 
+const normalizeIndexOptions = (options = {}) => ({
+  unique: options.unique === true,
+  sparse: options.sparse === true,
+  partialFilterExpression: options.partialFilterExpression || null,
+});
+
+const indexOptionsMatch = (existing, requested = {}) => {
+  const left = normalizeIndexOptions(existing);
+  const right = normalizeIndexOptions(requested);
+  return JSON.stringify(left) === JSON.stringify(right);
+};
+
 const ensureIndex = async (collection, keys, options = {}) => {
+  const requestedName = options.name;
+  const indexes = await collection.indexes();
+  const existingByName = requestedName
+    ? indexes.find((index) => index.name === requestedName)
+    : null;
+
+  if (existingByName) {
+    const sameKeys = JSON.stringify(existingByName.key) === JSON.stringify(keys);
+    const sameOptions = indexOptionsMatch(existingByName, options);
+
+    if (sameKeys && sameOptions) {
+      return;
+    }
+
+    await collection.dropIndex(existingByName.name);
+  }
+
   try {
     await collection.createIndex(keys, options);
   } catch (error) {
-    if (!String(error.message || '').includes('already exists')) {
-      throw error;
+    if (error?.code === 11000 || error?.code === 85 || error?.code === 86 || error?.code === 68) {
+      const conflictName = requestedName || error?.errmsg?.match(/index: ([^ ]+)/)?.[1];
+      if (conflictName) {
+        try {
+          await collection.dropIndex(conflictName);
+          await collection.createIndex(keys, options);
+          return;
+        } catch (retryError) {
+          throw retryError;
+        }
+      }
     }
+
+    throw error;
   }
 };
 
-const bulkBackfill = async (targetCollection, rows, uniqueKeyBuilder, mapRow) => {
+const hasRequiredFields = (row, requiredFields = []) =>
+  requiredFields.every((field) => row?.[field] !== undefined && row?.[field] !== null && row?.[field] !== '');
+
+const bulkBackfill = async (
+  targetCollection,
+  rows,
+  uniqueKeyBuilder,
+  mapRow,
+  { requiredFields = [], logLabel = 'rows' } = {}
+) => {
   if (!Array.isArray(rows) || rows.length === 0) {
     return 0;
   }
 
   const seen = new Set();
   const operations = [];
+  let skippedMissingIds = 0;
 
   for (const row of rows) {
+    if (!hasRequiredFields(row, requiredFields)) {
+      skippedMissingIds += 1;
+      continue;
+    }
+
     const key = uniqueKeyBuilder(row);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -43,10 +98,16 @@ const bulkBackfill = async (targetCollection, rows, uniqueKeyBuilder, mapRow) =>
   }
 
   if (operations.length === 0) {
+    if (skippedMissingIds > 0) {
+      console.log(`[Migration 011] Skipped ${skippedMissingIds} malformed ${logLabel} during backfill`);
+    }
     return 0;
   }
 
   const result = await targetCollection.bulkWrite(operations, { ordered: false });
+  if (skippedMissingIds > 0) {
+    console.log(`[Migration 011] Skipped ${skippedMissingIds} malformed ${logLabel} during backfill`);
+  }
   return (result.upsertedCount || 0) + (result.modifiedCount || 0);
 };
 
@@ -96,7 +157,7 @@ module.exports = {
       await bulkBackfill(
         sprintContributions,
         legacyRows,
-        (row) => `${row.groupId || ''}:${row.sprintId || ''}:${row.studentId || ''}`,
+        (row) => `${row.groupId}:${row.sprintId}:${row.studentId}`,
         (row) => ({
           filter: {
             groupId: row.groupId,
@@ -123,7 +184,11 @@ module.exports = {
               contributionRecordId: row.contributionRecordId,
             },
           },
-        })
+        }),
+        {
+          requiredFields: ['groupId', 'sprintId', 'studentId'],
+          logLabel: `${legacyName} contribution rows`,
+        }
       );
       console.log(`[Migration 011] Reconciled legacy contributions from ${legacyName}`);
     }
@@ -175,7 +240,11 @@ module.exports = {
               createdAt: row.validatedAt,
             },
           },
-        })
+        }),
+        {
+          requiredFields: ['groupId', 'sprintId', 'issueKey', 'prId'],
+          logLabel: 'github_sync_jobs validation rows',
+        }
       );
       console.log('[Migration 011] Reconciled PR validations from github_sync_jobs');
     }
