@@ -12,6 +12,7 @@
 
 const mongoose = require('mongoose');
 const axios = require('axios');
+const { decrypt } = require('../src/utils/cryptoUtils');
 
 jest.mock('axios');
 
@@ -22,6 +23,7 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
 
   let Group;
   let SyncErrorLog;
+  let AuditLog;
   let configureGithub;
   let getGithub;
 
@@ -30,7 +32,7 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
   const makeReq = (params = {}, body = {}, userOverrides = {}) => ({
     params,
     body,
-    user: { userId: 'usr_leader', role: 'student', ...userOverrides },
+    user: { userId: 'usr_leader', role: 'coordinator', ...userOverrides },
     ip: '127.0.0.1',
     headers: { 'user-agent': 'test-agent' },
   });
@@ -52,7 +54,11 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
 
   // GitHub API mock helpers
   const mockValidPat = () => {
-    axios.get.mockResolvedValueOnce({ status: 200, data: { login: 'usr_leader' } });
+    axios.get.mockResolvedValueOnce({
+      status: 200,
+      data: { login: 'usr_leader' },
+      headers: { 'x-oauth-scopes': 'repo:status, read:org' },
+    });
   };
 
   const mockValidOrg = (orgName = 'my-org') => {
@@ -98,6 +104,7 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
 
     Group = require('../src/models/Group');
     SyncErrorLog = require('../src/models/SyncErrorLog');
+    AuditLog = require('../src/models/AuditLog');
     ({ configureGithub, getGithub } = require('../src/controllers/groupIntegrations'));
   });
 
@@ -107,7 +114,7 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
   });
 
   beforeEach(async () => {
-    await Promise.all([Group.deleteMany({}), SyncErrorLog.deleteMany({})]);
+    await Promise.all([Group.deleteMany({}), SyncErrorLog.deleteMany({}), AuditLog.deleteMany({})]);
     jest.clearAllMocks();
   });
 
@@ -133,7 +140,7 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
       expect(body.org_data).toMatchObject({ login: 'cool-org', id: 42 });
     });
 
-    it('f24: stores githubPat, githubOrg, githubRepoName, and githubVisibility in D2', async () => {
+    it('f24: stores encrypted githubPat and persists integration metadata in D2', async () => {
       mockValidPat();
       mockValidOrg('my-org');
 
@@ -144,8 +151,11 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
         makeRes()
       );
 
-      const updated = await Group.findOne({ groupId: group.groupId });
-      expect(updated.githubPat).toBe('ghp_secret');
+      const updated = await Group.findOne({ groupId: group.groupId }).select('+githubPat');
+      expect(updated.githubPat).toBeDefined();
+      expect(updated.githubPat).not.toBe('ghp_secret');
+      expect(updated.githubPat).toMatch(/^v1:/);
+      expect(decrypt(updated.githubPat)).toBe('ghp_secret');
       expect(updated.githubOrg).toBe('my-org');
       expect(updated.githubRepoName).toBe('test-repo');
       expect(updated.githubVisibility).toBe('public');
@@ -211,17 +221,25 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
 
     // ── 403 / 404 ────────────────────────────────────────────────────────────────
 
-    it('returns 403 FORBIDDEN when caller is not the group leader', async () => {
+    it('returns 403 FORBIDDEN and writes SECURITY_AUDIT when caller is not coordinator', async () => {
       const group = await makeGroup({ leaderId: 'usr_other' });
       const res = makeRes();
 
       await configureGithub(
-        makeReq({ groupId: group.groupId }, { pat: 'ghp_x', org_name: 'org', repo_name: 'repo' }),
+        makeReq({ groupId: group.groupId }, { pat: 'ghp_x', org_name: 'org', repo_name: 'repo' }, { role: 'leader' }),
         res
       );
 
       expect(res.status).toHaveBeenCalledWith(403);
       expect(res.json.mock.calls[0][0].code).toBe('FORBIDDEN');
+      const audit = await AuditLog.findOne({ action: 'SECURITY_AUDIT', groupId: group.groupId }).sort({ createdAt: -1 });
+      expect(audit).not.toBeNull();
+      expect(audit.actorId).toBe('usr_leader');
+      expect(audit.payload).toMatchObject({
+        provider: 'github',
+        reason: 'role_not_permitted',
+        statusCode: 403,
+      });
     });
 
     it('returns 404 GROUP_NOT_FOUND when group does not exist', async () => {
@@ -337,7 +355,11 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
 
   describe('GET /groups/:groupId/github — getGithub', () => {
     it('returns 200 with group_id, github_org, validated: true when config is set', async () => {
-      const group = await makeGroup({ githubOrg: 'stored-org', githubPat: 'ghp_stored' });
+      const group = await makeGroup({
+        githubOrg: 'stored-org',
+        githubRepoUrl: 'https://github.com/stored-org/repo',
+        githubPat: 'ghp_stored',
+      });
       const res = makeRes();
 
       await getGithub(makeReq({ groupId: group.groupId }), res);
@@ -350,13 +372,18 @@ describe('groupIntegrations — GitHub (f10-f12, f24)', () => {
     });
 
     it('does not expose githubPat in the response', async () => {
-      const group = await makeGroup({ githubOrg: 'stored-org', githubPat: 'ghp_secret' });
+      const group = await makeGroup({
+        githubOrg: 'stored-org',
+        githubRepoUrl: 'https://github.com/stored-org/repo',
+        githubPat: 'ghp_secret',
+      });
       const res = makeRes();
 
       await getGithub(makeReq({ groupId: group.groupId }), res);
 
       const body = res.json.mock.calls[0][0];
       expect(body.githubPat).toBeUndefined();
+      expect(body.token_masked).toBe('****');
     });
 
     it('returns validated: false when no GitHub config is set', async () => {

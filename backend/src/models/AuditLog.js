@@ -128,6 +128,8 @@ const auditLogSchema = new mongoose.Schema(
         'GITHUB_SYNC_INITIATED',
         'GITHUB_SYNC_COMPLETED',
         'GITHUB_SYNC_FAILED',
+        'SECURITY_AUDIT',
+        'CREDENTIAL_ROTATED',
 
         // ================================================================================
         // ISSUE #241: Operational Hooks & Idempotency — Webhook & Attribution Tracking
