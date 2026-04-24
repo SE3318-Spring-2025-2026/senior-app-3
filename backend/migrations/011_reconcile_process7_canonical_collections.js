@@ -22,15 +22,20 @@ const indexOptionsMatch = (existing, requested = {}) => {
   return JSON.stringify(left) === JSON.stringify(right);
 };
 
+const indexKeysMatch = (left = {}, right = {}) => JSON.stringify(left) === JSON.stringify(right);
+
 const ensureIndex = async (collection, keys, options = {}) => {
   const requestedName = options.name;
   const indexes = await collection.indexes();
   const existingByName = requestedName
     ? indexes.find((index) => index.name === requestedName)
     : null;
+  const sameKeysDifferentName = indexes.find(
+    (index) => index.name !== requestedName && indexKeysMatch(index.key, keys)
+  );
 
   if (existingByName) {
-    const sameKeys = JSON.stringify(existingByName.key) === JSON.stringify(keys);
+    const sameKeys = indexKeysMatch(existingByName.key, keys);
     const sameOptions = indexOptionsMatch(existingByName, options);
 
     if (sameKeys && sameOptions) {
@@ -40,20 +45,37 @@ const ensureIndex = async (collection, keys, options = {}) => {
     await collection.dropIndex(existingByName.name);
   }
 
+  if (sameKeysDifferentName) {
+    if (indexOptionsMatch(sameKeysDifferentName, options)) {
+      console.log(
+        `[Migration 011] Index key match found with different name (${sameKeysDifferentName.name}); keeping existing index`
+      );
+      return;
+    }
+
+    console.log(
+      `[Migration 011] Index conflict on same keys: dropping ${sameKeysDifferentName.name} to create ${requestedName}`
+    );
+    await collection.dropIndex(sameKeysDifferentName.name);
+  }
+
   try {
     await collection.createIndex(keys, options);
   } catch (error) {
     if (error?.code === 11000 || error?.code === 85 || error?.code === 86 || error?.code === 68) {
-      const conflictName = requestedName || error?.errmsg?.match(/index: ([^ ]+)/)?.[1];
-      if (conflictName) {
+      if (requestedName) {
         try {
-          await collection.dropIndex(conflictName);
+          await collection.dropIndex(requestedName);
           await collection.createIndex(keys, options);
           return;
         } catch (retryError) {
           throw retryError;
         }
       }
+
+      console.warn(
+        `[Migration 011] Index creation conflict without explicit index name for keys: ${JSON.stringify(keys)}`
+      );
     }
 
     throw error;
@@ -145,8 +167,15 @@ module.exports = {
     await ensureIndex(sprintContributions, { groupId: 1, sprintId: 1, updatedAt: -1 }, { name: 'groupId_1_sprintId_1_updatedAt_-1' });
 
     await ensureIndex(sprintReports, { sprintReportId: 1 }, { unique: true, sparse: true, name: 'sprintReportId_1' });
-    await ensureIndex(sprintReports, { groupId: 1, sprintId: 1 }, { unique: true, name: 'groupId_1_sprintId_1' });
+    await ensureIndex(
+      sprintReports,
+      { groupId: 1, sprintId: 1, reportType: 1 },
+      { unique: true, name: 'groupId_1_sprintId_1_reportType_1' }
+    );
     await ensureIndex(sprintReports, { groupId: 1, sprintId: 1, generatedAt: -1 }, { name: 'groupId_1_sprintId_1_generatedAt_-1' });
+    await ensureIndex(sprintReports, { deliverableId: 1, sprintId: 1 }, { name: 'deliverableId_1_sprintId_1' });
+    await ensureIndex(sprintReports, { deliverableIds: 1 }, { name: 'deliverableIds_1' });
+    await ensureIndex(sprintReports, { sourceVersionRef: 1 }, { name: 'sourceVersionRef_1' });
 
     const legacyContributionCollections = ['contributionrecords'];
     for (const legacyName of legacyContributionCollections) {
@@ -157,7 +186,7 @@ module.exports = {
       await bulkBackfill(
         sprintContributions,
         legacyRows,
-        (row) => `${row.groupId}:${row.sprintId}:${row.studentId}`,
+        (row) => JSON.stringify([row.groupId, row.sprintId, row.studentId]),
         (row) => ({
           filter: {
             groupId: row.groupId,
@@ -220,7 +249,7 @@ module.exports = {
       await bulkBackfill(
         prValidations,
         validationRows,
-        (row) => `${row.groupId}:${row.sprintId}:${row.issueKey}:${row.prId}`,
+        (row) => JSON.stringify([row.groupId, row.sprintId, row.issueKey, row.prId]),
         (row) => ({
           filter: {
             groupId: row.groupId,

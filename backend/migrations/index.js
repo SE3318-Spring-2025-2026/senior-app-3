@@ -34,4 +34,9 @@ const migrations = [
   migration011,
 ];
 
-module.exports = migrations;  
+const migrationNames = migrations.map((migration) => migration?.name).filter(Boolean);
+if (new Set(migrationNames).size !== migrationNames.length) {
+  throw new Error('Duplicate migration names detected in migration registry');
+}
+
+module.exports = migrations;

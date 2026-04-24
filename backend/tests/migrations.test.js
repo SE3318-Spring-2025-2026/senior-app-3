@@ -23,6 +23,7 @@ const {
 const User = require('../src/models/User');
 const ContributionRecord = require('../src/models/ContributionRecord');
 const SprintIssue = require('../src/models/SprintIssue');
+const SprintReport = require('../src/models/SprintReport');
 
 let MongoMemoryServer;
 try {
@@ -616,12 +617,21 @@ describe('Migrations - Runner and State Management', () => {
       );
       await runMigrationUp(migration, mongoose);
 
-      const canonicalRows = await mongoose.connection.db
+      const malformed1 = await mongoose.connection.db
         .collection('sprint_contributions')
-        .find({})
-        .toArray();
+        .findOne({
+          sprintId: 'spr_missing_group',
+          studentId: 'std_missing_group',
+        });
+      const malformed2 = await mongoose.connection.db
+        .collection('sprint_contributions')
+        .findOne({
+          groupId: 'grp_missing_student',
+          sprintId: 'spr_missing_student',
+        });
 
-      expect(canonicalRows).toHaveLength(0);
+      expect(malformed1).toBeNull();
+      expect(malformed2).toBeNull();
     });
 
     it('backfills github_sync_jobs validationRecords into canonical pr_validations', async () => {
@@ -707,6 +717,62 @@ describe('Migrations - Runner and State Management', () => {
     it('writes SprintIssue and ContributionRecord to canonical collections', async () => {
       expect(SprintIssue.collection.collectionName).toBe('sprint_issues');
       expect(ContributionRecord.collection.collectionName).toBe('sprint_contributions');
+    });
+
+    it('supports multiple sprint report variants for same group and sprint', async () => {
+      await runMigrationUp(
+        migrations.find((entry) => entry.name === '011_reconcile_process7_canonical_collections'),
+        mongoose
+      );
+
+      await SprintReport.create({
+        groupId: 'grp_rpt',
+        sprintId: 'spr_rpt',
+        reportType: 'D4_PRELIM',
+      });
+
+      await expect(
+        SprintReport.create({
+          groupId: 'grp_rpt',
+          sprintId: 'spr_rpt',
+          reportType: 'D4_FINAL',
+        })
+      ).resolves.toBeTruthy();
+
+      await expect(
+        SprintReport.create({
+          groupId: 'grp_rpt',
+          sprintId: 'spr_rpt',
+          reportType: 'D4_FINAL',
+        })
+      ).rejects.toThrow(/duplicate key|E11000/);
+    });
+
+    it('creates traceability indexes for sprint reports', async () => {
+      await runMigrationUp(
+        migrations.find((entry) => entry.name === '011_reconcile_process7_canonical_collections'),
+        mongoose
+      );
+
+      const sprintReportIndexes = await mongoose.connection.db
+        .collection('sprint_reports')
+        .indexes();
+
+      expect(
+        sprintReportIndexes.some(
+          (index) =>
+            index.unique &&
+            index.key.groupId === 1 &&
+            index.key.sprintId === 1 &&
+            index.key.reportType === 1
+        )
+      ).toBe(true);
+      expect(
+        sprintReportIndexes.some((index) => index.key.deliverableIds === 1)
+      ).toBe(true);
+      expect(
+        sprintReportIndexes.some((index) => index.key.sourceVersionRef === 1)
+      ).toBe(true);
     });
   });
 });
