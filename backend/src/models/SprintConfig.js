@@ -48,6 +48,10 @@ const sprintConfigSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    enableD4Reporting: {
+      type: Boolean,
+      default: true,
+    },
   },
   {
     timestamps: true,

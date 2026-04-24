@@ -1,6 +1,7 @@
 'use strict';
 
 const JiraSyncJob = require('../models/JiraSyncJob');
+const SprintRecord = require('../models/SprintRecord');
 const { jiraSyncWorker, JiraSyncError, getJiraConfig, getPublishedSprintConfig } = require('../services/jiraSyncService');
 const { createAuditLog } = require('../services/auditService');
 
@@ -51,10 +52,20 @@ const mapJobResponse = (job) => ({
 const triggerJiraSync = async (req, res) => {
   const { groupId, sprintId } = req.params;
   const actorId = req.user?.userId || 'system';
+  const correlationId = req.headers['x-correlation-id'] || `jira_${Date.now()}`;
 
   try {
     await getJiraConfig(groupId);
     await getPublishedSprintConfig(groupId, sprintId);
+
+    const sprintRecord = await SprintRecord.findOne({ groupId, sprintId }).lean();
+    if (sprintRecord && ['completed', 'reviewed'].includes(sprintRecord.status)) {
+      return res.status(409).json({
+        error: 'SNAPSHOT_LOCKED',
+        message: `Sprint contribution snapshot for group ${groupId} / sprint ${sprintId} is already finalized.`,
+        source: 'jira',
+      });
+    }
 
     const existingLock = await JiraSyncJob.findOne({
       groupId,
@@ -78,6 +89,7 @@ const triggerJiraSync = async (req, res) => {
         sprintId,
         status: 'PENDING',
         triggeredBy: actorId,
+        correlationId,
       });
     } catch (err) {
       if (err.code === 11000) {
@@ -111,6 +123,7 @@ const triggerJiraSync = async (req, res) => {
         },
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
+        correlationId,
       });
     } catch (auditErr) {
       console.error('[triggerJiraSync] Audit log failed (non-fatal):', auditErr.message);

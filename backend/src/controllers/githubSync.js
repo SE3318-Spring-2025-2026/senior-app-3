@@ -65,6 +65,7 @@ const triggerGitHubSync = async (req, res) => {
   if (!ensureSyncAccess(req, res)) return;
   const { groupId, sprintId } = req.params;
   const actorId = req.user?.userId || 'system';
+  const correlationId = req.headers['x-correlation-id'] || `gh_${Date.now()}`;
 
   try {
     // ── Guard: verify group exists (D2 sanity check) ────────────────────────
@@ -93,6 +94,14 @@ const triggerGitHubSync = async (req, res) => {
       });
     }
 
+    // ── Guard: Finalized snapshot conflict ──────────────────────────────────
+    if (['completed', 'reviewed'].includes(sprintRecord.status)) {
+      return res.status(409).json({
+        error: 'SNAPSHOT_LOCKED',
+        message: `Sprint contribution snapshot for ${groupId}/${sprintId} is already finalized.`,
+      });
+    }
+
     // ── Concurrency lock: check for existing active job ────────────────────
     const existingLock = await GitHubSyncJob.findOne({
       groupId,
@@ -116,6 +125,7 @@ const triggerGitHubSync = async (req, res) => {
         sprintId,
         status: 'PENDING',
         triggeredBy: actorId,
+        correlationId,
       });
     } catch (err) {
       if (err.code === 11000) {
@@ -144,6 +154,7 @@ const triggerGitHubSync = async (req, res) => {
         payload: { sprintId, jobId: job.jobId },
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
+        correlationId,
       });
     } catch (auditErr) {
       console.error('[triggerGitHubSync] Audit log failed (non-fatal):', auditErr.message);

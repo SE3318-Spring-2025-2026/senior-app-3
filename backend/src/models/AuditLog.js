@@ -170,6 +170,11 @@ const auditLogSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    correlationId: {
+      type: String,
+      default: null,
+      index: true,
+    },
     timestamp: {
       type: Date,
       default: Date.now,
@@ -186,6 +191,7 @@ auditLogSchema.index({ targetId: 1, createdAt: -1 });
 auditLogSchema.index({ actorId: 1, createdAt: -1 });
 auditLogSchema.index({ groupId: 1, action: 1, createdAt: -1 });
 auditLogSchema.index({ action: 1, createdAt: -1 });
+auditLogSchema.index({ correlationId: 1 });
 
 const AuditLog = mongoose.model('AuditLog', auditLogSchema);
 

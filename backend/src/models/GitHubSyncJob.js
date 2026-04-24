@@ -70,6 +70,8 @@ const gitHubSyncJobSchema = new mongoose.Schema(
 
     /** Who triggered the sync */
     triggeredBy: { type: String, default: null },
+
+    correlationId: { type: String, default: null },
   },
   {
     timestamps: true,

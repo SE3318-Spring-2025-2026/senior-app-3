@@ -36,6 +36,7 @@ const { triggerGitHubSync, getSyncJobStatus, getLatestSyncJob, getSyncJobLogs } 
 const { triggerJiraSync, getJiraSyncStatus, getJiraSyncLogs } = require('../controllers/jiraSync');
 const {
   recalculateContributions,
+  reconcileD4toD6,
 } = require('../controllers/sprintTracking');
 
 // Integrated Controllers from both branches
@@ -198,6 +199,13 @@ router.post(
   authMiddleware,
   roleMiddleware(['coordinator', 'admin']),
   recalculateContributions
+);
+
+router.post(
+  '/:groupId/sprints/:sprintId/reconcile-deliverables',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
+  reconcileD4toD6
 );
 
 router.patch(
