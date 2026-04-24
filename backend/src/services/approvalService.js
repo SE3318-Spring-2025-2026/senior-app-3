@@ -253,8 +253,13 @@ const approveGroupGrades = async (
       const studentOverride = overrideMap[studentId];
 
       // ISSUE #253: Create or update FinalGrade record
+      // Added status: PENDING check to prevent race condition overwrites (Lost Update)
       let finalGrade = await FinalGrade.findOneAndUpdate(
-        { groupId, studentId },
+        { 
+          groupId, 
+          studentId,
+          status: FINAL_GRADE_STATUS.PENDING
+        },
         {
           groupId,
           studentId,
