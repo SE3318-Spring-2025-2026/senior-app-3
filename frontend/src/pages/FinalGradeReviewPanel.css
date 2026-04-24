@@ -1,0 +1,230 @@
+.final-grade-review-page {
+  background: #f8fafc;
+  color: #1f2937;
+  min-height: 100vh;
+  padding: 32px 28px 48px;
+}
+
+.final-grade-review-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  margin: 0 auto 22px;
+  max-width: 1180px;
+}
+
+.final-grade-review-kicker {
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+}
+
+.final-grade-review-header h1 {
+  color: #111827;
+  font-size: 28px;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.final-grade-review-meta {
+  color: #64748b;
+  font-size: 14px;
+  margin: 8px 0 0;
+}
+
+.final-grade-review-button {
+  background: #0f766e;
+  border: 1px solid #0f766e;
+  border-radius: 6px;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  min-height: 38px;
+  padding: 8px 14px;
+}
+
+.final-grade-review-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.final-grade-review-state,
+.final-grade-review-message,
+.final-grade-review-empty,
+.final-grade-review-panel,
+.final-grade-review-metrics {
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 1180px;
+}
+
+.final-grade-review-state,
+.final-grade-review-empty,
+.final-grade-review-message.empty {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  color: #475569;
+  padding: 24px;
+}
+
+.final-grade-review-message.error {
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 8px;
+  color: #9f1239;
+  padding: 20px 22px;
+}
+
+.final-grade-review-message h2 {
+  font-size: 18px;
+  margin: 0 0 6px;
+}
+
+.final-grade-review-message p {
+  margin: 0;
+}
+
+.final-grade-review-metrics {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.final-grade-review-metrics > div {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.final-grade-review-metrics .metric-label {
+  color: #64748b;
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.final-grade-review-metrics strong {
+  color: #111827;
+  display: block;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.final-grade-review-panel {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.final-grade-review-panel-header {
+  align-items: center;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  padding: 18px 20px;
+}
+
+.final-grade-review-panel-header h2 {
+  color: #111827;
+  font-size: 18px;
+  margin: 0;
+}
+
+.final-grade-review-panel-header p {
+  color: #64748b;
+  font-size: 13px;
+  margin: 5px 0 0;
+}
+
+.final-grade-review-table-wrap {
+  overflow-x: auto;
+}
+
+.final-grade-review-table {
+  border-collapse: collapse;
+  min-width: 980px;
+  width: 100%;
+}
+
+.final-grade-review-table th,
+.final-grade-review-table td {
+  border-bottom: 1px solid #eef2f7;
+  font-size: 13px;
+  padding: 13px 16px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.final-grade-review-table th {
+  background: #f8fafc;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.final-grade-review-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.override-badge,
+.readonly-badge {
+  border-radius: 999px;
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+}
+
+.override-badge {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.readonly-badge {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.override-comment {
+  color: #64748b;
+  font-size: 12px;
+  margin: 8px 0 0;
+  max-width: 220px;
+}
+
+@media (max-width: 760px) {
+  .final-grade-review-page {
+    padding: 22px 16px 36px;
+  }
+
+  .final-grade-review-header {
+    flex-direction: column;
+  }
+
+  .final-grade-review-button {
+    width: 100%;
+  }
+
+  .final-grade-review-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .final-grade-review-metrics {
+    grid-template-columns: 1fr;
+  }
+}
+

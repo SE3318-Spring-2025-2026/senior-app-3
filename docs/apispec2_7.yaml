@@ -206,6 +206,41 @@ paths:
         '504':
           description: Gateway Timeout - recalculation exceeded allowed processing time
 
+  /groups/{groupId}/sprints/{sprintId}/contributions:
+    get:
+      summary: View Sprint Contribution Summary (Process 7.x)
+      description: >
+        Returns the D6-backed sprint contribution summary for read-only academic oversight.
+        This endpoint does not trigger JIRA sync, GitHub sync, or contribution recalculation.
+        Access is limited to assigned professors/advisors and committee members for the group.
+      operationId: getSprintContributionSummary
+      tags:
+        - Sprint Tracking & Contribution Calculation
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group identifier whose sprint contribution summary is being viewed
+          schema:
+            type: string
+        - name: sprintId
+          in: path
+          required: true
+          description: Sprint identifier for the contribution summary
+          schema:
+            type: string
+      responses:
+        '200':
+          description: D6-backed sprint contribution summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SprintContributionSummary'
+        '403':
+          description: Forbidden - user is not assigned as advisor/professor or committee member for this group
+        '404':
+          description: Group or contribution records not found
+
 components:
   schemas:
     SprintJiraSyncInput:
@@ -312,6 +347,8 @@ components:
       required:
         - groupId
         - sprintId
+        - groupTotalStoryPoints
+        - lockedCount
         - contributions
         - recalculatedAt
       properties:
@@ -319,6 +356,13 @@ components:
           type: string
         sprintId:
           type: string
+        groupTotalStoryPoints:
+          type: number
+          format: float
+          description: Total completed story points for the group in this sprint
+        lockedCount:
+          type: integer
+          description: Number of locked contribution rows in the returned summary
         contributions:
           type: array
           description: Per-student contribution metrics for this sprint
