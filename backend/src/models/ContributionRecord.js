@@ -78,6 +78,25 @@ const contributionRecordSchema = new mongoose.Schema(
       min: 0,
       max: 1,
     },
+    targetStoryPoints: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    groupTotalStoryPoints: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    recalculatedAt: {
+      type: Date,
+      default: null,
+    },
+    lastHandoffEventId: {
+      type: String,
+      default: null,
+      index: true,
+    },
     githubHandle: {
       type: String,
       default: null,
@@ -97,6 +116,7 @@ const contributionRecordSchema = new mongoose.Schema(
 // Indexes for efficient querying
 contributionRecordSchema.index({ contributionRecordId: 1 });
 contributionRecordSchema.index({ sprintId: 1, studentId: 1, groupId: 1 }, { unique: true });
+contributionRecordSchema.index({ groupId: 1, sprintId: 1, studentId: 1 });
 contributionRecordSchema.index({ sprintId: 1, groupId: 1 });
 contributionRecordSchema.index({ studentId: 1, sprintId: 1 });
 
