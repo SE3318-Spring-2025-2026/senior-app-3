@@ -130,6 +130,11 @@ const auditLogSchema = new mongoose.Schema(
         'GITHUB_SYNC_FAILED',
         'SECURITY_AUDIT',
         'CREDENTIAL_ROTATED',
+
+        // --- JIRA Sync (Process 7.1) ---
+        'JIRA_SYNC_INITIATED',
+        'JIRA_SYNC_COMPLETED',
+        'JIRA_SYNC_FAILED',
       ],
     },
     actorId: {

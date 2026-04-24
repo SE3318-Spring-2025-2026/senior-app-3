@@ -31,6 +31,7 @@ const Group = require('../models/Group');
 const SprintRecord = require('../models/SprintRecord');
 const ContributionRecord = require('../models/ContributionRecord');
 const GitHubSyncJob = require('../models/GitHubSyncJob');
+const SprintIssue = require('../models/SprintIssue');
 const { createAuditLog } = require('./auditService');
 const { decrypt } = require('../utils/cryptoUtils');
 
@@ -60,16 +61,6 @@ const MERGE_STATE_MAP = {
 // ---------------------------------------------------------------------------
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/**
- * maskToken — hides most of a sensitive token for logging.
- * e.g. "ghp_abc123..." -> "ghp_***23"
- */
-function maskToken(token) {
-  if (!token) return 'null';
-  if (token.length < 10) return '***';
-  return `${token.substring(0, 4)}***${token.substring(token.length - 2)}`;
-}
 
 /**
  * withRetry — calls fn up to maxAttempts times with exponential back-off + jitter.
@@ -163,34 +154,54 @@ async function getGitHubConfig(groupId) {
  * @throws {GitHubSyncError} 404 JIRA_DATA_MISSING if D6 is empty for this sprint
  */
 async function getSprintIssues(sprintId, groupId) {
+  const sprintIssues = await SprintIssue.find({ sprintId, groupId }).lean();
   const sprintRecord = await SprintRecord.findOne({ sprintId, groupId }).lean();
   const contributions = await ContributionRecord.find({ sprintId, groupId }).lean();
 
   const issues = [];
 
+  // Source 0: canonical SprintIssue rows from Process 7.1
+  for (const sprintIssue of sprintIssues) {
+    issues.push({
+      key: sprintIssue.issueKey,
+      prLink: null,
+      source: 'sprint_issue',
+    });
+  }
+
   // Source 1: deliverable refs from SprintRecord
   if (sprintRecord?.deliverableRefs?.length) {
     for (const ref of sprintRecord.deliverableRefs) {
-      issues.push({
-        key: ref.deliverableId,
-        prLink: null, // will be resolved by branch pattern
-        source: 'deliverable_ref',
-      });
+      const alreadyAdded = issues.some((issue) => issue.key === ref.deliverableId);
+      if (!alreadyAdded) {
+        issues.push({
+          key: ref.deliverableId,
+          prLink: null, // will be resolved by branch pattern
+          source: 'deliverable_ref',
+        });
+      }
     }
   }
 
   // Source 2: ContributionRecord entries (unique student work items)
   for (const contrib of contributions) {
-    // FIX D: Use actual jiraIssueKey if available, fallback to student-specific key
-    const key = contrib.jiraIssueKey || `${sprintId}-${contrib.studentId}`;
-    const alreadyAdded = issues.some((i) => i.key === key);
-    if (!alreadyAdded) {
-      issues.push({
-        key,
-        prLink: null,
-        source: 'contribution_record',
-        studentId: contrib.studentId,
-      });
+    const studentKeys =
+      Array.isArray(contrib.jiraIssueKeys) && contrib.jiraIssueKeys.length > 0
+        ? contrib.jiraIssueKeys
+        : contrib.jiraIssueKey
+          ? [contrib.jiraIssueKey]
+          : [`${sprintId}-${contrib.studentId}`];
+
+    for (const key of studentKeys) {
+      const alreadyAdded = issues.some((i) => i.key === key);
+      if (!alreadyAdded) {
+        issues.push({
+          key,
+          prLink: null,
+          source: 'contribution_record',
+          studentId: contrib.studentId,
+        });
+      }
     }
   }
 
@@ -246,8 +257,8 @@ async function getPullRequestForIssue(issue, config) {
       return res.data;
     } catch (err) {
       if (err.response?.status === 404) return null;
-      // FIX E: Mask PAT in error logs
-      console.error(`[getPullRequestForIssue] API error for PR ${prNumber} with token ${maskToken(pat)}:`, err.message);
+      // Do not log token or token-derived values (Zero-Trust logging)
+      console.error(`[getPullRequestForIssue] API error for PR ${prNumber}:`, err.message);
       throw err;
     }
   }
@@ -282,8 +293,8 @@ async function getPullRequestForIssue(issue, config) {
     } catch (err) {
       // 422 = invalid branch ref format — skip, not a real error
       if (err.response?.status === 422) continue;
-      // FIX E: Mask PAT in error logs
-      console.error(`[getPullRequestForIssue] API error for branch ${branch} with token ${maskToken(pat)}:`, err.message);
+      // Do not log token or token-derived values (Zero-Trust logging)
+      console.error(`[getPullRequestForIssue] API error for branch ${branch}:`, err.message);
       throw err;
     }
   }
@@ -343,6 +354,7 @@ async function githubSyncWorker(groupId, sprintId, jobId) {
     // ── f33 + f34: Per-issue GitHub API call + D6 persistence ───────────────
     const validationRecords = [];
     let upstreamErrorCount = 0;
+    let timeoutErrorCount = 0;
 
     for (const issue of issues) {
       let pr = null;
@@ -358,7 +370,10 @@ async function githubSyncWorker(groupId, sprintId, jobId) {
         errorNote = err.message;
 
         // Classify critical upstream errors
-        if (err.response?.status >= 500 || err.code === 'ECONNABORTED') {
+        if (err.code === 'ECONNABORTED') {
+          timeoutErrorCount++;
+          upstreamErrorCount++;
+        } else if (err.response?.status >= 500) {
           upstreamErrorCount++;
         }
       }
@@ -380,8 +395,13 @@ async function githubSyncWorker(groupId, sprintId, jobId) {
     // If more than 50% of issues failed due to 5xx/timeout, fail the whole job
     if (issues.length > 0 && upstreamErrorCount / issues.length > 0.5) {
       job.status = 'FAILED';
-      job.errorCode = 'UPSTREAM_PROVIDER_ERROR';
-      job.errorMessage = `GitHub API returned consistent errors for ${upstreamErrorCount} issues. Check GitHub status.`;
+      if (timeoutErrorCount > 0) {
+        job.errorCode = 'GATEWAY_TIMEOUT';
+        job.errorMessage = `GitHub API timed out for ${timeoutErrorCount} issue lookups.`;
+      } else {
+        job.errorCode = 'UPSTREAM_PROVIDER_ERROR';
+        job.errorMessage = `GitHub API returned consistent errors for ${upstreamErrorCount} issues. Check GitHub status.`;
+      }
     } else {
       job.status = 'COMPLETED';
     }

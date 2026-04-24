@@ -1,7 +1,9 @@
 'use strict';
 
+const mongoose = require('mongoose');
 const axios = require('axios');
 const Group = require('../models/Group');
+const SprintConfig = require('../models/SprintConfig');
 const SprintRecord = require('../models/SprintRecord');
 const ContributionRecord = require('../models/ContributionRecord');
 const SyncJob = require('../models/SyncJob');
@@ -17,26 +19,40 @@ const toPublicStatus = (status) => {
   return 'queued';
 };
 
-const toHttpStatus = (status) => {
+const toHttpStatus = (status, errorCode = null) => {
   if (status === 'COMPLETED') return 200;
-  if (status === 'FAILED') return 500;
+  if (status === 'FAILED') {
+    if (errorCode === 'GATEWAY_TIMEOUT') return 504;
+    if (errorCode === 'UPSTREAM_PROVIDER_ERROR') return 502;
+    return 500;
+  }
   return 202;
 };
 
 const mapJobResponse = (job) => ({
   jobId: job.jobId,
+  job_id: job.jobId,
   status: toPublicStatus(job.status),
   source: job.source,
   message: job.message,
   groupId: job.groupId,
+  group_id: job.groupId,
   sprintId: job.sprintId,
+  sprint_id: job.sprintId,
   startedAt: job.startedAt,
+  started_at: job.startedAt,
   completedAt: job.completedAt,
+  completed_at: job.completedAt,
   errorCode: job.errorCode,
+  error_code: job.errorCode,
   errorMessage: job.errorMessage,
+  error_message: job.errorMessage,
   createdAt: job.createdAt,
+  created_at: job.createdAt,
   updatedAt: job.updatedAt,
-  mappedHttpStatus: toHttpStatus(job.status),
+  updated_at: job.updatedAt,
+  mappedHttpStatus: toHttpStatus(job.status, job.errorCode),
+  mapped_http_status: toHttpStatus(job.status, job.errorCode),
 });
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -78,6 +94,31 @@ const inferStoryPoints = (issue = {}) => {
   return 0;
 };
 
+const getPublishedSprintConfig = async (groupId, sprintId) => {
+  const config = await SprintConfig.findOne({
+    groupId,
+    sprintId,
+    configurationStatus: 'published',
+    deadline: { $gte: new Date() },
+  }).lean();
+
+  if (!config) {
+    const error = new Error(`No published sprint configuration found for ${groupId}/${sprintId}.`);
+    error.status = 422;
+    error.code = 'SPRINT_CONFIG_NOT_PUBLISHED';
+    throw error;
+  }
+
+  if (!config.externalSprintKey) {
+    const error = new Error(`Published sprint configuration for ${sprintId} is missing externalSprintKey.`);
+    error.status = 422;
+    error.code = 'SPRINT_CONFIG_INCOMPLETE';
+    throw error;
+  }
+
+  return config;
+};
+
 const fetchJiraIssues = async ({ group, sprintKey, sprintId }) => {
   const baseUrl = String(group.jiraUrl || '').replace(/\/$/, '');
   const jiraToken = decrypt(group.jiraToken);
@@ -91,7 +132,6 @@ const fetchJiraIssues = async ({ group, sprintKey, sprintId }) => {
   const jqlCandidates = [
     `project = "${group.projectKey}" AND sprint = "${sprintKey || sprintId}"`,
     `project = "${group.projectKey}" AND sprint = ${sprintKey || sprintId}`,
-    `project = "${group.projectKey}" AND sprint in openSprints()`,
   ];
 
   for (const jql of jqlCandidates) {
@@ -140,9 +180,32 @@ const resolveAssigneeUserId = ({ issue, acceptedMemberIds, usersByEmail }) => {
   return null;
 };
 
+const normalizeWorkerError = (error) => {
+  if (error?.code === 'ECONNABORTED') {
+    return {
+      errorCode: 'GATEWAY_TIMEOUT',
+      errorMessage: 'JIRA API timed out after maximum retry attempts.',
+    };
+  }
+
+  if (error?.response?.status >= 500) {
+    return {
+      errorCode: 'UPSTREAM_PROVIDER_ERROR',
+      errorMessage: error.message || 'JIRA API returned an upstream provider error.',
+    };
+  }
+
+  return {
+    errorCode: error?.code || 'JIRA_SYNC_FAILED',
+    errorMessage: error?.message || 'JIRA sync failed unexpectedly.',
+  };
+};
+
 const runJiraSyncWorker = async ({ jobId, groupId, sprintId, sprintKey }) => {
   const job = await SyncJob.findOne({ jobId });
   if (!job) return;
+
+  const session = await mongoose.startSession();
 
   try {
     job.status = 'IN_PROGRESS';
@@ -161,7 +224,9 @@ const runJiraSyncWorker = async ({ jobId, groupId, sprintId, sprintKey }) => {
       });
     }
 
-    const issues = await fetchJiraIssues({ group, sprintKey, sprintId });
+    const sprintConfig = await getPublishedSprintConfig(groupId, sprintId);
+    const effectiveSprintKey = sprintConfig.externalSprintKey || sprintKey || sprintId;
+    const issues = await fetchJiraIssues({ group, sprintKey: effectiveSprintKey, sprintId });
 
     const deliverableRefs = issues.map((issue) => ({
       deliverableId: issue.key,
@@ -169,21 +234,6 @@ const runJiraSyncWorker = async ({ jobId, groupId, sprintId, sprintKey }) => {
       type: 'demonstration',
       submittedAt: new Date(issue.fields?.updated || issue.fields?.created || Date.now()),
     }));
-
-    await SprintRecord.findOneAndUpdate(
-      { groupId, sprintId },
-      {
-        $set: {
-          status: 'in_progress',
-          deliverableRefs,
-        },
-        $setOnInsert: {
-          groupId,
-          sprintId,
-        },
-      },
-      { upsert: true, new: true }
-    );
 
     const acceptedMembers = Array.isArray(group.members)
       ? group.members.filter((member) => member.status === 'accepted')
@@ -233,62 +283,91 @@ const runJiraSyncWorker = async ({ jobId, groupId, sprintId, sprintKey }) => {
     const existingRecords = await ContributionRecord.find({ groupId, sprintId }).lean();
     const existingByStudent = new Map(existingRecords.map((record) => [record.studentId, record]));
 
-    // Idempotent write: set absolute values for each accepted member.
-    for (const studentId of acceptedMemberIds) {
-      const aggregate = aggregatedByStudent.get(studentId) || {
-        issueKeys: [],
-        storyPointsAssigned: 0,
-        storyPointsCompleted: 0,
-        issuesResolved: 0,
-      };
-      const primaryIssueKey =
-        aggregate.issueKeys.length === 1 ? aggregate.issueKeys[0] : aggregate.issueKeys[0] || null;
-
-      const existing = existingByStudent.get(studentId);
-      if (!existing) {
-        await ContributionRecord.create({
-          groupId,
-          sprintId,
-          studentId,
-          jiraIssueKey: primaryIssueKey,
-          storyPointsAssigned: aggregate.storyPointsAssigned,
-          storyPointsCompleted: aggregate.storyPointsCompleted,
-          issuesResolved: aggregate.issuesResolved,
-          lastUpdatedAt: new Date(),
-        });
-        continue;
-      }
-
-      await ContributionRecord.updateOne(
-        { contributionRecordId: existing.contributionRecordId },
+    await session.withTransaction(async () => {
+      await SprintRecord.findOneAndUpdate(
+        { groupId, sprintId },
         {
           $set: {
-            jiraIssueKey: primaryIssueKey,
-            storyPointsAssigned: aggregate.storyPointsAssigned,
-            storyPointsCompleted: aggregate.storyPointsCompleted,
-            issuesResolved: aggregate.issuesResolved,
-            lastUpdatedAt: new Date(),
+            status: 'in_progress',
+            deliverableRefs,
           },
-        }
+          $setOnInsert: {
+            groupId,
+            sprintId,
+          },
+        },
+        { upsert: true, new: true, session }
       );
-    }
+
+      const contributionOps = Array.from(acceptedMemberIds).map((studentId) => {
+        const aggregate = aggregatedByStudent.get(studentId) || {
+          issueKeys: [],
+          storyPointsAssigned: 0,
+          storyPointsCompleted: 0,
+          issuesResolved: 0,
+        };
+        const existing = existingByStudent.get(studentId);
+
+        if (existing) {
+          return {
+            updateOne: {
+              filter: { contributionRecordId: existing.contributionRecordId },
+              update: {
+                $set: {
+                  jiraIssueKeys: aggregate.issueKeys,
+                  jiraIssueKey: aggregate.issueKeys[0] || null,
+                  storyPointsAssigned: aggregate.storyPointsAssigned,
+                  storyPointsCompleted: aggregate.storyPointsCompleted,
+                  issuesResolved: aggregate.issuesResolved,
+                  lastUpdatedAt: new Date(),
+                },
+              },
+            },
+          };
+        }
+
+        return {
+          updateOne: {
+            filter: { groupId, sprintId, studentId },
+            update: {
+              $set: {
+                jiraIssueKeys: aggregate.issueKeys,
+                jiraIssueKey: aggregate.issueKeys[0] || null,
+                storyPointsAssigned: aggregate.storyPointsAssigned,
+                storyPointsCompleted: aggregate.storyPointsCompleted,
+                issuesResolved: aggregate.issuesResolved,
+                lastUpdatedAt: new Date(),
+              },
+              $setOnInsert: {
+                contributionRecordId: `ctr_${new mongoose.Types.ObjectId().toString().slice(-8)}`,
+                groupId,
+                sprintId,
+                studentId,
+              },
+            },
+            upsert: true,
+          },
+        };
+      });
+
+      if (contributionOps.length > 0) {
+        await ContributionRecord.bulkWrite(contributionOps, { session });
+      }
+    });
 
     job.status = 'COMPLETED';
     job.completedAt = new Date();
     job.message = `JIRA synchronization completed. Imported ${issues.length} issues (${unmappedAssigneeCount} unmapped assignees skipped).`;
     await job.save();
   } catch (error) {
+    const normalized = normalizeWorkerError(error);
     job.status = 'FAILED';
     job.completedAt = new Date();
-    if (error?.code === 'ECONNABORTED') {
-      job.errorCode = 'GATEWAY_TIMEOUT';
-    } else if (error?.response?.status >= 500) {
-      job.errorCode = 'UPSTREAM_PROVIDER_ERROR';
-    } else {
-      job.errorCode = error.code || 'JIRA_SYNC_FAILED';
-    }
-    job.errorMessage = error.message || 'JIRA sync failed unexpectedly.';
+    job.errorCode = normalized.errorCode;
+    job.errorMessage = normalized.errorMessage;
     await job.save();
+  } finally {
+    await session.endSession();
   }
 };
 
@@ -308,6 +387,8 @@ const triggerJiraSync = async (req, res) => {
         message: 'JIRA integration is not configured for this group.',
       });
     }
+
+    await getPublishedSprintConfig(groupId, sprintId);
 
     const active = await SyncJob.findOne({
       groupId,
@@ -335,10 +416,12 @@ const triggerJiraSync = async (req, res) => {
 
     res.status(202).json({
       jobId: job.jobId,
+      job_id: job.jobId,
       status: 'queued',
       source: 'jira',
       message: 'JIRA sync job accepted.',
       createdAt: job.createdAt,
+      created_at: job.createdAt,
     });
 
     setImmediate(() => {
@@ -348,6 +431,12 @@ const triggerJiraSync = async (req, res) => {
       });
     });
   } catch (error) {
+    if (error?.status === 422) {
+      return res.status(422).json({
+        error: error.code || 'SPRINT_CONFIG_NOT_PUBLISHED',
+        message: error.message,
+      });
+    }
     console.error('[triggerJiraSync] error:', error);
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to trigger JIRA sync.' });
   }
@@ -367,7 +456,7 @@ const getJiraSyncStatus = async (req, res) => {
         message: `No JIRA sync job found for ${groupId}/${sprintId}.`,
       });
     }
-    return res.status(200).json(mapJobResponse(job));
+    return res.status(toHttpStatus(job.status, job.errorCode)).json(mapJobResponse(job));
   } catch (error) {
     console.error('[getJiraSyncStatus] error:', error);
     return res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Failed to fetch JIRA sync status.' });
@@ -395,6 +484,7 @@ const getJiraSyncLogs = async (req, res) => {
 
     return res.status(200).json({
       jobId: job.jobId,
+      job_id: job.jobId,
       source: 'jira',
       status: toPublicStatus(job.status),
       logs,
@@ -472,16 +562,32 @@ const recalculateContributions = async (req, res) => {
     const usersById = new Map(users.map((user) => [user.userId, user]));
 
     const projectedRows = allRecords.map((record) => {
-      const completedFromMerge = mergedIssueKeys.has(record.jiraIssueKey)
-        ? Number(record.storyPointsAssigned || record.storyPointsCompleted || 0)
-        : 0;
+      const keys = record.jiraIssueKeys || [];
+      const mergedKeys = keys.filter((key) => mergedIssueKeys.has(key));
+      const unmergedKeys = keys.filter((key) => !mergedIssueKeys.has(key));
+
+      let completedFromMerge = 0;
+      if (keys.length > 0) {
+        // Heuristic: proportional credit if per-issue SP isn't stored
+        completedFromMerge =
+          (mergedKeys.length / keys.length) *
+          Number(record.storyPointsAssigned || record.storyPointsCompleted || 0);
+      }
+
       const warnings = [];
-      if (!record.jiraIssueKey) warnings.push('No JIRA issue mapping found for student record.');
-      if (record.jiraIssueKey && validationRecords.length > 0 && !mergedIssueKeys.has(record.jiraIssueKey)) {
-        warnings.push(`Mapped issue ${record.jiraIssueKey} is not merged in latest GitHub sync.`);
+      if (keys.length === 0) {
+        warnings.push('No JIRA issue mapping found for student record.');
+      }
+      if (validationRecords.length > 0) {
+        unmergedKeys.forEach((key) => {
+          warnings.push(`Mapped issue ${key} is not merged in latest GitHub sync.`);
+        });
       }
       if (validationRecords.length === 0) {
-        warnings.push('No completed GitHub sync validation found; using zero completed SP from merge mapping.');
+        warnings.push(
+          'No completed GitHub sync validation found; using zero completed SP from merge mapping.'
+        );
+        completedFromMerge = 0;
       }
       return {
         record,
