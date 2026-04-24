@@ -77,38 +77,25 @@ async function generatePreview(groupId, options) {
   }
 
   // Calculate baseGroupScore - Mocking for now since no real scores exist
+  // Calculate baseGroupScore - Mocking base score for now since no real scores exist
   // In a real scenario, this would aggregate scores from D4 and D5.
   const baseGroupScore = 100; 
 
-  const studentGrades = new Map();
-  let totalRatio = 0;
-
-  for (const record of records) {
-    const { studentId, contributionRatio } = record;
-    totalRatio += (contributionRatio || 0);
-
-    if (!studentGrades.has(studentId)) {
-      studentGrades.set(studentId, {
-        studentId,
-        contributionRatio: contributionRatio || 0,
-        computedFinalGrade: baseGroupScore * (contributionRatio || 0),
-        deliverableScoreBreakdown: {}
-      });
+  const { calculateFinalGrades } = require('./finalGradeCalculationService');
+  
+  try {
+    const calculationResult = calculateFinalGrades(groupId, baseGroupScore, records, {
+      weights: [50, 50], // example dummy weights summing to 100
+      isAlreadyWeighted: false
+    });
+    
+    return calculationResult;
+  } catch (error) {
+    if (error.message.includes('Inconsistent Configuration')) {
+      throw new PreviewError('Conflict - preview cannot be generated due to inconsistent or locked configuration', 409);
     }
+    throw error;
   }
-
-  // Ratio consistency check (sum should be ~1.0 within epsilon for precision, or 0 if group has 0 total story points)
-  // We use 1.0 as target because ratio math is normalized. A margin of 0.01 is used for floating point issues.
-  if (totalRatio > 0 && Math.abs(totalRatio - 1.0) > 0.01) {
-    throw new PreviewError('Conflict - preview cannot be generated due to inconsistent or locked configuration', 409);
-  }
-
-  return {
-    groupId,
-    baseGroupScore,
-    students: Array.from(studentGrades.values()),
-    createdAt: new Date().toISOString()
-  };
 }
 
 module.exports = {
