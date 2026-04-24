@@ -339,6 +339,39 @@ const dispatchClarificationRequiredNotification = async ({
   }
 };
 
+/**
+ * Dispatch JIRA sync completion notification
+ */
+const dispatchSyncNotification = async ({ groupId, sprintId, status, issuesProcessed, triggeredBy, correlationId }) => {
+  try {
+    // Fire-and-forget call to notification service
+    const payload = {
+      type: 'sprint_sync_completed',
+      groupId,
+      sprintId,
+      status,
+      issuesProcessed,
+      triggeredBy,
+      correlationId,
+      timestamp: new Date().toISOString(),
+    };
+
+    // We don't await this to keep it fire-and-forget, but we handle errors
+    const promise = axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications`, payload, { timeout: 5000 });
+    
+    if (promise && typeof promise.catch === 'function') {
+      promise.catch(error => {
+        console.error('Error dispatching sync notification (async):', error.message || error);
+      });
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error in dispatchSyncNotification setup:', error.message || error);
+    return { success: false, error: error.message };
+  }
+};
+
 module.exports = {
   dispatchInvitationNotification,
   dispatchMembershipDecisionNotification,
@@ -355,5 +388,6 @@ module.exports = {
   dispatchDisbandNotification,
   dispatchReviewAssignmentNotification,
   dispatchClarificationRequiredNotification,
+  dispatchSyncNotification,
   isTransientError,
 };

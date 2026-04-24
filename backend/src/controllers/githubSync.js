@@ -11,7 +11,7 @@
  *   - Returns 409 Conflict if a sync is already IN_PROGRESS for the same key
  *
  * Error mapping (see spec §3):
- *   202  — job_id + status: "PENDING"    → Job accepted and worker dispatched
+ *   202  — jobId + status: "queued"      → Job accepted and worker dispatched
  *   409  — SYNC_ALREADY_RUNNING          → Lock already held
  *   400  — INVALID_GITHUB_CREDENTIALS    → D2 missing/invalid PAT or repo binding
  *   404  — JIRA_DATA_MISSING             → D6 empty for this sprint (Process 7.1 hasn't run)
@@ -19,7 +19,7 @@
  *   504  — GATEWAY_TIMEOUT              → GitHub API timed-out after all retries (worker-side)
  *
  * Auth:
- *   Requires coordinator or advisor role (group members cannot self-trigger a mass sync)
+ *   Requires coordinator/admin role (group members cannot self-trigger a mass sync)
  *
  * DFD flows:
  *   f29 — Coordinator → 7.2 (trigger sync)
@@ -60,6 +60,27 @@ const {
   enforceIdempotency,
   acquireIdempotencySignature
 } = require('../services/syncDeduplicationService');
+const ALLOWED_SYNC_ROLES = new Set(['coordinator', 'admin']);
+
+const toPublicStatus = (status) => {
+  if (status === 'PENDING') return 'queued';
+  if (status === 'IN_PROGRESS') return 'running';
+  if (status === 'COMPLETED') return 'completed';
+  if (status === 'FAILED') return 'failed';
+  return 'queued';
+};
+
+const ensureSyncAccess = (req, res) => {
+  const role = req.user?.role;
+  if (!ALLOWED_SYNC_ROLES.has(role)) {
+    res.status(403).json({
+      error: 'FORBIDDEN',
+      message: 'Only coordinator/admin can access GitHub sync endpoints.',
+    });
+    return false;
+  }
+  return true;
+};
 
 /**
  * POST /groups/:groupId/sprints/:sprintId/github-sync
@@ -78,11 +99,9 @@ const {
  *   - If not found: Create new job and register signature
  */
 const triggerGitHubSync = async (req, res) => {
+  if (!ensureSyncAccess(req, res)) return;
   const { groupId, sprintId } = req.params;
   const actorId = req.user?.userId || 'system';
-
-  // ISSUE #241: Extract correlationId from request (or generate new one)
-  // Attach to request for propagation through entire sync pipeline
   const correlationId = getCorrelationId(req);
   const externalRequestId = req.externalRequestId || req.headers['x-request-id'] || null;
 
@@ -107,7 +126,7 @@ const triggerGitHubSync = async (req, res) => {
     // ========================================================================
 
     // ── Guard: verify group exists (D2 sanity check) ────────────────────────
-    const group = await Group.findOne({ groupId }).lean();
+    const group = await Group.findOne({ groupId }).select('+githubPat').lean();
     if (!group) {
       return res.status(404).json({
         error: 'JIRA_DATA_MISSING',
@@ -131,6 +150,15 @@ const triggerGitHubSync = async (req, res) => {
       return res.status(404).json({
         error: 'JIRA_DATA_MISSING',
         message: `No sprint record found in D6 for sprint ${sprintId}. Ensure Process 7.1 has completed.`,
+        correlationId
+      });
+    }
+
+    // ── Guard: Finalized snapshot conflict ──────────────────────────────────
+    if (['completed', 'reviewed'].includes(sprintRecord.status)) {
+      return res.status(409).json({
+        error: 'SNAPSHOT_LOCKED',
+        message: `Sprint contribution snapshot for ${groupId}/${sprintId} is already finalized.`,
         correlationId
       });
     }
@@ -271,6 +299,7 @@ const triggerGitHubSync = async (req, res) => {
         },
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
+        correlationId,
       });
     } catch (auditErr) {
       logError('Audit log failed for sync initiated', {
@@ -284,14 +313,18 @@ const triggerGitHubSync = async (req, res) => {
       });
     }
 
-    // – Respond 202 immediately ──────────────────────────────────────────────
+    // ── Respond 202 immediately (SprintSyncJobStatus — apispec2_7.yaml) ─────
     res.status(202).json({
+      jobId: job.jobId,
       job_id: job.jobId,
-      status: 'PENDING',
+      status: 'queued',
+      source: 'github',
       message: 'GitHub sync job accepted. PR validation will run asynchronously.',
       correlationId,
       externalRequestId,
-      idempotencyKey: req.idempotencyKey
+      idempotencyKey: req.idempotencyKey,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt ?? job.createdAt,
     });
 
     // =========================================================================
@@ -354,6 +387,20 @@ const triggerGitHubSync = async (req, res) => {
 };
 
 /**
+ * mapJobToHttpStatus — helper to derive a frontend-friendly HTTP status
+ */
+const mapJobToHttpStatus = (status, errorCode) => {
+  if (status === 'COMPLETED') return 200;
+  if (status === 'PENDING' || status === 'IN_PROGRESS') return 202;
+  if (status === 'FAILED') {
+    if (errorCode === 'UPSTREAM_PROVIDER_ERROR') return 502;
+    if (errorCode === 'GATEWAY_TIMEOUT') return 504;
+    return 500;
+  }
+  return 200;
+};
+
+/**
  * GET /groups/:groupId/sprints/:sprintId/github-sync/:jobId
  *
  * Returns the current status and validation records for a specific sync job.
@@ -362,6 +409,7 @@ const triggerGitHubSync = async (req, res) => {
  * ISSUE #241: Enhanced response includes correlationId for tracing
  */
 const getSyncJobStatus = async (req, res) => {
+  if (!ensureSyncAccess(req, res)) return;
   const { groupId, sprintId, jobId } = req.params;
 
   // ISSUE #241: Extract correlationId from request for logging
@@ -378,8 +426,11 @@ const getSyncJobStatus = async (req, res) => {
     }
 
     return res.status(200).json({
+      jobId: job.jobId,
       job_id: job.jobId,
-      status: job.status,
+      status: toPublicStatus(job.status),
+      source: 'github',
+      mappedHttpStatus: mapJobToHttpStatus(job.status, job.errorCode),
       groupId: job.groupId,
       sprintId: job.sprintId,
       startedAt: job.startedAt,
@@ -392,6 +443,7 @@ const getSyncJobStatus = async (req, res) => {
       // ISSUE #241: Include idempotency info
       idempotencyKey: job.idempotencyKey,
       createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
     });
   } catch (err) {
     logError('Error in getSyncJobStatus', {
@@ -420,6 +472,7 @@ const getSyncJobStatus = async (req, res) => {
  * ISSUE #241: Enhanced response includes correlationId for tracing
  */
 const getLatestSyncJob = async (req, res) => {
+  if (!ensureSyncAccess(req, res)) return;
   const { groupId, sprintId } = req.params;
 
   // ISSUE #241: Extract correlationId from request for logging
@@ -441,8 +494,11 @@ const getLatestSyncJob = async (req, res) => {
     }
 
     return res.status(200).json({
+      jobId: job.jobId,
       job_id: job.jobId,
-      status: job.status,
+      status: toPublicStatus(job.status),
+      source: 'github',
+      mappedHttpStatus: mapJobToHttpStatus(job.status, job.errorCode),
       groupId: job.groupId,
       sprintId: job.sprintId,
       startedAt: job.startedAt,
@@ -455,6 +511,7 @@ const getLatestSyncJob = async (req, res) => {
       // ISSUE #241: Include idempotency info
       idempotencyKey: job.idempotencyKey,
       createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
     });
   } catch (err) {
     logError('Error in getLatestSyncJob', {
@@ -473,4 +530,69 @@ const getLatestSyncJob = async (req, res) => {
   }
 };
 
-module.exports = { triggerGitHubSync, getSyncJobStatus, getLatestSyncJob };
+const getSyncJobLogs = async (req, res) => {
+  if (!ensureSyncAccess(req, res)) return;
+  const { groupId, sprintId, jobId } = req.params;
+  try {
+    const job = await GitHubSyncJob.findOne({ jobId, groupId, sprintId }).lean();
+    if (!job) {
+      return res.status(404).json({
+        error: 'JOB_NOT_FOUND',
+        message: `Sync job ${jobId} not found for group ${groupId} / sprint ${sprintId}`,
+      });
+    }
+
+    const terminal = job.status === 'COMPLETED' || job.status === 'FAILED';
+    const stamp = job.completedAt || job.updatedAt || job.createdAt;
+
+    const logs = [
+      { level: 'info', at: job.createdAt, message: 'GitHub sync job created.' },
+      job.startedAt ? { level: 'info', at: job.startedAt, message: 'GitHub sync worker started.' } : null,
+    ];
+
+    if (Array.isArray(job.validationRecords)) {
+      logs.push({
+        level: 'info',
+        at: stamp,
+        message: `Validation records processed: ${job.validationRecords.length}`,
+      });
+    }
+
+    if (job.status === 'FAILED') {
+      const detail = job.errorMessage || job.errorCode || 'GitHub sync failed.';
+      logs.push({ level: 'error', at: stamp, message: detail });
+    } else if (job.errorMessage) {
+      logs.push({ level: 'warn', at: stamp, message: job.errorMessage });
+    }
+
+    if (terminal) {
+      const merged =
+        job.status === 'COMPLETED' && Array.isArray(job.validationRecords)
+          ? job.validationRecords.filter((r) => r.mergeStatus === 'MERGED').length
+          : null;
+      const suffix = merged !== null ? ` (${merged} PR(s) merged).` : '.';
+      logs.push({
+        level: 'info',
+        at: stamp,
+        message: `GitHub sync finished with status ${toPublicStatus(job.status)}${suffix}`,
+      });
+    }
+
+    const filtered = logs.filter(Boolean);
+
+    return res.status(200).json({
+      jobId: job.jobId,
+      source: 'github',
+      status: toPublicStatus(job.status),
+      logs: filtered,
+    });
+  } catch (err) {
+    console.error('[getSyncJobLogs] Error:', err);
+    return res.status(500).json({
+      error: 'INTERNAL_ERROR',
+      message: 'An unexpected error occurred',
+    });
+  }
+};
+
+module.exports = { triggerGitHubSync, getSyncJobStatus, getLatestSyncJob, getSyncJobLogs };

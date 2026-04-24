@@ -153,6 +153,25 @@ const auditLogSchema = new mongoose.Schema(
         'IDEMPOTENCY_KEY_VALIDATED',       // Idempotency key checked and validated
         'DUPLICATE_REQUEST_DETECTED',      // Duplicate request found (replayed)
         'FINGERPRINT_COLLISION_DETECTED',  // Rare: SHA256 collision detected
+        'SECURITY_AUDIT',
+        'CREDENTIAL_ROTATED',
+
+        // --- Sprint Notifications (Issue #238 - Process 7.5) ---
+        'SPRINT_CONTRIBUTION_RECALCULATION_INITIATED',
+        'SPRINT_CONTRIBUTION_RECALCULATION_COMPLETED',
+        'SPRINT_CONTRIBUTION_RECALCULATION_ERROR',
+        'SPRINT_CONTRIBUTIONS_RECALCULATED',
+        // ISSUE #238: Notification dispatch events for sprint contribution updates
+        'SPRINT_NOTIFICATION_DISPATCHED',        // ISSUE #238: Successful notification sent (student or coordinator)
+        'SPRINT_NOTIFICATION_FAILED',             // ISSUE #238: Failed notification dispatch attempt (permanent after retries)
+        'SPRINT_NOTIFICATION_SKIPPED',            // ISSUE #238: Notification skipped (feature disabled for sprint)
+        'SPRINT_NOTIFICATION_DISPATCHER_ERROR',   // ISSUE #238: Critical error in orchestrator (unexpected failure)
+        'SPRINT_GROUP_NOTIFICATION_CONFIGURED',   // ISSUE #238: Notification configuration created/updated
+        'SPRINT_NOTIFICATION_CONFIG_DELETED',
+        // --- JIRA Sync (Process 7.1) ---
+        'JIRA_SYNC_INITIATED',
+        'JIRA_SYNC_COMPLETED',
+        'JIRA_SYNC_FAILED',
       ],
     },
     actorId: {
@@ -188,6 +207,11 @@ const auditLogSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    correlationId: {
+      type: String,
+      default: null,
+      index: true,
+    },
     timestamp: {
       type: Date,
       default: Date.now,
@@ -204,6 +228,7 @@ auditLogSchema.index({ targetId: 1, createdAt: -1 });
 auditLogSchema.index({ actorId: 1, createdAt: -1 });
 auditLogSchema.index({ groupId: 1, action: 1, createdAt: -1 });
 auditLogSchema.index({ action: 1, createdAt: -1 });
+auditLogSchema.index({ correlationId: 1 });
 
 const AuditLog = mongoose.model('AuditLog', auditLogSchema);
 

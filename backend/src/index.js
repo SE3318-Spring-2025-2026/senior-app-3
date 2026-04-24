@@ -2,8 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
-const swaggerUi = require('swagger-ui-express');
-const swaggerSpec = require('./swagger');
 
 const authRoutes = require('./routes/auth');
 const onboardingRoutes = require('./routes/onboarding');
@@ -18,6 +16,24 @@ const commentsRoutes = require('./routes/comments');
 const { errorHandler } = require('./middleware/auth');
 const { correlationIdMiddleware } = require('./middleware/correlationId');
 const { logInfo, logError } = require('./utils/structuredLogger');
+const {
+  patchConsoleForRedaction,
+  requestLogMiddleware,
+} = require('./middleware/securityLogging');
+const { startJiraSyncScheduler } = require('./services/jiraSyncScheduler');
+
+let swaggerUi = null;
+let swaggerSpec = null;
+try {
+  swaggerUi = require('swagger-ui-express');
+} catch (error) {
+  console.warn('[index] swagger-ui-express is not installed; /api-docs will be disabled.');
+}
+try {
+  swaggerSpec = require('./swagger');
+} catch (error) {
+  console.warn('[index] swagger spec dependencies are not installed; /api-docs will be disabled.');
+}
 
 const app = express();
 const PORT = process.env.PORT || 5002;
@@ -37,6 +53,8 @@ app.use((req, res, next) => {
   });
   next();
 });
+patchConsoleForRedaction();
+app.use(requestLogMiddleware);
 
 app.get('/health', (req, res) => {
   res.status(200).json({
@@ -66,10 +84,13 @@ const connectDB = async () => {
 
 if (process.env.NODE_ENV !== 'test') {
   connectDB();
+  startJiraSyncScheduler();
 }
 
 // Swagger UI
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+if (swaggerUi && swaggerSpec) {
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+}
 
 // API Routes
 app.use('/api/v1/auth', authRoutes);

@@ -42,7 +42,6 @@ const GroupDashboard = () => {
     jira,
     pendingApprovalsCount,
     isLoading,
-    error,
     lastUpdated,
     fetchGroupDashboard,
     startPolling,
@@ -117,6 +116,11 @@ const GroupDashboard = () => {
 
   const isCoordinator = user?.role === 'coordinator' || user?.role === 'admin';
   const isLeader = groupData?.leaderId === user?.userId;
+  const studentSprintId =
+    groupData?.currentSprintId ||
+    groupData?.activeSprintId ||
+    groupData?.latestSprintId ||
+    groupData?.sprintId;
 
   if (!groupId) return <div className="page error">Invalid group ID</div>;
 
@@ -275,6 +279,23 @@ const GroupDashboard = () => {
             committeeStatus={committeeStatus?.committee?.status}
             onSuccess={() => fetchGroupDashboard(groupId)}
           />
+
+          {user?.role === 'student' && studentSprintId && (
+            <div className="student-progress-section">
+              <div>
+                <h2 className="student-progress-title">Sprint Progress</h2>
+                <p className="student-progress-copy">
+                  View your read-only sprint contribution metrics from the latest computed backend snapshot.
+                </p>
+              </div>
+              <Link
+                className="student-progress-link"
+                to={`/groups/${groupId}/sprints/${studentSprintId}/progress`}
+              >
+                View Sprint Progress
+              </Link>
+            </div>
+          )}
 
           <div className="group-info-footer">
             Group ID: {groupData.groupId} · Status: {groupData.status}

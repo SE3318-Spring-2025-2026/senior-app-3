@@ -67,7 +67,22 @@ const createNotificationSyncErrorLog = async (error, attempts, context) => {
     groupId,
     actorId,
     attempts,
-    lastError: formatLastErrorForDb(error, { committeeId }),
+    correlationId: context.correlationId || null,
+    serviceName: context.serviceName || 'notification',
+    metadata: {
+      committeeId,
+      sprintId: context.sprintId || null,
+      studentId: context.studentId || null,
+      coordinatorId: context.coordinatorId || null,
+    },
+    lastError: formatLastErrorForDb(error, {
+      committeeId,
+      correlationId: context.correlationId || null,
+      serviceName: context.serviceName || 'notification',
+      sprintId: context.sprintId || null,
+      studentId: context.studentId || null,
+      coordinatorId: context.coordinatorId || null,
+    }),
   });
 };
 
@@ -226,6 +241,7 @@ const retryNotificationWithBackoff = async (dispatchFn, options = {}) => {
     externalRequestId: context?.externalRequestId || null,
     maxAttempts: limit,
     committeeId: context?.committeeId || null,
+    serviceName: context?.serviceName || 'notification',
     error: lastError?.message || 'Max retries exhausted'
   });
 
