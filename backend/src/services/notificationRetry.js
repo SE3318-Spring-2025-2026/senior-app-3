@@ -4,6 +4,7 @@
  */
 
 const SyncErrorLog = require('../models/SyncErrorLog');
+const { logError, logInfo, logWarn } = require('../utils/structuredLogger');
 
 /**
  * Determines if an error is transient (should retry) or permanent (should fail fast).
@@ -89,7 +90,13 @@ const logPermanentError = async (error, attempt, context) => {
   try {
     await createNotificationSyncErrorLog(error, attempt, context);
   } catch (logErr) {
-    console.error('[Notification] Failed to log permanent error:', logErr.message);
+    logError('Failed to log permanent notification error', {
+      service_name: 'notification_dispatch',
+      correlationId: context?.correlationId || null,
+      externalRequestId: context?.externalRequestId || null,
+      attempt,
+      error: logErr.message
+    });
   }
 };
 
@@ -97,7 +104,13 @@ const logExhaustedRetries = async (error, maxRetries, context) => {
   try {
     await createNotificationSyncErrorLog(error, maxRetries, context);
   } catch (logErr) {
-    console.error('[Notification] Failed to log max retries error:', logErr.message);
+    logError('Failed to log notification max retries error', {
+      service_name: 'notification_dispatch',
+      correlationId: context?.correlationId || null,
+      externalRequestId: context?.externalRequestId || null,
+      attempt: maxRetries,
+      error: logErr.message
+    });
   }
 };
 
@@ -126,14 +139,25 @@ const retryNotificationWithBackoff = async (dispatchFn, options = {}) => {
 
   for (let attempt = 0; attempt < limit; attempt += 1) {
     try {
-      console.log(
-        `[Notification] Dispatch attempt ${attempt + 1}/${limit} for committeeId: ${context.committeeId}`
-      );
+      logInfo('Notification dispatch attempt started', {
+        service_name: 'notification_dispatch',
+        correlationId: context?.correlationId || null,
+        externalRequestId: context?.externalRequestId || null,
+        attempt: attempt + 1,
+        maxAttempts: limit,
+        committeeId: context?.committeeId || null
+      });
 
       const result = await dispatchFn();
 
       if (isDispatchSuccess(result)) {
-        console.log(`[Notification] SUCCESS on attempt ${attempt + 1}: ${result.notificationId}`);
+        logInfo('Notification dispatch succeeded', {
+          service_name: 'notification_dispatch',
+          correlationId: context?.correlationId || null,
+          externalRequestId: context?.externalRequestId || null,
+          attempt: attempt + 1,
+          notificationId: result.notificationId || null
+        });
         return {
           success: true,
           notificationId: result.notificationId,
@@ -144,10 +168,22 @@ const retryNotificationWithBackoff = async (dispatchFn, options = {}) => {
       }
 
       lastError = result?.error || new Error('Dispatch returned failure');
-      console.log(`[Notification] Dispatch returned failure: ${lastError.message}`);
+      logWarn('Notification dispatch returned failure', {
+        service_name: 'notification_dispatch',
+        correlationId: context?.correlationId || null,
+        externalRequestId: context?.externalRequestId || null,
+        attempt: attempt + 1,
+        error: lastError.message
+      });
 
       if (!isTransientError(lastError)) {
-        console.log(`[Notification] Permanent error (no retry): ${lastError.message}`);
+        logWarn('Notification permanent error encountered', {
+          service_name: 'notification_dispatch',
+          correlationId: context?.correlationId || null,
+          externalRequestId: context?.externalRequestId || null,
+          attempt: attempt + 1,
+          error: lastError.message
+        });
         await logPermanentError(lastError, attempt + 1, context);
         return {
           success: false,
@@ -159,10 +195,22 @@ const retryNotificationWithBackoff = async (dispatchFn, options = {}) => {
       }
     } catch (err) {
       lastError = err;
-      console.log(`[Notification] Exception caught: ${err.message}`);
+      logWarn('Notification dispatch threw exception', {
+        service_name: 'notification_dispatch',
+        correlationId: context?.correlationId || null,
+        externalRequestId: context?.externalRequestId || null,
+        attempt: attempt + 1,
+        error: err.message
+      });
 
       if (!isTransientError(err)) {
-        console.log(`[Notification] Permanent exception (no retry): ${err.message}`);
+        logWarn('Notification permanent exception encountered', {
+          service_name: 'notification_dispatch',
+          correlationId: context?.correlationId || null,
+          externalRequestId: context?.externalRequestId || null,
+          attempt: attempt + 1,
+          error: err.message
+        });
         await logPermanentError(err, attempt + 1, context);
         return {
           success: false,
@@ -176,16 +224,25 @@ const retryNotificationWithBackoff = async (dispatchFn, options = {}) => {
 
     if (attempt < limit - 1) {
       const delayMs = backoffMs[attempt] ?? backoffMs[backoffMs.length - 1];
-      console.log(`[Notification] Transient error, retrying after ${delayMs}ms...`);
+      logInfo('Notification transient failure retry scheduled', {
+        service_name: 'notification_dispatch',
+        correlationId: context?.correlationId || null,
+        externalRequestId: context?.externalRequestId || null,
+        attempt: attempt + 1,
+        nextDelayMs: delayMs
+      });
       await sleep(delayMs);
     }
   }
 
-  console.error('[Notification] Exhausted retries for dispatch', {
-    attempts: limit,
-    committeeId: context.committeeId,
-    correlationId: context.correlationId,
-    serviceName: context.serviceName,
+  logError('Notification retries exhausted', {
+    service_name: 'notification_dispatch',
+    correlationId: context?.correlationId || null,
+    externalRequestId: context?.externalRequestId || null,
+    maxAttempts: limit,
+    committeeId: context?.committeeId || null,
+    serviceName: context?.serviceName || 'notification',
+    error: lastError?.message || 'Max retries exhausted'
   });
 
   await logExhaustedRetries(lastError, limit, context);
