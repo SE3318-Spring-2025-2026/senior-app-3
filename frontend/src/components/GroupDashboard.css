@@ -794,9 +794,59 @@
   margin-bottom: 20px;
 }
 
+.student-progress-section {
+  background: white;
+  border-radius: 12px;
+  padding: 22px 24px;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.07);
+  margin-top: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.student-progress-title {
+  margin: 0 0 6px 0;
+  color: #1a1a2e;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.student-progress-copy {
+  margin: 0;
+  color: #6b7280;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.student-progress-link {
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: #2563eb;
+  color: white;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 10px 16px;
+  text-decoration: none;
+}
+
+.student-progress-link:hover {
+  background: #1d4ed8;
+}
+
 @media (max-width: 640px) {
   .deliverable-mode-toggle {
     flex-direction: column;
+  }
+
+  .student-progress-section {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .student-progress-link {
+    text-align: center;
   }
 }
 .advisor-request-link {

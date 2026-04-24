@@ -12,8 +12,10 @@ const ContributionRecord = require('../models/ContributionRecord');
 const { createAuditLog } = require('../services/auditService');
 const { forwardToMemberRequestPipeline, forwardOverrideToReconciliation } = require('../services/groupService');
 const { dispatchGroupCreationNotification, dispatchAdvisorRequestNotification } = require('../services/notificationService');
+const { getCorrelationId } = require('../middleware/correlationId');
 const { INACTIVE_GROUP_STATUSES, VALID_STATUS_TRANSITIONS } = require('../utils/groupStatusEnum');
 const SyncErrorLog = require('../models/SyncErrorLog');
+const { encrypt } = require('../utils/cryptoUtils');
 
 const VALID_DECISIONS = new Set(['approved', 'rejected']);
 
@@ -185,6 +187,18 @@ const createGroup = async (req, res) => {
         message: 'leaderId is required.',
       });
     }
+    if (githubPat !== undefined && githubPat !== null && typeof githubPat !== 'string') {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'githubPat must be a string when provided.',
+      });
+    }
+    if (jiraToken !== undefined && jiraToken !== null && typeof jiraToken !== 'string') {
+      return res.status(400).json({
+        code: 'INVALID_INPUT',
+        message: 'jiraToken must be a string when provided.',
+      });
+    }
 
     // The authenticated user must be the declared leader.
     if (req.user.userId !== leaderId.trim()) {
@@ -254,11 +268,11 @@ const createGroup = async (req, res) => {
       groupName: normalizedName,
       leaderId: leader.userId,
       status: 'pending_validation',
-      githubPat: githubPat || null,
+      githubPat: githubPat ? encrypt(githubPat) : null,
       githubOrg: githubOrg || null,
       jiraUrl: jiraUrl || null,
       jiraUsername: jiraUsername || null,
-      jiraToken: jiraToken || null,
+      jiraToken: jiraToken ? encrypt(jiraToken) : null,
       projectKey: projectKey || null,
     });
 
@@ -1517,6 +1531,8 @@ const validateAdvisorRequest = async (groupId, professorId, requesterId, authUse
  */
 const createAdvisorRequest = async (req, res) => {
   try {
+    const correlationId = getCorrelationId(req);
+    const externalRequestId = req.externalRequestId || null;
     const { groupId, professorId, requesterId, message } = req.body;
     const { userId: authUserId } = req.user;
 
@@ -1639,6 +1655,8 @@ const createAdvisorRequest = async (req, res) => {
           groupId: requestResult.groupId,
           requesterId: requestResult.requesterId,
           message: requestResult.message || null,
+          correlationId,
+          externalRequestId,
         });
 
         if (dispatchResult.ok) {

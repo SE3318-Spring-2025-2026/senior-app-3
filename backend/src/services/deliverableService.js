@@ -83,16 +83,20 @@ const validateCommitteeAssignment = async (groupId) => {
  */
 const storeDeliverableInD4 = async (data, session = null) => {
   try {
-    const { committeeId, groupId, studentId, type, storageRef } = data;
+    const { committeeId, groupId, studentId, type, storageRef, sprintId } = data;
 
     const deliverable = new Deliverable({
       committeeId,
       groupId,
-      studentId,
-      type,
-      storageRef,
+      submittedBy: studentId,
+      deliverableType: type,
+      sprintId: sprintId || null,
+      filePath: storageRef,
+      fileSize: data.fileSize || 0,
+      fileHash: data.fileHash || 'system-generated',
+      format: data.format || 'unknown',
       submittedAt: new Date(),
-      status: 'submitted',
+      status: 'accepted',
     });
 
     await deliverable.save(session ? { session } : undefined);
@@ -170,19 +174,7 @@ const linkD4ToD6 = async (data, session = null) => {
   try {
     const { deliverableId, sprintId, groupId, type, submittedAt } = data;
 
-    const sprintRecord = await SprintRecord.findOneAndUpdate(
-      { sprintId, groupId },
-      {
-        $push: {
-          deliverableRefs: {
-            deliverableId,
-            type,
-            submittedAt,
-          },
-        },
-      },
-      { new: true, session: session || undefined }
-    );
+    const sprintRecord = await SprintRecord.findOne({ sprintId, groupId }).session(session || undefined);
 
     if (!sprintRecord) {
       throw new DeliverableServiceError(
@@ -190,6 +182,17 @@ const linkD4ToD6 = async (data, session = null) => {
         404,
         'SPRINT_RECORD_NOT_FOUND'
       );
+    }
+
+    const alreadyLinked = sprintRecord.deliverableRefs.some((ref) => ref.deliverableId === deliverableId);
+
+    if (!alreadyLinked) {
+      sprintRecord.deliverableRefs.push({
+        deliverableId,
+        type,
+        submittedAt,
+      });
+      await sprintRecord.save({ session: session || undefined });
     }
 
     return sprintRecord;

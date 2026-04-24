@@ -58,7 +58,9 @@ describe('Migrations - Runner and State Management', () => {
   // Clear collections and migration log before each test
   beforeEach(async () => {
     const { collections } = mongoose.connection;
-    await Promise.all(Object.values(collections).map((collection) => collection.deleteMany({})));
+    await Promise.all(
+      Object.values(collections).map((collection) => collection.deleteMany({}))
+    );
   });
 
   // ══════════════════════════════════════════════════════════════════════════

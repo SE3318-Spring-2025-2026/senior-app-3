@@ -28,7 +28,7 @@ const axios = require('axios');
 
 const mongoose = require('mongoose');
 const request = require('supertest');
-const { MongoMemoryServer } = require('mongodb-memory-server');
+const { MongoMemoryReplSet } = require('mongodb-memory-server');
 
 const { generateAccessToken } = require('../src/utils/jwt');
 const Group = require('../src/models/Group');
@@ -135,7 +135,9 @@ async function waitForJobToSettle(jobId, maxMs = 5000) {
 
 describe('Process 7.2 — GitHub PR Sync', () => {
   beforeAll(async () => {
-    mongod = await MongoMemoryServer.create();
+    mongod = await MongoMemoryReplSet.create({
+      replSet: { count: 1 },
+    });
     await mongoose.connect(mongod.getUri());
     app = require('../src/index');
   }, 60000);
@@ -355,7 +357,7 @@ describe('Process 7.2 — GitHub PR Sync', () => {
       expect(res.body.error).toBe('JIRA_DATA_MISSING');
     });
 
-    it('returns 202 + job_id + status PENDING for a valid request', async () => {
+    it('returns 202 + SprintSyncJobStatus fields (jobId, queued, timestamps) for a valid request', async () => {
       const { token } = tokenCoordinator();
       const { groupId } = await seedGroupWithGitHub();
       const sprintId = unique('spr');
@@ -371,8 +373,11 @@ describe('Process 7.2 — GitHub PR Sync', () => {
         .set('Authorization', `Bearer ${token}`);
 
       expect(res.status).toBe(202);
-      expect(res.body.job_id).toBeTruthy();
-      expect(res.body.status).toBe('PENDING');
+      expect(res.body.jobId).toBeTruthy();
+      expect(res.body.job_id).toBe(res.body.jobId);
+      expect(res.body.status).toBe('queued');
+      expect(res.body.createdAt).toBeTruthy();
+      expect(res.body.updatedAt).toBeTruthy();
     });
 
     it('writes GITHUB_SYNC_INITIATED audit log on 202 acceptance', async () => {
@@ -464,7 +469,7 @@ describe('Process 7.2 — GitHub PR Sync', () => {
       expect(res.status).toBe(202);
     });
 
-    it('professor role can also trigger a sync (202)', async () => {
+    it('returns 403 when caller is a professor (coordinator/admin only)', async () => {
       const { token } = tokenProfessor();
       const { groupId } = await seedGroupWithGitHub();
       const sprintId = unique('spr');
@@ -476,7 +481,7 @@ describe('Process 7.2 — GitHub PR Sync', () => {
         .post(`${API}/groups/${groupId}/sprints/${sprintId}/github-sync`)
         .set('Authorization', `Bearer ${token}`);
 
-      expect(res.status).toBe(202);
+      expect(res.status).toBe(403);
     });
   });
 
@@ -525,7 +530,7 @@ describe('Process 7.2 — GitHub PR Sync', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.job_id).toBe(job.jobId);
-      expect(res.body.status).toBe('COMPLETED');
+      expect(res.body.status).toBe('completed');
       expect(res.body.validationRecords).toHaveLength(1);
       expect(res.body.validationRecords[0].mergeStatus).toBe('MERGED');
     });
@@ -561,7 +566,7 @@ describe('Process 7.2 — GitHub PR Sync', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.job_id).toBe(newer.jobId);
-      expect(res.body.status).toBe('FAILED');
+      expect(res.body.status).toBe('failed');
     });
   });
 

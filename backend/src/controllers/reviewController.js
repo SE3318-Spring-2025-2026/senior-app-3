@@ -9,6 +9,7 @@ const Deliverable = require('../models/Deliverable');
 const AuditLog = require('../models/AuditLog');
 const Group = require('../models/Group');
 const Committee = require('../models/Committee');
+const { getCorrelationId } = require('../middleware/correlationId');
 
 const NOTIFICATION_SERVICE_URL = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:4000';
 
@@ -171,6 +172,8 @@ const updateCommentHandler = async (req, res) => {
 const addComment = async (req, res) => {
   const { deliverableId } = req.params;
   const { userId } = req.user;
+  const correlationId = getCorrelationId(req);
+  const externalRequestId = req.externalRequestId || null;
   const {
     content,
     commentType = 'general',
@@ -298,8 +301,16 @@ const addComment = async (req, res) => {
             deliverableId,
             commentId: comment.commentId,
             recipients,
+            correlationId,
+            externalRequestId
           },
-          { timeout: 5000 }
+          {
+            timeout: 5000,
+            headers: {
+              'x-correlation-id': correlationId,
+              ...(externalRequestId ? { 'x-external-request-id': externalRequestId } : {})
+            }
+          }
         );
       } catch (err) {
         console.error('[addComment] notification dispatch error:', err.message);
@@ -507,6 +518,8 @@ const getComments = async (req, res) => {
 const assignReview = async (req, res) => {
   const { userId } = req.user;
   const { deliverableId, reviewDeadlineDays, selectedCommitteeMembers, instructions } = req.body;
+  const correlationId = getCorrelationId(req);
+  const externalRequestId = req.externalRequestId || null;
 
   if (!deliverableId) {
     return res.status(400).json({ code: 'INVALID_REQUEST', message: 'deliverableId is required' });
@@ -655,8 +668,16 @@ const assignReview = async (req, res) => {
           groupId: deliverable.groupId,
           recipients: membersToAssign,
           instructions: instructions || null,
+          correlationId,
+          externalRequestId
         },
-        { timeout: 5000 }
+        {
+          timeout: 5000,
+          headers: {
+            'x-correlation-id': correlationId,
+            ...(externalRequestId ? { 'x-external-request-id': externalRequestId } : {})
+          }
+        }
       );
     } catch (err) {
       console.error('[assignReview] notification dispatch error:', err.message);

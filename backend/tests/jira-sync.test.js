@@ -8,13 +8,14 @@ const axios = require('axios');
 
 const mongoose = require('mongoose');
 const request = require('supertest');
-const { MongoMemoryServer } = require('mongodb-memory-server');
+const { MongoMemoryReplSet } = require('mongodb-memory-server');
 
 const { generateAccessToken } = require('../src/utils/jwt');
 const { encrypt } = require('../src/utils/cryptoUtils');
 const Group = require('../src/models/Group');
 const SprintConfig = require('../src/models/SprintConfig');
 const SprintIssue = require('../src/models/SprintIssue');
+const SprintRecord = require('../src/models/SprintRecord');
 const JiraSyncJob = require('../src/models/JiraSyncJob');
 const SyncErrorLog = require('../src/models/SyncErrorLog');
 const { enqueueEligibleSyncs, stopJiraSyncScheduler } = require('../src/services/jiraSyncScheduler');
@@ -55,6 +56,12 @@ async function seedJiraGroup(overrides = {}) {
 }
 
 async function seedSprintConfig(groupId, sprintId, overrides = {}) {
+  await SprintRecord.create({
+    groupId,
+    sprintId,
+    status: overrides.sprintRecordStatus || 'in_progress',
+  });
+
   return SprintConfig.create({
     groupId,
     sprintId,
@@ -81,7 +88,9 @@ async function waitForJobToSettle(jobId, maxMs = 6000) {
 
 describe('Process 7.1 - JIRA Sprint Sync', () => {
   beforeAll(async () => {
-    mongod = await MongoMemoryServer.create();
+    mongod = await MongoMemoryReplSet.create({
+      replSet: { count: 1 },
+    });
     await mongoose.connect(mongod.getUri());
     app = require('../src/index');
   }, 60000);

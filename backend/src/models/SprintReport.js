@@ -41,6 +41,17 @@ const sprintReportSchema = new mongoose.Schema(
       type: String,
       default: 'sprint_contributions',
     },
+    // D4 traceability: canonical reference for generated artifact/report lineage.
+    refId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    artifactKeys: {
+      type: [String],
+      default: [],
+      index: true,
+    },
     summary: {
       type: mongoose.Schema.Types.Mixed,
       default: {},

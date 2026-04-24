@@ -2,6 +2,7 @@ const SprintRecord = require('../models/SprintRecord');
 const ContributionRecord = require('../models/ContributionRecord');
 const Deliverable = require('../models/Deliverable');
 const { createAuditLog } = require('./auditService');
+const { recalculateContributionRatio } = require('./attributionRecalculateService');
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -280,7 +281,7 @@ async function createContributionRecord(
  * @param {Object} metrics — { prsMerged, issuesResolved, storyPointsCompleted, commitsCount }
  * @returns {Promise<Object>} Updated ContributionRecord
  */
-async function updateContributionMetrics(sprintId, studentId, groupId, metrics = {}) {
+async function updateContributionMetrics(sprintId, studentId, groupId, metrics = {}, context = {}) {
   try {
     const contributionRecord = await ContributionRecord.findOne({
       sprintId,
@@ -310,15 +311,19 @@ async function updateContributionMetrics(sprintId, studentId, groupId, metrics =
       contributionRecord.commitsCount = metrics.commitsCount;
     }
 
-    // Calculate contribution ratio if we have story points assigned
-    if (contributionRecord.storyPointsAssigned > 0) {
-      contributionRecord.contributionRatio =
-        contributionRecord.storyPointsCompleted /
-        contributionRecord.storyPointsAssigned;
-    }
-
     contributionRecord.lastUpdatedAt = new Date();
     await contributionRecord.save();
+
+    await recalculateContributionRatio({
+      groupId,
+      sprintId,
+      studentId,
+      changeTrigger: context.changeTrigger || 'sync_update',
+      correlationId: context.correlationId || metrics.correlationId || null,
+      externalRequestId: context.externalRequestId || metrics.externalRequestId || null,
+      actorId: context.actorId || 'system',
+      overrideExisting: context.overrideExisting !== false
+    });
 
     return contributionRecord;
   } catch (err) {

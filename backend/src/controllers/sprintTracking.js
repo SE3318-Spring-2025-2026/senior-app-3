@@ -5,11 +5,13 @@ const axios = require('axios');
 const Group = require('../models/Group');
 const SprintConfig = require('../models/SprintConfig');
 const SprintRecord = require('../models/SprintRecord');
+const Deliverable = require('../models/Deliverable');
 const ContributionRecord = require('../models/ContributionRecord');
 const SyncJob = require('../models/SyncJob');
 const GitHubSyncJob = require('../models/GitHubSyncJob');
 const User = require('../models/User');
 const { decrypt } = require('../utils/cryptoUtils');
+const { dispatchSyncNotification } = require('../services/notificationService');
 
 const toPublicStatus = (status) => {
   if (status === 'PENDING') return 'queued';
@@ -213,7 +215,8 @@ const runJiraSyncWorker = async ({ jobId, groupId, sprintId, sprintKey }) => {
     job.message = 'JIRA synchronization is running.';
     await job.save();
 
-    const group = await Group.findOne({ groupId }).lean();
+    const correlationId = job.correlationId;
+    const group = await Group.findOne({ groupId }).select('+jiraToken').lean();
     if (!group) {
       throw Object.assign(new Error(`Group ${groupId} not found.`), { code: 'GROUP_NOT_FOUND' });
     }
@@ -280,22 +283,59 @@ const runJiraSyncWorker = async ({ jobId, groupId, sprintId, sprintKey }) => {
       aggregatedByStudent.set(assigneeUserId, bucket);
     }
 
-    const existingRecords = await ContributionRecord.find({ groupId, sprintId }).lean();
-    const existingByStudent = new Map(existingRecords.map((record) => [record.studentId, record]));
-
     await session.withTransaction(async () => {
+      // ── Atomic Read ────────────────────────────────────────────────────────
+      const sprintRecord = await SprintRecord.findOne({ groupId, sprintId }).session(session);
+      if (sprintRecord && ['completed', 'reviewed'].includes(sprintRecord.status)) {
+        throw Object.assign(new Error('Sprint contribution snapshot is finalized and locked.'), {
+          code: 'SNAPSHOT_LOCKED',
+        });
+      }
+
+      const existingRecords = await ContributionRecord.find({ groupId, sprintId }).session(session);
+      const existingByStudent = new Map(existingRecords.map((record) => [record.studentId, record]));
+
+      const sprintUpdate = {
+        $set: {
+          status: 'in_progress',
+        },
+        $setOnInsert: {
+          groupId,
+          sprintId,
+        },
+      };
+
+      if (sprintConfig.enableD4Reporting) {
+        sprintUpdate.$set.deliverableRefs = deliverableRefs;
+
+        const deliverableOps = deliverableRefs.map((ref) => ({
+          updateOne: {
+            filter: { deliverableId: ref.deliverableId, groupId },
+            update: {
+              $set: {
+                deliverableType: 'demonstration',
+                sprintId,
+                submittedBy: 'system-jira-sync',
+                filePath: `jira://${ref.deliverableId}`,
+                fileSize: 0,
+                fileHash: 'jira-synced',
+                format: 'jira-issue',
+                status: 'accepted',
+                submittedAt: ref.submittedAt,
+              },
+            },
+            upsert: true,
+          },
+        }));
+
+        if (deliverableOps.length > 0) {
+          await Deliverable.bulkWrite(deliverableOps, { session });
+        }
+      }
+
       await SprintRecord.findOneAndUpdate(
         { groupId, sprintId },
-        {
-          $set: {
-            status: 'in_progress',
-            deliverableRefs,
-          },
-          $setOnInsert: {
-            groupId,
-            sprintId,
-          },
-        },
+        sprintUpdate,
         { upsert: true, new: true, session }
       );
 
@@ -359,6 +399,16 @@ const runJiraSyncWorker = async ({ jobId, groupId, sprintId, sprintKey }) => {
     job.completedAt = new Date();
     job.message = `JIRA synchronization completed. Imported ${issues.length} issues (${unmappedAssigneeCount} unmapped assignees skipped).`;
     await job.save();
+
+    // Trigger completion notification with correlationId
+    dispatchSyncNotification({
+      groupId,
+      sprintId,
+      status: 'COMPLETED',
+      issuesProcessed: issues.length,
+      triggeredBy: job.triggeredBy || 'system',
+      correlationId,
+    });
   } catch (error) {
     const normalized = normalizeWorkerError(error);
     job.status = 'FAILED';
@@ -374,6 +424,7 @@ const runJiraSyncWorker = async ({ jobId, groupId, sprintId, sprintKey }) => {
 const triggerJiraSync = async (req, res) => {
   const { groupId, sprintId } = req.params;
   const actorId = req.user?.userId || 'system';
+  const correlationId = req.headers['x-correlation-id'] || `jira_${Date.now()}`;
 
   try {
     const group = await Group.findOne({ groupId }).lean();
@@ -389,6 +440,14 @@ const triggerJiraSync = async (req, res) => {
     }
 
     await getPublishedSprintConfig(groupId, sprintId);
+
+    const sprintRecord = await SprintRecord.findOne({ groupId, sprintId }).lean();
+    if (sprintRecord && ['completed', 'reviewed'].includes(sprintRecord.status)) {
+      return res.status(409).json({
+        error: 'SNAPSHOT_LOCKED',
+        message: `Sprint contribution snapshot for ${groupId}/${sprintId} is already finalized.`,
+      });
+    }
 
     const active = await SyncJob.findOne({
       groupId,
@@ -412,6 +471,7 @@ const triggerJiraSync = async (req, res) => {
       status: 'PENDING',
       message: 'JIRA sync accepted and queued.',
       triggeredBy: actorId,
+      correlationId,
     });
 
     res.status(202).json({
@@ -657,9 +717,76 @@ const recalculateContributions = async (req, res) => {
   }
 };
 
+/**
+ * Flow 139 — Canonical reconciliation from D4 (Deliverables) to D6 (SprintRecord).
+ * Synchronizes deliverable refs while preserving existing D6 metrics.
+ */
+const reconcileD4toD6 = async (req, res) => {
+  const { groupId, sprintId } = req.params;
+  const actorId = req.user?.userId || 'system';
+  const correlationId = req.headers['x-correlation-id'] || `reconcile_${Date.now()}`;
+
+  try {
+    const deliverables = await Deliverable.find({ groupId, sprintId }).lean();
+    const sprintRecord = await SprintRecord.findOne({ groupId, sprintId });
+
+    if (!sprintRecord) {
+      return res.status(404).json({
+        error: 'SPRINT_RECORD_NOT_FOUND',
+        message: `Sprint record not found for ${groupId}/${sprintId}`,
+      });
+    }
+
+    const existingRefsMap = new Map(
+      (sprintRecord.deliverableRefs || []).map((ref) => [ref.deliverableId, ref])
+    );
+
+    let addedCount = 0;
+    for (const del of deliverables) {
+      if (!existingRefsMap.has(del.deliverableId)) {
+        sprintRecord.deliverableRefs.push({
+          deliverableId: del.deliverableId,
+          type: del.deliverableType,
+          submittedAt: del.submittedAt,
+        });
+        addedCount += 1;
+      }
+    }
+
+    if (addedCount > 0) {
+      await sprintRecord.save();
+    }
+
+    await createAuditLog({
+      action: 'DELIVERABLE_LINKED_TO_SPRINT',
+      actorId,
+      groupId,
+      targetId: sprintRecord.sprintId,
+      payload: { addedCount, totalRefs: sprintRecord.deliverableRefs.length },
+      correlationId,
+    });
+
+    return res.status(200).json({
+      success: true,
+      groupId,
+      sprintId,
+      addedCount,
+      totalRefs: sprintRecord.deliverableRefs.length,
+      message: `Reconciliation complete. Added ${addedCount} missing deliverable references.`,
+    });
+  } catch (error) {
+    console.error('[reconcileD4toD6] error:', error);
+    return res.status(500).json({
+      error: 'INTERNAL_ERROR',
+      message: 'Failed to reconcile D4 deliverables to D6 sprint record.',
+    });
+  }
+};
+
 module.exports = {
   triggerJiraSync,
   getJiraSyncStatus,
   getJiraSyncLogs,
   recalculateContributions,
+  reconcileD4toD6,
 };

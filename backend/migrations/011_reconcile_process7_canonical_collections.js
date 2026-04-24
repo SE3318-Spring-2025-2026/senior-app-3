@@ -233,6 +233,7 @@ module.exports = {
       for (const job of jobs) {
         for (const record of job.validationRecords || []) {
           if (!record?.issueKey || !record?.prId) continue;
+          if (!job?.groupId || !job?.sprintId) continue;
           validationRows.push({
             groupId: job.groupId,
             sprintId: job.sprintId,
@@ -282,7 +283,6 @@ module.exports = {
   down: async (db) => {
     const mongoDb = db.connection.db;
     const collections = ['sprint_issues', 'pr_validations', 'sprint_contributions', 'sprint_reports'];
-
     for (const name of collections) {
       const existing = await mongoDb.listCollections({ name }).toArray();
       if (existing.length > 0) {

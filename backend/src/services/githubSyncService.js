@@ -33,7 +33,9 @@ const ContributionRecord = require('../models/ContributionRecord');
 const GitHubSyncJob = require('../models/GitHubSyncJob');
 const SprintIssue = require('../models/SprintIssue');
 const { createAuditLog } = require('./auditService');
+const { dispatchSyncNotification } = require('./notificationService');
 const { decrypt } = require('../utils/cryptoUtils');
+const { logError } = require('../utils/structuredLogger');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -117,7 +119,7 @@ function determineMergeStatus(pr) {
  * @throws {GitHubSyncError} with code INVALID_GITHUB_CREDENTIALS if not configured
  */
 async function getGitHubConfig(groupId) {
-  const group = await Group.findOne({ groupId }).lean();
+  const group = await Group.findOne({ groupId }).select('+githubPat').lean();
   if (!group) {
     throw new GitHubSyncError(400, 'INVALID_GITHUB_CREDENTIALS', `Group ${groupId} not found`);
   }
@@ -333,16 +335,30 @@ class GitHubSyncError extends Error {
  * @param {string} sprintId
  * @param {string} jobId  — GitHubSyncJob.jobId (also the lock key)
  */
-async function githubSyncWorker(groupId, sprintId, jobId) {
-  const job = await GitHubSyncJob.findOne({ jobId });
+async function githubSyncWorker(groupId, sprintId, jobId, correlationId = null, externalRequestId = null) {
+  let job = await GitHubSyncJob.findOneAndUpdate(
+    { jobId, status: 'PENDING' },
+    { $set: { status: 'IN_PROGRESS', startedAt: new Date() } },
+    { new: true }
+  );
   if (!job) {
-    console.error(`[githubSyncWorker] Job ${jobId} not found — aborting`);
+    job = await GitHubSyncJob.findOne({ jobId });
+  }
+  if (!job) {
+    logError('GitHub sync job not found', {
+      service_name: 'github_sync',
+      correlationId,
+      externalRequestId,
+      jobId,
+      groupId,
+      sprintId
+    });
     return;
   }
-
-  job.status = 'IN_PROGRESS';
-  job.startedAt = new Date();
-  await job.save();
+  if (job.status === 'IN_PROGRESS' && job.startedAt) {
+    // Already acquired by another worker.
+    return;
+  }
 
   try {
     // ── f31: Read D2 — GitHub config ────────────────────────────────────────
@@ -366,7 +382,16 @@ async function githubSyncWorker(groupId, sprintId, jobId) {
         mergeStatus = determineMergeStatus(pr);
       } catch (err) {
         // Upstream errors after retries → log but continue processing other issues
-        console.error(`[githubSyncWorker] PR lookup failed for issue ${issue.key}:`, err.message);
+        logError('GitHub PR lookup failed', {
+          service_name: 'github_sync',
+          correlationId: correlationId || job.correlationId,
+          externalRequestId: externalRequestId || job.externalRequestId || null,
+          jobId,
+          groupId,
+          sprintId,
+          issueKey: issue.key,
+          error: err.message
+        });
         errorNote = err.message;
 
         // Classify critical upstream errors
@@ -411,6 +436,18 @@ async function githubSyncWorker(groupId, sprintId, jobId) {
     // ── f35: Release lock ────────────────────────────────────────────────────
     await job.save();
 
+    const correlationId = job.correlationId;
+
+    // Trigger completion notification
+    dispatchSyncNotification({
+      groupId,
+      sprintId,
+      status: job.status,
+      issuesProcessed: validationRecords.length,
+      triggeredBy: job.triggeredBy || 'system',
+      correlationId,
+    });
+
     // Audit (non-fatal)
     try {
       await createAuditLog({
@@ -419,6 +456,8 @@ async function githubSyncWorker(groupId, sprintId, jobId) {
         groupId,
         targetId: jobId,
         payload: {
+          correlationId: correlationId || job.correlationId,
+          externalRequestId: externalRequestId || job.externalRequestId || null,
           sprintId,
           jobId,
           issuesProcessed: validationRecords.length,
@@ -426,14 +465,31 @@ async function githubSyncWorker(groupId, sprintId, jobId) {
           notMergedCount: validationRecords.filter((r) => r.mergeStatus === 'NOT_MERGED').length,
           unknownCount: validationRecords.filter((r) => r.mergeStatus === 'UNKNOWN').length,
         },
+        correlationId,
       });
     } catch (auditErr) {
-      console.error('[githubSyncWorker] Audit log failed (non-fatal):', auditErr.message);
+      logError('GitHub sync completion audit write failed', {
+        service_name: 'github_sync',
+        correlationId: correlationId || job.correlationId,
+        externalRequestId: externalRequestId || job.externalRequestId || null,
+        jobId,
+        groupId,
+        sprintId,
+        error: auditErr.message
+      });
     }
 
   } catch (err) {
     // ── Fatal worker error — release lock and record failure ─────────────────
-    console.error(`[githubSyncWorker] Fatal error for job ${jobId}:`, err);
+    logError('GitHub sync worker fatal error', {
+      service_name: 'github_sync',
+      correlationId: correlationId || job.correlationId,
+      externalRequestId: externalRequestId || job.externalRequestId || null,
+      jobId,
+      groupId,
+      sprintId,
+      error: err.message
+    });
 
     try {
       job.status = 'FAILED';
@@ -442,7 +498,15 @@ async function githubSyncWorker(groupId, sprintId, jobId) {
       job.errorMessage = err.message || 'Unknown error during GitHub sync';
       await job.save();
     } catch (saveErr) {
-      console.error('[githubSyncWorker] Failed to mark job as FAILED:', saveErr.message);
+      logError('Failed to mark GitHub sync job as FAILED', {
+        service_name: 'github_sync',
+        correlationId: correlationId || job.correlationId,
+        externalRequestId: externalRequestId || job.externalRequestId || null,
+        jobId,
+        groupId,
+        sprintId,
+        error: saveErr.message
+      });
     }
 
     // Audit failure (non-fatal)
@@ -453,14 +517,25 @@ async function githubSyncWorker(groupId, sprintId, jobId) {
         groupId,
         targetId: jobId,
         payload: {
+          correlationId: correlationId || job.correlationId,
+          externalRequestId: externalRequestId || job.externalRequestId || null,
           sprintId,
           jobId,
           errorCode: err.code || 'WORKER_ERROR',
           errorMessage: err.message,
         },
+        correlationId: job.correlationId,
       });
     } catch (auditErr) {
-      console.error('[githubSyncWorker] Audit log failed (non-fatal):', auditErr.message);
+      logError('GitHub sync failure audit write failed', {
+        service_name: 'github_sync',
+        correlationId: correlationId || job.correlationId,
+        externalRequestId: externalRequestId || job.externalRequestId || null,
+        jobId,
+        groupId,
+        sprintId,
+        error: auditErr.message
+      });
     }
   }
 }

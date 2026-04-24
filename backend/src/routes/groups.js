@@ -35,8 +35,12 @@ const { transitionStatus, getStatus } = require('../controllers/groupStatusTrans
 const { triggerGitHubSync, getSyncJobStatus, getLatestSyncJob, getSyncJobLogs } = require('../controllers/githubSync');
 const { triggerJiraSync, getJiraSyncStatus, getJiraSyncLogs } = require('../controllers/jiraSync');
 const {
-  recalculateContributions,
+  reconcileD4toD6,
 } = require('../controllers/sprintTracking');
+const {
+  recalculateContributions,
+  requireCoordinatorRole,
+} = require('../controllers/contributionRatios');
 
 // Integrated Controllers from both branches
 const { submitDeliverableHandler } = require('../controllers/deliverables'); // From main
@@ -118,10 +122,10 @@ router.post(
 // INTEGRATIONS & OVERRIDES (Process 2.6 - 2.8)
 // ============================================================================
 
-router.post('/:groupId/github', authMiddleware, configureGithub);
-router.get('/:groupId/github', authMiddleware, getGithub);
-router.post('/:groupId/jira', authMiddleware, configureJira);
-router.get('/:groupId/jira', authMiddleware, getJira);
+router.post('/:groupId/github', authMiddleware, roleMiddleware(['coordinator']), configureGithub);
+router.get('/:groupId/github', authMiddleware, roleMiddleware(['coordinator']), getGithub);
+router.post('/:groupId/jira', authMiddleware, roleMiddleware(['coordinator']), configureJira);
+router.get('/:groupId/jira', authMiddleware, roleMiddleware(['coordinator']), getJira);
 router.post(
   '/:groupId/sprints/:sprintId/jira-sync',
   serviceOrBearerAuth,
@@ -197,7 +201,15 @@ router.post(
   '/:groupId/sprints/:sprintId/contributions/recalculate',
   authMiddleware,
   roleMiddleware(['coordinator', 'admin']),
+  requireCoordinatorRole,
   recalculateContributions
+);
+
+router.post(
+  '/:groupId/sprints/:sprintId/reconcile-deliverables',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
+  reconcileD4toD6
 );
 
 router.patch(

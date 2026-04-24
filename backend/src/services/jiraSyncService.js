@@ -5,10 +5,13 @@ const axios = require('axios');
 const Group = require('../models/Group');
 const SprintConfig = require('../models/SprintConfig');
 const SprintIssue = require('../models/SprintIssue');
+const SprintRecord = require('../models/SprintRecord');
+const Deliverable = require('../models/Deliverable');
 const JiraSyncJob = require('../models/JiraSyncJob');
 const SyncErrorLog = require('../models/SyncErrorLog');
 const { decrypt } = require('../utils/cryptoUtils');
 const { createAuditLog } = require('./auditService');
+const { dispatchSyncNotification } = require('./notificationService');
 
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 200;
@@ -54,7 +57,7 @@ async function withRetry(fn, maxAttempts = MAX_RETRY_ATTEMPTS) {
 }
 
 async function getJiraConfig(groupId) {
-  const group = await Group.findOne({ groupId }).lean();
+  const group = await Group.findOne({ groupId }).select('+jiraToken').lean();
   if (!group) {
     throw new JiraSyncError(404, 'GROUP_NOT_FOUND', `Group ${groupId} not found`);
   }
@@ -167,16 +170,29 @@ async function fetchSprintIssuesFromJira(config, sprintConfig) {
   };
 }
 
-async function persistSprintIssues(groupId, sprintId, issues, storyPointFieldId) {
+async function persistSprintIssues(groupId, sprintId, issues, storyPointFieldId, sprintConfig) {
   const session = await mongoose.startSession();
 
   try {
+    let upsertedCount = 0;
+
     await session.withTransaction(async () => {
+      // ── Atomic Read Guard ──────────────────────────────────────────────────
+      const sprintRecord = await SprintRecord.findOne({ groupId, sprintId }).session(session);
+      if (sprintRecord && ['completed', 'reviewed'].includes(sprintRecord.status)) {
+        throw Object.assign(new Error('Sprint contribution snapshot is finalized and locked.'), {
+          code: 'SNAPSHOT_LOCKED',
+        });
+      }
+
       if (issues.length === 0) {
         return;
       }
 
-      const operations = issues.map((issue) => {
+      const syncTimestamp = new Date();
+
+      // 1. Update Sprint Issues (D6 Metrics)
+      const issueOperations = issues.map((issue) => {
         const fields = issue.fields || {};
         const assignee = fields.assignee || {};
 
@@ -190,7 +206,7 @@ async function persistSprintIssues(groupId, sprintId, issues, storyPointFieldId)
                 assigneeAccountId: assignee.accountId || null,
                 assigneeDisplayName: assignee.displayName || null,
                 rawIssue: issue,
-                syncedAt: new Date(),
+                syncedAt: syncTimestamp,
               },
               $setOnInsert: {
                 groupId,
@@ -203,10 +219,71 @@ async function persistSprintIssues(groupId, sprintId, issues, storyPointFieldId)
         };
       });
 
-      await SprintIssue.bulkWrite(operations, { session });
+      await SprintIssue.bulkWrite(issueOperations, { session });
+      upsertedCount = issues.length;
+
+      // 2. Update Deliverables (D4) and SprintRecord (D6) if enabled
+      if (sprintConfig.enableD4Reporting) {
+        const deliverableRefs = issues.map((issue) => ({
+          deliverableId: issue.key,
+          type: 'demonstration',
+          submittedAt: new Date(issue.fields?.updated || issue.fields?.created || syncTimestamp),
+        }));
+
+        const deliverableOps = deliverableRefs.map((ref) => ({
+          updateOne: {
+            filter: { deliverableId: ref.deliverableId, groupId },
+            update: {
+              $set: {
+                deliverableType: 'demonstration',
+                sprintId,
+                submittedBy: 'system-jira-sync',
+                filePath: `jira://${ref.deliverableId}`,
+                fileSize: 0,
+                fileHash: 'jira-synced',
+                format: 'jira-issue',
+                status: 'accepted',
+                submittedAt: ref.submittedAt,
+              },
+            },
+            upsert: true,
+          },
+        }));
+
+        if (deliverableOps.length > 0) {
+          await Deliverable.bulkWrite(deliverableOps, { session });
+        }
+
+        const sprintUpdate = {
+          $set: {
+            status: 'in_progress',
+            deliverableRefs: deliverableRefs,
+          },
+          $setOnInsert: {
+            groupId,
+            sprintId,
+          },
+        };
+
+        await SprintRecord.findOneAndUpdate({ groupId, sprintId }, sprintUpdate, {
+          upsert: true,
+          new: true,
+          session,
+        });
+      } else {
+        // Just ensure SprintRecord exists and status is in_progress
+        await SprintRecord.findOneAndUpdate(
+          { groupId, sprintId },
+          {
+            $set: { status: 'in_progress' },
+            $setOnInsert: { groupId, sprintId },
+          },
+          { upsert: true, new: true, session }
+        );
+      }
     });
 
-    return issues.length;
+    return upsertedCount;
   } finally {
     await session.endSession();
   }
@@ -252,17 +329,29 @@ async function jiraSyncWorker(groupId, sprintId, jobId) {
   job.startedAt = new Date();
   await job.save();
 
+  const correlationId = job.correlationId;
+
   try {
     const config = await getJiraConfig(groupId);
     const sprintConfig = await getPublishedSprintConfig(groupId, sprintId);
     const { issues, storyPointFieldId, jql } = await fetchSprintIssuesFromJira(config, sprintConfig);
-    const upserted = await persistSprintIssues(groupId, sprintId, issues, storyPointFieldId);
+    const upserted = await persistSprintIssues(groupId, sprintId, issues, storyPointFieldId, sprintConfig);
 
     job.status = 'COMPLETED';
     job.issuesProcessed = issues.length;
     job.issuesUpserted = upserted;
     job.completedAt = new Date();
     await job.save();
+
+    // Trigger completion notification with correlationId
+    dispatchSyncNotification({
+      groupId,
+      sprintId,
+      status: 'COMPLETED',
+      issuesProcessed: issues.length,
+      triggeredBy: job.triggeredBy || 'system',
+      correlationId,
+    });
 
     try {
       await createAuditLog({
@@ -278,6 +367,7 @@ async function jiraSyncWorker(groupId, sprintId, jobId) {
           externalSprintKey: sprintConfig.externalSprintKey,
           jql,
         },
+        correlationId,
       });
     } catch (auditErr) {
       console.error('[jiraSyncWorker] Audit log failed (non-fatal):', auditErr.message);
@@ -309,6 +399,7 @@ async function jiraSyncWorker(groupId, sprintId, jobId) {
           errorCode: normalizedError.code,
           errorMessage: normalizedError.message,
         },
+        correlationId,
       });
     } catch (auditErr) {
       console.error('[jiraSyncWorker] Audit log failed (non-fatal):', auditErr.message);
