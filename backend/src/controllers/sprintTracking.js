@@ -213,7 +213,7 @@ const runJiraSyncWorker = async ({ jobId, groupId, sprintId, sprintKey }) => {
     job.message = 'JIRA synchronization is running.';
     await job.save();
 
-    const group = await Group.findOne({ groupId }).lean();
+    const group = await Group.findOne({ groupId }).select('+jiraToken').lean();
     if (!group) {
       throw Object.assign(new Error(`Group ${groupId} not found.`), { code: 'GROUP_NOT_FOUND' });
     }

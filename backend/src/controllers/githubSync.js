@@ -68,7 +68,7 @@ const triggerGitHubSync = async (req, res) => {
 
   try {
     // ── Guard: verify group exists (D2 sanity check) ────────────────────────
-    const group = await Group.findOne({ groupId }).lean();
+    const group = await Group.findOne({ groupId }).select('+githubPat').lean();
     if (!group) {
       return res.status(404).json({
         error: 'JIRA_DATA_MISSING',

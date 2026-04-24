@@ -116,7 +116,7 @@ const groupSchema = new mongoose.Schema(
     githubRepoName: { type: String, default: null },
     githubRepoUrl: { type: String, default: null },
     githubVisibility: { type: String, enum: ['private', 'public', 'internal'], default: 'private' },
-    githubPat: { type: String, default: null },
+    githubPat: { type: String, default: null, select: false },
     githubLastSynced: { type: Date, default: null },
     
     // --- JIRA Integration (Process 2.7) ---
@@ -124,7 +124,7 @@ const groupSchema = new mongoose.Schema(
     jiraUrl: { type: String, default: null },
     jiraBoardUrl: { type: String, default: null },
     jiraUsername: { type: String, default: null },
-    jiraToken: { type: String, default: null },
+    jiraToken: { type: String, default: null, select: false },
     projectKey: { type: String, default: null },
     jiraProjectId: { type: String, default: null },
     jiraLastSynced: { type: Date, default: null },
@@ -191,6 +191,16 @@ groupSchema.index({ status: 1, advisorId: 1 });
  * for recipient aggregation in notification dispatch
  */
 groupSchema.index({ committeeId: 1 });
+
+// Safety net: never serialize credential fields in API responses.
+const stripCredentialFields = (_doc, ret) => {
+  delete ret.githubPat;
+  delete ret.jiraToken;
+  return ret;
+};
+
+groupSchema.set('toJSON', { transform: stripCredentialFields });
+groupSchema.set('toObject', { transform: stripCredentialFields });
 
 const Group = mongoose.model('Group', groupSchema);
 

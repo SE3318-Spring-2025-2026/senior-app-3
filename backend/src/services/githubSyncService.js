@@ -117,7 +117,7 @@ function determineMergeStatus(pr) {
  * @throws {GitHubSyncError} with code INVALID_GITHUB_CREDENTIALS if not configured
  */
 async function getGitHubConfig(groupId) {
-  const group = await Group.findOne({ groupId }).lean();
+  const group = await Group.findOne({ groupId }).select('+githubPat').lean();
   if (!group) {
     throw new GitHubSyncError(400, 'INVALID_GITHUB_CREDENTIALS', `Group ${groupId} not found`);
   }

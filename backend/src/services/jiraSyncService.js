@@ -54,7 +54,7 @@ async function withRetry(fn, maxAttempts = MAX_RETRY_ATTEMPTS) {
 }
 
 async function getJiraConfig(groupId) {
-  const group = await Group.findOne({ groupId }).lean();
+  const group = await Group.findOne({ groupId }).select('+jiraToken').lean();
   if (!group) {
     throw new JiraSyncError(404, 'GROUP_NOT_FOUND', `Group ${groupId} not found`);
   }

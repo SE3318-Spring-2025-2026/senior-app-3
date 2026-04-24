@@ -11,6 +11,7 @@ const {
   REQUIRED_GITHUB_SCOPES,
   parseScopes,
   missingScopes,
+  detectHighPrivilegeScopes,
   maskSecret,
   logSecurityAudit,
 } = require('../services/integrationSecurityService');
@@ -116,6 +117,7 @@ const configureGithub = async (req, res) => {
 
     // f11: validate PAT against GitHub API (with retry)
     let orgData;
+    let highPrivilegeScopes = [];
     try {
       const githubUserResponse = await withRetry(() =>
         axios.get('https://api.github.com/user', {
@@ -140,6 +142,18 @@ const configureGithub = async (req, res) => {
           code: 'INSUFFICIENT_GITHUB_SCOPES',
           message: `GitHub PAT is missing minimum scopes: ${missing.join(', ')}`,
           required_scopes: REQUIRED_GITHUB_SCOPES,
+        });
+      }
+      highPrivilegeScopes = detectHighPrivilegeScopes(grantedScopes);
+      if (highPrivilegeScopes.length > 0) {
+        await logSecurityAudit({
+          actorId: req.user.userId,
+          groupId,
+          targetId: groupId,
+          provider: 'github',
+          reason: 'overprivileged_token_warning',
+          statusCode: 200,
+          req,
         });
       }
     } catch (err) {
@@ -266,6 +280,12 @@ const configureGithub = async (req, res) => {
         login: orgData.login, 
         name: orgData.name 
       },
+      warnings:
+        highPrivilegeScopes.length > 0
+          ? [
+              `GitHub PAT includes high-privilege scopes: ${highPrivilegeScopes.join(', ')}. Consider creating a least-privilege token.`,
+            ]
+          : [],
     });
   } catch (err) {
     if (tryHandleKnownError(err, res)) return;
@@ -298,7 +318,7 @@ const getGithub = async (req, res) => {
     const group = await getGroupOrThrow(groupId);
 
     // Check if GitHub integration is connected
-    const isConnected = !!(group.githubOrg && group.githubPat && group.githubRepoUrl);
+    const isConnected = !!(group.githubOrg && group.githubRepoUrl);
 
     const lastSyncError = await SyncErrorLog.findOne(
       { groupId, service: 'github' },
