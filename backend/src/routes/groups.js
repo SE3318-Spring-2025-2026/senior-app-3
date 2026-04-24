@@ -30,6 +30,7 @@ const {
 const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
 const { triggerGitHubSync, getSyncJobStatus, getLatestSyncJob } = require('../controllers/githubSync');
+const { recalculateContributionRatios } = require('../controllers/sprintTracking');
 
 // Integrated Controllers from both branches
 const { submitDeliverableHandler } = require('../controllers/deliverables'); // From main
@@ -128,6 +129,13 @@ router.get(
   '/:groupId/sprints/:sprintId/github-sync/:jobId',
   authMiddleware,
   getSyncJobStatus
+);
+
+router.post(
+  '/:groupId/sprints/:sprintId/contributions/recalculate',
+  authMiddleware,
+  roleMiddleware(['coordinator']),
+  recalculateContributionRatios
 );
 
 router.patch(

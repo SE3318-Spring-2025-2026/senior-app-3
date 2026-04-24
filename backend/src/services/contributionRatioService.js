@@ -1,605 +1,425 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════════
- * ISSUE #236 SERVICE: contributionRatioService.js
- * Main Contribution Ratio Engine for Process 7.4 (Ratio Calculation)
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * Purpose:
- * Core service orchestrating the 10-step Process 7.4 ratio calculation pipeline:
- * 1. Input validation (coordinator auth, sprint/group existence)
- * 2. Sprint lock check (Criterion #3: locked → 409)
- * 3. Fetch all group members and their Issue #235 contributions
- * 4. Load D8 target configuration (or use fallback)
- * 5. Calculate group total story points
- * 6. Compute per-student ratio using strategy
- * 7. Apply rounding/normalization policy
- * 8. Atomic MongoDB transaction (Criterion #5: idempotent)
- * 9. Update recalculatedAt timestamp
- * 10. Return detailed summary + audit entry
- *
- * DFD Integration:
- * - INPUT: f7_p73_p74 (storyPointsCompleted from Issue #235)
- * - INPUT: f7_ds_d8_p74 (targetStoryPoints from D8 SprintTarget)
- * - OUTPUT: f7_p74_p75 (contributionRatio to Process 7.5)
- * - OUTPUT: f7_p74_p80_external (ratios for grading/analytics)
- *
- * Error Codes (SCREAMING_SNAKE_CASE):
- * - NOT_FOUND: Sprint or group doesn't exist
- * - SPRINT_LOCKED: Sprint is locked (Criterion #3)
- * - ZERO_GROUP_TOTAL: No contributions in group (422 → "Invalid State")
- * - MISSING_TARGETS: No D8 configuration (handled by fallback)
- * - CALCULATION_ERROR: NaN or Infinity in ratio (500 error)
- * - ATOMIC_WRITE_FAILED: Transaction failed (500 error)
- */
-
+const crypto = require('crypto');
 const mongoose = require('mongoose');
+
 const ContributionRecord = require('../models/ContributionRecord');
 const SprintRecord = require('../models/SprintRecord');
+const SprintTarget = require('../models/SprintTarget');
 const GroupMembership = require('../models/GroupMembership');
 const User = require('../models/User');
-const ratioNormalization = require('../utils/ratioNormalization');
 
-/**
- * ISSUE #236 CUSTOM ERROR: RatioServiceError
- * Extends standard error with HTTP status and error code
- * Pattern: Consistent with d6UpdateServiceError, githubSyncServiceError
- */
 class RatioServiceError extends Error {
-  constructor(status, code, message) {
+  constructor(status, code, message, details = null) {
     super(message);
     this.name = 'RatioServiceError';
     this.status = status;
     this.code = code;
+    this.details = details;
     this.timestamp = new Date();
   }
 }
 
-/**
- * ISSUE #236 PROCESS 7.4: STEP 1 - Input Validation
- * Verify sprint exists, is in group, and user is coordinator
- *
- * @param {string} groupId - MongoDB ObjectId of group
- * @param {string} sprintId - MongoDB ObjectId of sprint
- * @param {string} userId - ID of requesting user (for audit)
- * @returns {Promise<{group, sprint}>} Validated objects
- * @throws {RatioServiceError} 404 NOT_FOUND or 403 UNAUTHORIZED
- */
-async function validateInputs(groupId, sprintId, userId) {
-  // ISSUE #236 STEP 1: Input validation
-  // Why: Prevent orphaned calculations
-  // What: Check sprint exists and belongs to group
+const LOCKED_SPRINT_STATUSES = new Set(['completed', 'locked', 'finalized']);
+const PRECISION = 4;
+const SCALE = 10 ** PRECISION;
+const DEFAULT_NORMALIZATION_FACTOR = 1.0;
 
-  const sprint = await SprintRecord.findOne({
-    sprintRecordId: sprintId,
-    groupId: groupId
-  });
-
-  if (!sprint) {
-    throw new RatioServiceError(404, 'NOT_FOUND', `Sprint ${sprintId} not found in group ${groupId}`);
-  }
-
-  // ISSUE #236: Verify user authorization
-  // Why: Only coordinators should recalculate ratios (business rule)
-  // What: Check GroupMembership for coordinator role
-  const membership = await GroupMembership.findOne({
-    groupId: groupId,
-    userId: userId,
-    role: 'coordinator'
-  });
-
-  if (!membership) {
-    throw new RatioServiceError(403, 'UNAUTHORIZED', 'User must be group coordinator to recalculate ratios');
-  }
-
-  return { sprint };
+function roundTo(value, precision = PRECISION) {
+  const factor = 10 ** precision;
+  return Math.round(value * factor) / factor;
 }
 
-/**
- * ISSUE #236 PROCESS 7.4: STEP 2 - Lock Status Check
- * Verify sprint is not locked (Acceptance Criterion #3)
- *
- * @param {Object} sprint - SprintRecord document
- * @returns {boolean} true if not locked (can proceed)
- * @throws {RatioServiceError} 409 CONFLICT if locked
- *
- * Lock Semantics:
- * - locked=true means sprint past submission deadline
- * - Ratios cannot be recalculated for locked sprints (prevent retroactive changes)
- * - Caller should return 409 Conflict to frontend
- */
-function checkSprintNotLocked(sprint) {
-  // ISSUE #236: Lock check (Acceptance Criterion #3)
-  // Why: Prevent ratio changes after sprint deadline
-  // What: Check ContributionRecord.locked field
-  // Design: Each record has independent lock flag (student-level granularity)
-  // Note: This function checks SPRINT-LEVEL metadata (future: per-student lock?)
-
-  if (sprint.status === 'locked' || sprint.locked === true) {
-    throw new RatioServiceError(
-      409,
-      'SPRINT_LOCKED',
-      `Cannot recalculate ratios for locked sprint ${sprint.sprintRecordId}. Past deadline.`
-    );
+function clamp01(value) {
+  if (!Number.isFinite(value)) {
+    return 0;
   }
-
-  return true;
+  return Math.max(0, Math.min(1, value));
 }
 
-/**
- * ISSUE #236 PROCESS 7.4: STEP 3 - Fetch Group Members & Their Contributions
- * Query all approved members + their Issue #235 ContributionRecords
- *
- * @param {string} groupId - MongoDB ObjectId
- * @param {string} sprintId - MongoDB ObjectId
- * @returns {Promise<Array>} Array of {member, contribution} objects
- *
- * Output Structure:
- * [
- *   {
- *     studentId: "user123",
- *     storyPointsCompleted: 13,  // From Issue #235
- *     storyPointsAssigned: 14,   // Baseline from JIRA
- *     githubHandle: "student-gh",
- *     existing record or null
- *   },
- *   ...
- * ]
- */
-async function fetchGroupContributions(groupId, sprintId) {
-  // ISSUE #236 STEP 3: Fetch all group members
-  // Why: Need all members to calculate group total and per-student ratio
-  // What: Query GroupMembership for approved members, then get their contributions
-
-  const members = await GroupMembership.find({
-    groupId: groupId,
-    approvalStatus: 'approved'  // Only approved members count
-  });
-
-  if (members.length === 0) {
-    throw new RatioServiceError(422, 'NO_MEMBERS', `No approved members in group ${groupId}`);
+function idCandidates(id) {
+  const values = [id];
+  if (mongoose.Types.ObjectId.isValid(id)) {
+    values.push(new mongoose.Types.ObjectId(id));
   }
-
-  // ISSUE #236 STEP 3b: Fetch contributions for each member
-  // Why: Need Issue #235 storyPointsCompleted for each student
-  // What: Batch query all ContributionRecords for this sprint+group
-  const memberIds = members.map(m => m.userId);
-  
-  const contributions = await ContributionRecord.find({
-    sprintId: sprintId,
-    groupId: groupId,
-    studentId: { $in: memberIds }
-  });
-
-  // ISSUE #236: Build member contribution map
-  // Why: Correlate members with their contribution records
-  // What: Create lookup map for fast access
-  const contributionMap = {};
-  contributions.forEach(c => {
-    contributionMap[c.studentId] = c;
-  });
-
-  // ISSUE #236: Return full member list with contributions
-  // Why: Some members may not have contribution records yet (edge case)
-  // What: Include null contribution for members without records
-  const memberContributions = members.map(member => ({
-    studentId: member.userId,
-    storyPointsCompleted: contributionMap[member.userId]?.storyPointsCompleted || 0,
-    storyPointsAssigned: contributionMap[member.userId]?.storyPointsAssigned || 0,
-    githubHandle: contributionMap[member.userId]?.gitHubHandle || 'unknown',
-    existingRecord: contributionMap[member.userId] || null
-  }));
-
-  return { members, contributions: memberContributions };
+  return values;
 }
 
-/**
- * ISSUE #236 PROCESS 7.4: STEP 4-5 - Load Targets & Calculate Group Total
- *
- * @param {string} groupId
- * @param {string} sprintId
- * @param {Array} memberContributions - From STEP 3
- * @returns {Promise<{targets, groupTotal, strategy}>}
- *
- * Targets Loading Strategy:
- * 1. Try to load D8 SprintTarget configuration
- * 2. If missing: Use calculated average (Issue #235 Criterion #2)
- * 3. If still no data: Return null → signal fallback in ratio calc
- */
-async function loadTargetsAndCalculateTotal(groupId, sprintId, memberContributions) {
-  // ISSUE #236 STEP 4: Load D8 targets
-  // Why: Ratio = completed / target (target from D8 configuration)
-  // What: Query SprintTarget model for targets (or use fallback)
-  // Note: SprintTarget might not exist if D8 not configured
-  
-  const sprintTargets = await SprintTarget.find({
-    sprintId: sprintId,
-    groupId: groupId
-  }).catch(err => {
-    // Model might not exist or DB query failed
-    console.warn('[contributionRatioService] SprintTarget query failed, using fallback', err.message);
-    return [];
-  });
+function buildEventId(groupId, sprintId, ratios) {
+  const stablePayload = JSON.stringify(
+    ratios
+      .map(r => ({ studentId: String(r.studentId), ratio: r.ratio, targetUsed: r.targetUsed }))
+      .sort((a, b) => a.studentId.localeCompare(b.studentId))
+  );
+  const digest = crypto.createHash('sha256').update(stablePayload).digest('hex').slice(0, 24);
+  return `CONTRIBUTION_CALCULATED:${groupId}:${sprintId}:${digest}`;
+}
 
-  // ISSUE #236: Calculate targets map
-  // Why: Fast lookup for per-student targets
-  const targetsMap = {};
-  sprintTargets.forEach(t => {
-    targetsMap[t.studentId] = t.targetStoryPoints;
-  });
-
-  // ISSUE #236 STEP 5: Calculate group total
-  // Why: Used for 'weighted' strategy and group statistics
-  // What: Sum all completed story points across group
-  const groupTotal = memberContributions.reduce((sum, c) => sum + c.storyPointsCompleted, 0);
-
-  // ISSUE #236: Guard against zero group total
-  // Why: Acceptance Criterion #2 - cannot calculate meaningful ratio
-  // What: Throw 422 if group total is 0 (invalid state)
-  if (groupTotal <= 0) {
-    throw new RatioServiceError(
-      422,
-      'ZERO_GROUP_TOTAL',
-      `Group ${groupId} has zero completed story points. Cannot calculate ratios.`
-    );
-  }
-
-  // ISSUE #236: Determine ratio strategy
-  // Why: Different strategies for different grading scenarios
-  // Default: 'fixed' (each student ratio independent)
-  const strategy = 'fixed';  // TODO: Load from SprintConfig/D8 later
-
+async function emitContributionCalculatedHandoff(payload) {
   return {
-    targets: targetsMap,
-    groupTotal: groupTotal,
-    strategy: strategy,
-    memberCount: memberContributions.length
+    dispatched: true,
+    event: 'CONTRIBUTION_CALCULATED',
+    idempotencyKey: payload.eventId,
+    payload
   };
 }
 
-/**
- * ISSUE #236 PROCESS 7.4: STEP 6 - Calculate Per-Student Ratios
- *
- * @param {Array} memberContributions - From STEP 3
- * @param {Object} targets - From STEP 4
- * @param {number} groupTotal - From STEP 5
- * @param {string} strategy - 'fixed', 'weighted', 'normalized'
- * @returns {Array} [{studentId, ratio, targetUsed, strategy}, ...]
- *
- * Ratio Calculation:
- * - If target > 0: ratio = completed / target
- * - If target <= 0: ratio = fallback (completed / groupAverage)
- * - If all zero: throw 422
- */
-async function calculatePerStudentRatios(memberContributions, targets, groupTotal, strategy) {
-  // ISSUE #236 STEP 6: Compute ratios
-  // Why: Core calculation step
-  // What: For each student, use ratioNormalization to compute ratio
+async function validateInputs(groupId, sprintId, userId, session) {
+  const sprint = await SprintRecord.findOne({ sprintRecordId: sprintId, groupId }).session(session);
+  if (!sprint) {
+    throw new RatioServiceError(404, 'NOT_FOUND', `Sprint ${sprintId} not found in group ${groupId}.`);
+  }
 
-  const ratios = memberContributions.map(contribution => {
-    const { studentId, storyPointsCompleted } = contribution;
+  const membership = await GroupMembership.findOne({
+    groupId,
+    studentId: userId,
+    status: 'approved'
+  }).session(session);
 
-    // ISSUE #236: Get target for this student
-    // Why: Different students may have different targets
-    const target = targets[studentId] || null;
+  const userQuery = [{ userId }];
+  if (mongoose.Types.ObjectId.isValid(userId)) {
+    userQuery.push({ _id: new mongoose.Types.ObjectId(userId) });
+  }
+  const user = await User.findOne({ $or: userQuery }).session(session);
+  const hasCoordinatorPrivilege = user && ['coordinator', 'admin'].includes(user.role);
 
-    // ISSUE #236: Compute ratio using utility (handles strategy + safety guards)
-    // Why: Utility provides NaN/Infinity prevention
-    let ratio = ratioNormalization.normalizeRatio(
-      storyPointsCompleted,
-      target || 1,  // Fallback target if missing
-      groupTotal,
-      strategy
+  if (!membership || !hasCoordinatorPrivilege) {
+    throw new RatioServiceError(403, 'UNAUTHORIZED', 'User is not authorized for this group as an approved coordinator member.');
+  }
+
+  return sprint;
+}
+
+function assertUnlocked(sprint, lockedCount) {
+  if (sprint.locked === true || LOCKED_SPRINT_STATUSES.has(sprint.status)) {
+    throw new RatioServiceError(409, 'SPRINT_LOCKED', `Sprint ${sprint.sprintRecordId} is locked.`);
+  }
+  if (lockedCount > 0) {
+    throw new RatioServiceError(
+      409,
+      'CONTRIBUTION_LOCKED',
+      `Sprint ${sprint.sprintRecordId} has ${lockedCount} locked contribution record(s).`
     );
+  }
+}
 
-    // ISSUE #236: Fallback if target was missing
-    // Why: Acceptance Criterion #2 - graceful handling of missing D8 targets
-    // What: Use average target (groupTotal / memberCount)
-    if (ratio === null) {
-      const averageTarget = groupTotal / memberContributions.length;
-      ratio = ratioNormalization.calculateFallbackRatio(
-        storyPointsCompleted,
-        groupTotal,
-        memberContributions.length
-      );
-      
-      console.info('[contributionRatioService] Using fallback ratio for student', {
-        studentId,
-        averageTarget,
-        ratio,
-        completed: storyPointsCompleted
-      });
-    }
+async function fetchMembersAndContributions(groupId, sprintId, session) {
+  const members = await GroupMembership.find({ groupId, status: 'approved' }).session(session);
+  if (!members.length) {
+    throw new RatioServiceError(422, 'NO_MEMBERS', `No approved members in group ${groupId}.`);
+  }
 
-    // ISSUE #236: Format ratio to 4 decimal places
-    // Why: Precision policy (Numeric Precision DP-4)
-    const formattedRatio = ratioNormalization.formatRatio(ratio, 4);
+  const memberIds = members.map(member => String(member.studentId));
+  const records = await ContributionRecord.find({
+    groupId,
+    sprintId,
+    studentId: { $in: memberIds }
+  }).session(session);
 
-    // ISSUE #236: Guard against calculation errors
-    // Why: Prevent NaN or Infinity in stored data
-    if (!Number.isFinite(formattedRatio)) {
-      throw new RatioServiceError(
-        500,
-        'CALCULATION_ERROR',
-        `Failed to calculate ratio for student ${studentId}: got ${formattedRatio}`
-      );
-    }
+  const recordsByStudent = new Map(records.map(record => [String(record.studentId), record]));
+  const missingContributionRecords = memberIds.filter(id => !recordsByStudent.has(id));
 
+  const contributions = memberIds.map(studentId => {
+    const existingRecord = recordsByStudent.get(studentId) || null;
     return {
-      studentId: studentId,
-      ratio: formattedRatio,
-      targetUsed: target || averageTarget || 1,
-      strategy: strategy,
-      completed: storyPointsCompleted
+      studentId,
+      storyPointsCompleted: Number(existingRecord?.storyPointsCompleted || 0),
+      existingRecord
     };
   });
 
-  return ratios;
+  const lockedCount = records.filter(record => record.locked === true).length;
+  const groupTotal = contributions.reduce((acc, item) => acc + item.storyPointsCompleted, 0);
+
+  return {
+    memberIds,
+    contributions,
+    groupTotal,
+    lockedCount,
+    missingContributionRecords
+  };
 }
 
-/**
- * ISSUE #236 PROCESS 7.4: STEP 7-8 - Atomic Update & Persistence
- * Write all ratios to MongoDB in single transaction (Acceptance Criterion #5)
- *
- * @param {string} groupId
- * @param {string} sprintId
- * @param {Array} ratios - From STEP 6
- * @returns {Promise<{updated: number, timestamp}>}
- *
- * Atomicity Guarantee:
- * - All ratios updated together or none (transaction)
- * - Idempotent: same input always produces same DB state
- * - Prevents partial updates (race condition safety)
- */
-async function atomicallyUpdateRatios(groupId, sprintId, ratios) {
-  // ISSUE #236 STEP 7-8: Atomic transaction
-  // Why: Acceptance Criterion #5 - ensure atomic all-or-nothing
-  // What: Use MongoDB session + transaction
-  // Design: If any update fails, entire transaction rolls back
+function ensureProcess73Ready(missingContributionRecords) {
+  if (missingContributionRecords.length > 0) {
+    throw new RatioServiceError(
+      409,
+      'PROCESS_7_3_REQUIRED',
+      `Cannot calculate ratios: Sprint attribution (Process 7.3) is incomplete for the following students: ${missingContributionRecords.join(', ')}. Please run GitHub/JIRA sync first.`,
+      { missingStudentIds: missingContributionRecords }
+    );
+  }
+}
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
+async function loadTargetsFromD8(groupId, sprintId, memberIds, session) {
+  const targets = await SprintTarget.find({
+    sprintId: { $in: idCandidates(sprintId) },
+    groupId: { $in: idCandidates(groupId) },
+    studentId: { $in: memberIds.flatMap(idCandidates) },
+    deletedAt: null
+  }).session(session);
 
-  try {
-    // ISSUE #236: Update all ContributionRecords with new ratios
-    // Why: Atomic batch operation
-    // What: For each ratio, update the corresponding record
-    let updateCount = 0;
+  if (targets.length === 0) {
+    throw new RatioServiceError(422, 'MISSING_D8_TARGETS', 'Sprint target data (D8) is missing.');
+  }
 
-    for (const ratio of ratios) {
-      const result = await ContributionRecord.findOneAndUpdate(
-        {
-          sprintId: sprintId,
-          groupId: groupId,
-          studentId: ratio.studentId
-        },
-        {
-          $set: {
-            contributionRatio: ratio.ratio,
-            targetStoryPoints: ratio.targetUsed,
-            groupTotalStoryPoints: null,  // Will be set in batch
-            lastUpdatedAt: new Date()
-          }
-        },
-        {
-          new: true,
-          session: session
-        }
-      );
+  const targetMap = new Map();
+  for (const targetDoc of targets) {
+    const studentId = String(targetDoc.studentId);
+    const target = Number(targetDoc.targetStoryPoints);
+    if (!Number.isFinite(target) || target <= 0) {
+      throw new RatioServiceError(422, 'INVALID_TARGET_STORY_POINTS', 'Target story points must be greater than zero.');
+    }
+    targetMap.set(studentId, target);
+  }
 
-      if (result) {
-        updateCount++;
-      } else {
-        // ISSUE #236: Handle missing record
-        // Why: Student might not have contribution record yet
-        // What: Create new record with ratio
-        const newRecord = new ContributionRecord({
-          sprintId: sprintId,
-          groupId: groupId,
-          studentId: ratio.studentId,
-          contributionRatio: ratio.ratio,
-          targetStoryPoints: ratio.targetUsed,
-          storyPointsCompleted: ratio.completed,
-          storyPointsAssigned: 0,
-          pullRequestsMerged: 0,
-          issuesResolved: 0,
-          commitsCount: 0,
-          gitHubHandle: 'unknown'
-        });
-        await newRecord.save({ session });
-        updateCount++;
+  const missingStudentIds = memberIds.filter(id => !targetMap.has(String(id)));
+  if (missingStudentIds.length > 0) {
+    throw new RatioServiceError(
+      422,
+      'MISSING_D8_TARGETS',
+      'Sprint target data (D8) is missing for some group members.',
+      { missingStudentIds }
+    );
+  }
+
+  return targetMap;
+}
+
+function normalizeGroupRatios(contributions, targetMap, normalizationFactor = DEFAULT_NORMALIZATION_FACTOR) {
+  if (!Number.isFinite(normalizationFactor) || normalizationFactor <= 0) {
+    throw new RatioServiceError(422, 'INVALID_NORMALIZATION_FACTOR', 'Normalization factor must be greater than zero.');
+  }
+
+  const maxPossible = contributions.length;
+  if (normalizationFactor > maxPossible) {
+    throw new RatioServiceError(
+      422,
+      'INVALID_NORMALIZATION_FACTOR',
+      `Normalization factor ${normalizationFactor} exceeds max possible ${maxPossible}.`
+    );
+  }
+
+  const rawRatios = contributions.map(item => {
+    const target = Number(targetMap.get(String(item.studentId)));
+    const raw = item.storyPointsCompleted / target;
+    return Number.isFinite(raw) && raw > 0 ? raw : 0;
+  });
+
+  const rawTotal = rawRatios.reduce((sum, value) => sum + value, 0);
+  if (rawTotal <= 0) {
+    throw new RatioServiceError(422, 'ZERO_GROUP_TOTAL', 'Group total story points must be greater than zero.');
+  }
+
+  const normalized = rawRatios.map(value => clamp01((value / rawTotal) * normalizationFactor));
+  const scaled = normalized.map(value => value * SCALE);
+
+  const floors = scaled.map(value => Math.floor(value));
+  const remainders = scaled.map((value, index) => ({ index, remainder: value - floors[index] }));
+  let allocated = floors.reduce((sum, value) => sum + value, 0);
+  const targetUnits = Math.round(normalizationFactor * SCALE);
+  let unitsToDistribute = targetUnits - allocated;
+
+  if (unitsToDistribute > 0) {
+    remainders.sort((a, b) => b.remainder - a.remainder);
+    for (const item of remainders) {
+      if (unitsToDistribute === 0) break;
+      if (floors[item.index] < SCALE) {
+        floors[item.index] += 1;
+        unitsToDistribute -= 1;
       }
     }
+  } else if (unitsToDistribute < 0) {
+    remainders.sort((a, b) => a.remainder - b.remainder);
+    unitsToDistribute = Math.abs(unitsToDistribute);
+    for (const item of remainders) {
+      if (unitsToDistribute === 0) break;
+      if (floors[item.index] > 0) {
+        floors[item.index] -= 1;
+        unitsToDistribute -= 1;
+      }
+    }
+  }
 
-    // ISSUE #236 STEP 8b: Update SprintRecord metadata
-    // Why: Track recalculation timestamp (Acceptance Criterion #4)
-    // What: Update groupTotalStoryPoints and recalculatedAt
-    const groupTotal = ratios.reduce((sum, r) => sum + r.completed, 0);
-    await SprintRecord.findOneAndUpdate(
-      {
-        sprintRecordId: sprintId,
-        groupId: groupId
-      },
-      {
-        $set: {
-          groupTotalStoryPoints: groupTotal,
-          recalculatedAt: new Date()
-        }
-      },
-      { session }
-    );
-
-    // ISSUE #236: Commit transaction
-    // Why: All updates successful, persist to DB
-    await session.commitTransaction();
-
-    console.info('[contributionRatioService] Ratios updated successfully', {
-      groupId,
-      sprintId,
-      updateCount,
-      timestamp: new Date()
-    });
-
-    return {
-      updated: updateCount,
-      timestamp: new Date(),
-      groupTotal: groupTotal
-    };
-
-  } catch (error) {
-    // ISSUE #236: Rollback on error
-    // Why: Prevent partial state (atomic guarantee)
-    await session.abortTransaction();
+  const finalizedRatios = floors.map(value => roundTo(value / SCALE));
+  const finalSum = roundTo(finalizedRatios.reduce((sum, value) => sum + value, 0));
+  const expected = roundTo(normalizationFactor);
+  // Mathematical fail-safe: prevents silent precision regressions in normalization.
+  if (finalSum !== expected) {
     throw new RatioServiceError(
       500,
-      'ATOMIC_WRITE_FAILED',
-      `Failed to update ratios atomically: ${error.message}`
+      'NORMALIZATION_DRIFT',
+      `Normalization drift detected. Expected ${expected}, got ${finalSum}.`
+    );
+  }
+
+  return contributions.map((item, index) => ({
+    studentId: item.studentId,
+    ratio: finalizedRatios[index],
+    targetUsed: Number(targetMap.get(String(item.studentId))),
+    completed: item.storyPointsCompleted,
+    existingRecord: item.existingRecord
+  }));
+}
+
+async function persistRatios(groupId, sprintId, ratios, groupTotal, eventId, session) {
+  const now = new Date();
+  let updatedCount = 0;
+
+  for (const ratio of ratios) {
+    const result = await ContributionRecord.updateOne(
+      { groupId, sprintId, studentId: ratio.studentId },
+      {
+        $set: {
+          contributionRatio: ratio.ratio,
+          targetStoryPoints: ratio.targetUsed,
+          groupTotalStoryPoints: groupTotal,
+          recalculatedAt: now,
+          lastHandoffEventId: eventId,
+          lastUpdatedAt: now
+        }
+      },
+      { session, runValidators: true }
     );
 
+    if (result.matchedCount > 0) {
+      updatedCount += 1;
+    } else {
+      const record = new ContributionRecord({
+        sprintId,
+        groupId,
+        studentId: ratio.studentId,
+        storyPointsCompleted: ratio.completed,
+        storyPointsAssigned: 0,
+        pullRequestsMerged: 0,
+        issuesResolved: 0,
+        commitsCount: 0,
+        contributionRatio: ratio.ratio,
+        targetStoryPoints: ratio.targetUsed,
+        groupTotalStoryPoints: groupTotal,
+        recalculatedAt: now,
+        locked: false,
+        lastHandoffEventId: eventId,
+        gitHubHandle: 'unknown',
+        lastUpdatedAt: now
+      });
+      await record.save({ session, validateBeforeSave: true });
+      updatedCount += 1;
+    }
+  }
+
+  await SprintRecord.updateOne(
+    { sprintRecordId: sprintId, groupId },
+    {
+      $set: {
+        groupTotalStoryPoints: groupTotal,
+        recalculatedAt: now
+      }
+    },
+    { session }
+  );
+
+  return { updatedCount, now };
+}
+
+function generateSummary(groupId, sprintId, ratios, groupTotalStoryPoints, recalculatedAt, lockedCount) {
+  const ratioSum = roundTo(ratios.reduce((sum, item) => sum + item.ratio, 0));
+  return {
+    groupId,
+    sprintId,
+    groupTotalStoryPoints,
+    lockedCount,
+    recalculatedAt,
+    strategy: 'normalized',
+    contributions: ratios.map(item => ({
+      studentId: item.studentId,
+      contributionRatio: item.ratio,
+      targetStoryPoints: item.targetUsed,
+      completedStoryPoints: item.completed,
+      percentageOfGroup:
+        groupTotalStoryPoints > 0
+          ? `${roundTo((item.completed / groupTotalStoryPoints) * 100, 2).toFixed(2)}%`
+          : '0.00%'
+    })),
+    summary: {
+      totalMembers: ratios.length,
+      averageRatio: roundTo(ratioSum / ratios.length).toFixed(4),
+      maxRatio: roundTo(Math.max(...ratios.map(item => item.ratio))).toFixed(4),
+      minRatio: roundTo(Math.min(...ratios.map(item => item.ratio))).toFixed(4),
+      normalizationFactor: ratioSum.toFixed(4)
+    }
+  };
+}
+
+async function recalculateSprintRatios(groupId, sprintId, userId, options = {}) {
+  const session = await mongoose.startSession();
+  try {
+    let summary;
+    await session.withTransaction(async () => {
+      const sprint = await validateInputs(groupId, sprintId, userId, session);
+      const {
+        memberIds,
+        contributions,
+        groupTotal,
+        lockedCount,
+        missingContributionRecords
+      } = await fetchMembersAndContributions(groupId, sprintId, session);
+
+      ensureProcess73Ready(missingContributionRecords);
+      assertUnlocked(sprint, lockedCount);
+
+      if (groupTotal <= 0) {
+        throw new RatioServiceError(422, 'ZERO_GROUP_TOTAL', 'Group total story points must be greater than zero.');
+      }
+
+      const targetMap = await loadTargetsFromD8(groupId, sprintId, memberIds, session);
+      const normalizationFactor = Number(options.normalizationFactor) || DEFAULT_NORMALIZATION_FACTOR;
+      const ratios = normalizeGroupRatios(contributions, targetMap, normalizationFactor);
+      const eventId = buildEventId(groupId, sprintId, ratios);
+
+      const alreadyApplied = ratios.every(ratio => {
+        const existing = ratio.existingRecord;
+        return (
+          existing &&
+          existing.lastHandoffEventId === eventId &&
+          roundTo(existing.contributionRatio) === ratio.ratio
+        );
+      });
+
+      let recalculatedAt = new Date();
+      if (!alreadyApplied) {
+        const persisted = await persistRatios(groupId, sprintId, ratios, groupTotal, eventId, session);
+        recalculatedAt = persisted.now;
+        await emitContributionCalculatedHandoff({
+          eventId,
+          groupId,
+          sprintId,
+          recalculatedAt,
+          groupTotalStoryPoints: groupTotal,
+          contributions: ratios.map(item => ({
+            studentId: item.studentId,
+            contributionRatio: item.ratio
+          }))
+        });
+      }
+
+      summary = generateSummary(groupId, sprintId, ratios, groupTotal, recalculatedAt, lockedCount);
+    });
+    return summary;
+  } catch (error) {
+    if (error instanceof RatioServiceError) {
+      throw error;
+    }
+    throw new RatioServiceError(500, 'CALCULATION_ERROR', error.message);
   } finally {
     session.endSession();
   }
 }
 
-/**
- * ISSUE #236 PROCESS 7.4: STEP 10 - Generate Summary Response
- * Per-student breakdown + metadata (Acceptance Criterion #4)
- *
- * @param {string} groupId
- * @param {string} sprintId
- * @param {Array} ratios
- * @param {number} groupTotal
- * @param {Date} recalculatedAt
- * @returns {Object} SprintContributionSummary
- */
-function generateSummary(groupId, sprintId, ratios, groupTotal, recalculatedAt) {
-  // ISSUE #236 STEP 10: Generate response
-  // Why: Provide detailed breakdown for audit + API response
-  // What: Combine all ratios with metadata
-  // Design: Matches DFD flow f7_p74_p75 output format
-
-  return {
-    groupId: groupId,
-    sprintId: sprintId,
-    groupTotalStoryPoints: groupTotal,
-    recalculatedAt: recalculatedAt,
-    strategy: ratios[0]?.strategy || 'fixed',
-    contributions: ratios.map(r => ({
-      studentId: r.studentId,
-      contributionRatio: r.ratio,
-      targetStoryPoints: r.targetUsed,
-      completedStoryPoints: r.completed,
-      percentageOfGroup: ((r.completed / groupTotal) * 100).toFixed(2) + '%'
-    })),
-    summary: {
-      totalMembers: ratios.length,
-      averageRatio: (ratios.reduce((sum, r) => sum + r.ratio, 0) / ratios.length).toFixed(4),
-      maxRatio: Math.max(...ratios.map(r => r.ratio)).toFixed(4),
-      minRatio: Math.min(...ratios.map(r => r.ratio)).toFixed(4)
-    }
-  };
-}
-
-/**
- * ISSUE #236 PROCESS 7.4: MAIN ORCHESTRATOR
- * Coordinates all 10 steps of the ratio calculation pipeline
- *
- * @param {string} groupId - Group to recalculate
- * @param {string} sprintId - Sprint to recalculate for
- * @param {string} userId - User initiating recalculation (for audit)
- * @param {Object} options - Optional configuration {strategy, force}
- *
- * @returns {Promise<Object>} SprintContributionSummary with all ratios
- *
- * @throws {RatioServiceError}
- *   - 404: Sprint/group not found
- *   - 403: User not authorized (not coordinator)
- *   - 409: Sprint is locked (deadline passed)
- *   - 422: No approved members OR zero group total
- *   - 500: Calculation or DB write error
- *
- * Main Steps:
- * 1. Validate inputs (auth, sprint exists)
- * 2. Check sprint not locked
- * 3. Fetch group members + Issue #235 contributions
- * 4. Load D8 targets OR use fallback
- * 5. Calculate group total
- * 6. Compute per-student ratios
- * 7. Normalize and format
- * 8. Atomic transaction update
- * 9. Update timestamps
- * 10. Return summary
- */
-async function recalculateSprintRatios(groupId, sprintId, userId, options = {}) {
-  // ISSUE #236: PROCESS 7.4 ORCHESTRATOR
-  // Why: Central coordinator for entire ratio pipeline
-  // What: Executes all 10 steps in sequence
-  // Design: Delegates to specialized functions, handles errors
-
-  try {
-    console.info('[contributionRatioService.recalculateSprintRatios] Starting calculation', {
-      groupId,
-      sprintId,
-      userId,
-      timestamp: new Date()
-    });
-
-    // ISSUE #236 STEP 1: Validate
-    const { sprint } = await validateInputs(groupId, sprintId, userId);
-
-    // ISSUE #236 STEP 2: Check not locked
-    checkSprintNotLocked(sprint);
-
-    // ISSUE #236 STEP 3: Fetch contributions
-    const { members, contributions: memberContributions } = await fetchGroupContributions(groupId, sprintId);
-
-    // ISSUE #236 STEP 4-5: Load targets + group total
-    const { targets, groupTotal, strategy, memberCount } = await loadTargetsAndCalculateTotal(
-      groupId,
-      sprintId,
-      memberContributions
-    );
-
-    // ISSUE #236 STEP 6: Calculate ratios
-    const ratios = await calculatePerStudentRatios(memberContributions, targets, groupTotal, strategy);
-
-    // ISSUE #236 STEP 7-8: Atomic update
-    const { timestamp } = await atomicallyUpdateRatios(groupId, sprintId, ratios);
-
-    // ISSUE #236 STEP 10: Generate summary
-    const summary = generateSummary(groupId, sprintId, ratios, groupTotal, timestamp);
-
-    console.info('[contributionRatioService.recalculateSprintRatios] Calculation complete', {
-      groupId,
-      sprintId,
-      members: memberCount,
-      timestamp
-    });
-
-    return summary;
-
-  } catch (error) {
-    // ISSUE #236: Error handling
-    // Why: Provide clear error codes for API layer
-    // What: Re-throw RatioServiceError or wrap unknown errors
-    if (error instanceof RatioServiceError) {
-      throw error;
-    }
-    throw new RatioServiceError(500, 'UNKNOWN_ERROR', error.message);
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// EXPORTS: Public API
-// ═══════════════════════════════════════════════════════════════════════════
 module.exports = {
-  recalculateSprintRatios,
   RatioServiceError,
-  // Exported for testing
+  recalculateSprintRatios,
   validateInputs,
-  checkSprintNotLocked,
-  fetchGroupContributions,
-  loadTargetsAndCalculateTotal,
-  calculatePerStudentRatios,
-  atomicallyUpdateRatios,
+  loadTargetsFromD8,
+  normalizeGroupRatios,
+  emitContributionCalculatedHandoff,
   generateSummary
 };

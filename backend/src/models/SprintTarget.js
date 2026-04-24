@@ -38,6 +38,14 @@
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
 
+function buildIdCandidates(id) {
+  const ids = [id];
+  if (mongoose.Types.ObjectId.isValid(id)) {
+    ids.push(new mongoose.Types.ObjectId(id));
+  }
+  return ids;
+}
+
 /**
  * ISSUE #236 SCHEMA: SprintTargetSchema
  * Stores target configuration for ratio calculation in Process 7.4
@@ -381,6 +389,16 @@ SprintTargetSchema.statics.getStudentTarget = async function (sprintId, studentI
     sprintId: sprintId,
     studentId: studentId,
     groupId: groupId,
+    deletedAt: null
+  });
+};
+
+SprintTargetSchema.statics.getTargetsForMembers = async function (sprintId, groupId, studentIds = []) {
+  const scopedStudentIds = Array.isArray(studentIds) ? studentIds : [studentIds];
+  return this.find({
+    sprintId: { $in: buildIdCandidates(sprintId) },
+    groupId: { $in: buildIdCandidates(groupId) },
+    studentId: { $in: scopedStudentIds.flatMap(buildIdCandidates) },
     deletedAt: null
   });
 };
