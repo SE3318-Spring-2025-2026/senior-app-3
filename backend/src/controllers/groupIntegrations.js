@@ -20,9 +20,9 @@ const RETRY_BASE_DELAY_MS = 100;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function ensureLeader(group, userId) {
-  if (group.leaderId !== userId) {
-    const err = new Error('Only the group leader can configure this integration');
+function ensureCoordinator(user) {
+  if (user?.role !== 'coordinator') {
+    const err = new Error('Only coordinators can configure this integration');
     err.status = 403;
     err.code = 'FORBIDDEN';
     throw err;
@@ -112,7 +112,7 @@ const configureGithub = async (req, res) => {
     }
 
     const group = await getGroupOrThrow(groupId);
-    ensureLeader(group, req.user.userId);
+    ensureCoordinator(req.user);
 
     // f11: validate PAT against GitHub API (with retry)
     let orgData;
@@ -392,7 +392,7 @@ const configureJira = async (req, res) => {
     }
 
     const group = await getGroupOrThrow(groupId);
-    ensureLeader(group, req.user.userId);
+    ensureCoordinator(req.user);
 
     const baseUrl = host.trim().replace(/\/$/, '');
     const auth = Buffer.from(`${email.trim()}:${api_token.trim()}`).toString('base64');
