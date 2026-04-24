@@ -203,4 +203,8 @@ const down = async () => {
   }
 };
 
-module.exports = { up, down };
+module.exports = {
+  name: '008_create_committee_schema',
+  up,
+  down,
+};

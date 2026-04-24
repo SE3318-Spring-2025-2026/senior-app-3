@@ -68,6 +68,10 @@ const contributionRecordSchema = new mongoose.Schema(
       default: null,
       indexed: true,
     },
+    locked: {
+      type: Boolean,
+      default: false,
+    },
     contributionRatio: {
       type: Number,
       default: 0,
@@ -84,7 +88,10 @@ const contributionRecordSchema = new mongoose.Schema(
       default: Date.now,
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    collection: 'sprint_contributions',
+  }
 );
 
 // Indexes for efficient querying
