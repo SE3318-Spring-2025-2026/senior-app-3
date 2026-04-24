@@ -21,6 +21,7 @@ const {
   getMigrationStatus,
 } = require('../migrations/migrationRunner');
 const User = require('../src/models/User');
+const ContributionRecord = require('../src/models/ContributionRecord');
 
 describe('Migrations - Runner and State Management', () => {
   // Establish connection before tests
@@ -39,8 +40,10 @@ describe('Migrations - Runner and State Management', () => {
 
   // Clear collections and migration log before each test
   beforeEach(async () => {
-    await User.deleteMany({});
-    await MigrationLog.deleteMany({});
+    const { collections } = mongoose.connection;
+    await Promise.all(
+      Object.values(collections).map((collection) => collection.deleteMany({}))
+    );
   });
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -515,6 +518,121 @@ describe('Migrations - Runner and State Management', () => {
 
       const saved = await newUser.save();
       expect(saved._id).toBeDefined();
+    });
+  });
+
+  describe('Migration 011 - Canonical Process 7 Collections', () => {
+    const migrationName = '011_reconcile_process7_canonical_collections';
+
+    const run011 = async () => {
+      const migration = migrations.find((m) => m.name === migrationName);
+      expect(migration).toBeDefined();
+      await runMigrationUp(migration, mongoose);
+      return migration;
+    };
+
+    it('should be registered in migration index', () => {
+      const names = migrations.map((m) => m.name);
+      expect(names).toContain(migrationName);
+    });
+
+    it('should backfill github_sync_jobs.validationRecords into pr_validations', async () => {
+      await mongoose.connection.db.createCollection('github_sync_jobs');
+      await mongoose.connection.db.collection('github_sync_jobs').insertOne({
+        jobId: 'ghsync_test_1',
+        groupId: 'grp_011',
+        sprintId: 'spr_011',
+        validationRecords: [
+          {
+            issueKey: 'ISSUE-101',
+            prId: '42',
+            prUrl: 'https://example.com/pr/42',
+            mergeStatus: 'MERGED',
+            rawState: 'merged',
+            lastValidated: new Date('2026-01-01T10:00:00.000Z'),
+          },
+        ],
+        completedAt: new Date('2026-01-01T10:01:00.000Z'),
+      });
+
+      await run011();
+
+      const row = await mongoose.connection.db.collection('pr_validations').findOne({
+        groupId: 'grp_011',
+        sprintId: 'spr_011',
+        issueKey: 'ISSUE-101',
+        prId: '42',
+      });
+      expect(row).toBeTruthy();
+      expect(row.mergeStatus).toBe('MERGED');
+      expect(row.prUrl).toBe('https://example.com/pr/42');
+    });
+
+    it('should skip malformed contributionrecords with null canonical ids', async () => {
+      await mongoose.connection.db.createCollection('contributionrecords');
+      await mongoose.connection.db.collection('contributionrecords').insertMany([
+        {
+          contributionRecordId: 'ctr_valid',
+          groupId: 'grp_valid',
+          sprintId: 'spr_valid',
+          studentId: 'std_valid',
+          storyPointsAssigned: 8,
+        },
+        {
+          contributionRecordId: 'ctr_bad',
+          groupId: null,
+          sprintId: 'spr_bad',
+          studentId: 'std_bad',
+          storyPointsAssigned: 13,
+        },
+      ]);
+
+      await run011();
+
+      const valid = await mongoose.connection.db.collection('sprint_contributions').findOne({
+        contributionRecordId: 'ctr_valid',
+      });
+      const malformed = await mongoose.connection.db.collection('sprint_contributions').findOne({
+        contributionRecordId: 'ctr_bad',
+      });
+
+      expect(valid).toBeTruthy();
+      expect(malformed).toBeFalsy();
+    });
+
+    it('should set locked=false by default for backfilled rows', async () => {
+      await mongoose.connection.db.createCollection('contributionrecords');
+      await mongoose.connection.db.collection('contributionrecords').insertOne({
+        contributionRecordId: 'ctr_lock_default',
+        groupId: 'grp_lock',
+        sprintId: 'spr_lock',
+        studentId: 'std_lock',
+      });
+
+      await run011();
+
+      const row = await mongoose.connection.db.collection('sprint_contributions').findOne({
+        contributionRecordId: 'ctr_lock_default',
+      });
+      expect(row).toBeTruthy();
+      expect(row.locked).toBe(false);
+    });
+
+    it('should enforce canonical unique key on sprint_contributions', async () => {
+      await run011();
+      await ContributionRecord.create({
+        groupId: 'grp_unique',
+        sprintId: 'spr_unique',
+        studentId: 'std_unique',
+      });
+
+      await expect(
+        ContributionRecord.create({
+          groupId: 'grp_unique',
+          sprintId: 'spr_unique',
+          studentId: 'std_unique',
+        })
+      ).rejects.toThrow(/duplicate key|E11000/);
     });
   });
 });
