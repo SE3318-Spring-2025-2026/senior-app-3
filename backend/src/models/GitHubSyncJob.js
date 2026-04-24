@@ -11,10 +11,15 @@ const { v4: uuidv4 } = require('uuid');
  * concurrency lock: a document in IN_PROGRESS status means the lock
  * is held (key = sync:{groupId}:{sprintId}).
  *
+ * ISSUE #235 INTEGRATION: prValidationRecordSchema now includes PR author/reviewers
+ * for Process 7.3 (Story Point Attribution). When GitHub sync completes, Process 7.3
+ * reads these validationRecords to map GitHub usernames → studentId.
+ *
  * DFD flows:
  *   f30 — POST /groups/:groupId/sprints/:sprintId/github-sync → D6 (create job)
  *   f31 — Worker → D6 (update PR validation records)
  *   f32 — Worker → D6 (release lock / mark COMPLETED or FAILED)
+ *   f33 — ISSUE #235: Process 7.3 reads validationRecords for attribution
  *
  * Statuses (mirrors job lifecycle):
  *   PENDING     — Job accepted, worker not yet started
@@ -34,6 +39,48 @@ const prValidationRecordSchema = new mongoose.Schema(
     },
     lastValidated: { type: Date, default: null },
     rawState: { type: String, default: null }, // GitHub merge_state verbatim
+
+    // ═════════════════════════════════════════════════════════════════════════════
+    // ISSUE #235 FIELDS: GitHub PR metadata for attribution
+    // ═════════════════════════════════════════════════════════════════════════════
+    // These fields are written by githubSyncService (Process 7.2) and read by
+    // attributionService (Process 7.3) to map GitHub PR authors to studentId.
+    //
+    // prAuthor: GitHub username of the PR author
+    //   - PRIMARY RULE: Used to attribute story points to student
+    //   - Maps via D1 (User.githubUsername) to find studentId
+    //   - Must be approved member of group (D2) to receive attribution
+    //
+    // prReviewers: Array of GitHub usernames of PR reviewers
+    //   - FALLBACK: Used if PR author not found or configuration permits
+    //   - Processed in order (first matching reviewer gets attribution)
+    //
+    // storyPoints: Story point count from JIRA issue
+    //   - Read from Process 7.1 (JIRA sync) metadata
+    //   - Added to studentId's storyPointsCompleted in ContributionRecord
+    //   - Only counted if mergeStatus === 'MERGED'
+    //
+    // jiraAssignee: JIRA issue assignee (optional, for fallback rules)
+    //   - FALLBACK ONLY: Used if GitHub mapping fails AND useJiraFallback enabled
+    //   - Same D1 + D2 validation applies
+    // ═════════════════════════════════════════════════════════════════════════════
+
+    prAuthor: {
+      type: String,
+      default: null, // GitHub username of PR author
+    },
+    prReviewers: {
+      type: [String],
+      default: [], // Array of GitHub usernames
+    },
+    storyPoints: {
+      type: Number,
+      default: 0, // From JIRA sync (Process 7.1)
+    },
+    jiraAssignee: {
+      type: String,
+      default: null, // JIRA issue assignee (fallback only)
+    },
   },
   { _id: false }
 );
@@ -44,7 +91,7 @@ const gitHubSyncJobSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
-      default: () => `ghsync_${uuidv4().replace(/-/g, '').slice(0, 16)}`,
+      default: () => `ghsync_${uuidv4().replaceAll('-', '').slice(0, 16)}`,
     },
     /** D2 reference */
     groupId: { type: String, required: true, index: true },
@@ -77,8 +124,15 @@ const gitHubSyncJobSchema = new mongoose.Schema(
   }
 );
 
-// Compound lock key: only one IN_PROGRESS job per (group, sprint)
-gitHubSyncJobSchema.index({ groupId: 1, sprintId: 1, status: 1 });
+// Compound lock key: only one PENDING or IN_PROGRESS job per (group, sprint)
+gitHubSyncJobSchema.index(
+  { groupId: 1, sprintId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: { $in: ['PENDING', 'IN_PROGRESS'] } },
+    name: 'uniq_active_sync_lock',
+  }
+);
 // Fast job retrieval by jobId
 gitHubSyncJobSchema.index({ jobId: 1 }, { unique: true });
 

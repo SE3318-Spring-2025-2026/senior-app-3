@@ -58,6 +58,20 @@ const contributionRecordSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    jiraIssueKeys: {
+      type: [String],
+      default: [],
+      indexed: true,
+    },
+    jiraIssueKey: {
+      type: String,
+      default: null,
+      indexed: true,
+    },
+    locked: {
+      type: Boolean,
+      default: false,
+    },
     contributionRatio: {
       type: Number,
       default: 0,
@@ -78,25 +92,25 @@ const contributionRecordSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
-    locked: {
-      type: Boolean,
-      default: false,
-    },
     lastHandoffEventId: {
       type: String,
       default: null,
       index: true,
     },
-    gitHubHandle: {
+    githubHandle: {
       type: String,
       default: null,
+      alias: 'gitHubHandle',
     },
     lastUpdatedAt: {
       type: Date,
       default: Date.now,
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    collection: 'sprint_contributions',
+  }
 );
 
 // Indexes for efficient querying
