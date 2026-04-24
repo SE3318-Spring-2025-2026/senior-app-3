@@ -46,6 +46,7 @@ const {
 const { submitDeliverableHandler } = require('../controllers/deliverables'); // From main
 const { releaseAdvisor } = require('../controllers/advisorAssociation'); // From main
 const { advisorSanitization } = require('../controllers/sanitizationController'); // From main
+const { previewFinalGrades } = require('../controllers/finalGradeController'); // Final Grade Process
 
 // ============================================================================
 // GROUP LIFECYCLE & MANAGEMENT (Process 2.1 - 2.2)
@@ -260,6 +261,16 @@ router.post(
   roleMiddleware(['coordinator']), 
   checkAdvisorOperationWindow(OPERATION_TYPES.ADVISOR_TRANSFER),
   transferAdvisor
+);
+
+// ============================================================================
+// FINAL GRADES (Process 8.1)
+// ============================================================================
+router.post(
+  '/:groupId/final-grades/preview',
+  authMiddleware,
+  roleMiddleware(['coordinator']),
+  previewFinalGrades
 );
 
 module.exports = router;
