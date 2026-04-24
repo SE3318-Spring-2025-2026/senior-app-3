@@ -57,7 +57,10 @@ function resolveRubricMultiplier(rubricWeights) {
     return 1;
   }
 
-  return totalWeight / 100;
+  // OpenAPI Uyumu: baseGroupScore halihazırda weighted (ağırlıklandırılmış) bir puandır.
+  // Bu nedenle, ağırlıkların toplamını yine ağırlıkların toplamına bölerek (weighted average mantığı)
+  // çarpanı 1.0 olarak sabitliyoruz. Serviste tekrar ağırlık uygulamıyoruz.
+  return totalWeight / totalWeight;
 }
 
 class FinalGradeCalculationService {
@@ -78,7 +81,8 @@ class FinalGradeCalculationService {
         DEFAULT_RATIO
       );
       const safeRatio = roundToTwoDecimals(rawRatio);
-      const computedFinalGrade = roundToTwoDecimals(adjustedBaseScore * rawRatio);
+      // Senkronizasyon: Yuvarlanmış değeri hem çıktı hem de hesaplama için ortak kullanıyoruz
+      const computedFinalGrade = roundToTwoDecimals(adjustedBaseScore * safeRatio);
 
       return {
         studentId: entry?.studentId || '',
@@ -87,6 +91,8 @@ class FinalGradeCalculationService {
       };
     });
 
+    // Veri Yapısı Mimari Kararı: Pure function sadece hesaplama sonucunu dönmeli.
+    // groupId gibi meta veriler controller/orchestrator katmanında eklenmelidir.
     return {
       baseGroupScore: adjustedBaseScore,
       students,

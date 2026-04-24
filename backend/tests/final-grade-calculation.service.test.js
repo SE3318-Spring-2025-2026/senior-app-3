@@ -33,7 +33,7 @@ describe('FinalGradeCalculationService.computeFinalGrades', () => {
     });
   });
 
-  it('changes preview linearly when rubric weights change', () => {
+  it('maintains the same base score when rubric weights change (already weighted)', () => {
     const baseInput = 80;
     const ratios = [{ studentId: 'stu_1', ratio: 1.25 }];
 
@@ -47,11 +47,10 @@ describe('FinalGradeCalculationService.computeFinalGrades', () => {
       sprintWeights: { s1: 50 },
     });
 
+    // baseGroupScore is already weighted, so multiplier is 1.
+    // final grade = 80 * 1.25 = 100 for both.
     expect(result100.students[0].computedFinalGrade).toBe(100);
-    expect(result125.students[0].computedFinalGrade).toBe(125);
-    expect(result125.students[0].computedFinalGrade).toBe(
-      result100.students[0].computedFinalGrade * 1.25
-    );
+    expect(result125.students[0].computedFinalGrade).toBe(100);
   });
 
   it('defaults missing ratio to 1.0', () => {
@@ -123,6 +122,35 @@ describe('FinalGradeCalculationService.computeFinalGrades', () => {
 
     expect(result.baseGroupScore).toBe(83.34);
     expect(result.students[0].contributionRatio).toBe(1.01);
-    expect(result.students[0].computedFinalGrade).toBe(83.76);
+    // 83.34 * 1.01 = 84.1734 -> 84.17
+    expect(result.students[0].computedFinalGrade).toBe(84.17);
+  });
+
+  it('keeps final grade out of 100 when total weights sum to 200', () => {
+    const result = service.computeFinalGrades(
+      100, // max base score
+      [{ studentId: 'stu_1', ratio: 1.0 }],
+      {
+        deliverableWeights: { d1: 100 },
+        sprintWeights: { s1: 100 },
+      }
+    );
+
+    expect(result.baseGroupScore).toBe(100);
+    expect(result.students[0].computedFinalGrade).toBe(100);
+  });
+
+  it('handles zero total weight and empty arrays without NaN/Infinity', () => {
+    const result = service.computeFinalGrades(
+      85,
+      [],
+      {
+        deliverableWeights: { d1: 0 },
+        sprintWeights: { s1: 0 },
+      }
+    );
+    expect(result.baseGroupScore).toBe(85);
+    expect(Array.isArray(result.students)).toBe(true);
+    expect(result.students.length).toBe(0);
   });
 });
