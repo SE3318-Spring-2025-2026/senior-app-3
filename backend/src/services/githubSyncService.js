@@ -169,14 +169,11 @@ async function getSprintIssues(sprintId, groupId) {
     }
   }
 
-  // Source 2: ContributionRecord entries (unique student work items)
+  // Source 2: ContributionRecord entries — validate every linked JIRA key (multi-issue)
   for (const contrib of contributions) {
+    const rawKeys = Array.isArray(contrib.jiraIssueKeys) ? contrib.jiraIssueKeys : [];
     const studentKeys =
-      Array.isArray(contrib.jiraIssueKeys) && contrib.jiraIssueKeys.length > 0
-        ? contrib.jiraIssueKeys
-        : contrib.jiraIssueKey
-          ? [contrib.jiraIssueKey]
-          : [`${sprintId}-${contrib.studentId}`];
+      rawKeys.length > 0 ? rawKeys.map((k) => String(k).trim()).filter(Boolean) : [`${sprintId}-${contrib.studentId}`];
 
     for (const key of studentKeys) {
       const alreadyAdded = issues.some((i) => i.key === key);

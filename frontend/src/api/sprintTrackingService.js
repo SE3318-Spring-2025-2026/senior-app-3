@@ -181,12 +181,16 @@ const deriveWarningCount = (entry = {}, warnings = []) => {
 
 const normalizeContributionRow = (entry = {}) => {
   const warnings = extractWarnings(entry);
+  const jiraIssueKeys = Array.isArray(entry.jiraIssueKeys)
+    ? entry.jiraIssueKeys.map((key) => String(key).trim()).filter(Boolean)
+    : [];
   return {
     studentId: entry.studentId || '',
     studentName: entry.studentName || entry.githubUsername || entry.studentId || 'Unknown',
     completedStoryPoints: Number(entry.completedStoryPoints || 0),
     targetStoryPoints: Number(entry.targetStoryPoints || 0),
     contributionRatio: Number(entry.contributionRatio || 0),
+    jiraIssueKeys,
     mappingWarningsCount: deriveWarningCount(entry, warnings),
     warnings,
   };

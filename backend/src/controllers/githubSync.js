@@ -32,6 +32,7 @@ const Group = require('../models/Group');
 const SprintRecord = require('../models/SprintRecord');
 const { githubSyncWorker, GitHubSyncError } = require('../services/githubSyncService');
 const { createAuditLog } = require('../services/auditService');
+const ALLOWED_SYNC_ROLES = new Set(['coordinator', 'admin']);
 
 const toPublicStatus = (status) => {
   if (status === 'PENDING') return 'queued';
@@ -39,6 +40,18 @@ const toPublicStatus = (status) => {
   if (status === 'COMPLETED') return 'completed';
   if (status === 'FAILED') return 'failed';
   return 'queued';
+};
+
+const ensureSyncAccess = (req, res) => {
+  const role = req.user?.role;
+  if (!ALLOWED_SYNC_ROLES.has(role)) {
+    res.status(403).json({
+      error: 'FORBIDDEN',
+      message: 'Only coordinator/admin can access GitHub sync endpoints.',
+    });
+    return false;
+  }
+  return true;
 };
 
 /**
@@ -49,6 +62,7 @@ const toPublicStatus = (status) => {
  *   Otherwise → create PENDING job, return 202, fire async worker
  */
 const triggerGitHubSync = async (req, res) => {
+  if (!ensureSyncAccess(req, res)) return;
   const { groupId, sprintId } = req.params;
   const actorId = req.user?.userId || 'system';
 
@@ -135,13 +149,15 @@ const triggerGitHubSync = async (req, res) => {
       console.error('[triggerGitHubSync] Audit log failed (non-fatal):', auditErr.message);
     }
 
-    // ── Respond 202 immediately ──────────────────────────────────────────────
+    // ── Respond 202 immediately (SprintSyncJobStatus — apispec2_7.yaml) ─────
     res.status(202).json({
+      jobId: job.jobId,
       job_id: job.jobId,
-      status: 'PENDING',
+      status: 'queued',
       source: 'github',
       message: 'GitHub sync job accepted. PR validation will run asynchronously.',
       createdAt: job.createdAt,
+      updatedAt: job.updatedAt ?? job.createdAt,
     });
 
     // ── Fire async worker (detached — does NOT await response) ──────────────
@@ -193,6 +209,7 @@ const mapJobToHttpStatus = (status, errorCode) => {
  * Allows callers to poll job progress after receiving the 202.
  */
 const getSyncJobStatus = async (req, res) => {
+  if (!ensureSyncAccess(req, res)) return;
   const { groupId, sprintId, jobId } = req.params;
 
   try {
@@ -205,6 +222,7 @@ const getSyncJobStatus = async (req, res) => {
     }
 
     return res.status(200).json({
+      jobId: job.jobId,
       job_id: job.jobId,
       status: job.status,
       source: 'github',
@@ -217,6 +235,7 @@ const getSyncJobStatus = async (req, res) => {
       errorMessage: job.errorMessage,
       validationRecords: job.validationRecords,
       createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
     });
   } catch (err) {
     console.error('[getSyncJobStatus] Error:', err);
@@ -234,6 +253,7 @@ const getSyncJobStatus = async (req, res) => {
  * Useful for dashboard polling without knowing the jobId upfront.
  */
 const getLatestSyncJob = async (req, res) => {
+  if (!ensureSyncAccess(req, res)) return;
   const { groupId, sprintId } = req.params;
 
   try {
@@ -251,6 +271,7 @@ const getLatestSyncJob = async (req, res) => {
     }
 
     return res.status(200).json({
+      jobId: job.jobId,
       job_id: job.jobId,
       status: job.status,
       source: 'github',
@@ -263,6 +284,7 @@ const getLatestSyncJob = async (req, res) => {
       errorMessage: job.errorMessage,
       validationRecords: job.validationRecords,
       createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
     });
   } catch (err) {
     console.error('[getLatestSyncJob] Error:', err);
@@ -274,6 +296,7 @@ const getLatestSyncJob = async (req, res) => {
 };
 
 const getSyncJobLogs = async (req, res) => {
+  if (!ensureSyncAccess(req, res)) return;
   const { groupId, sprintId, jobId } = req.params;
   try {
     const job = await GitHubSyncJob.findOne({ jobId, groupId, sprintId }).lean();
@@ -284,31 +307,49 @@ const getSyncJobLogs = async (req, res) => {
       });
     }
 
+    const terminal = job.status === 'COMPLETED' || job.status === 'FAILED';
+    const stamp = job.completedAt || job.updatedAt || job.createdAt;
+
     const logs = [
       { level: 'info', at: job.createdAt, message: 'GitHub sync job created.' },
       job.startedAt ? { level: 'info', at: job.startedAt, message: 'GitHub sync worker started.' } : null,
-      Array.isArray(job.validationRecords)
-        ? {
-            level: 'info',
-            at: job.completedAt || job.updatedAt || job.createdAt,
-            message: `Validation records processed: ${job.validationRecords.length}`,
-          }
-        : null,
-      job.errorMessage ? { level: 'error', at: job.completedAt || job.updatedAt, message: job.errorMessage } : null,
-      job.completedAt
-        ? {
-            level: 'info',
-            at: job.completedAt,
-            message: `GitHub sync finished with status ${toPublicStatus(job.status)}.`,
-          }
-        : null,
-    ].filter(Boolean);
+    ];
+
+    if (Array.isArray(job.validationRecords)) {
+      logs.push({
+        level: 'info',
+        at: stamp,
+        message: `Validation records processed: ${job.validationRecords.length}`,
+      });
+    }
+
+    if (job.status === 'FAILED') {
+      const detail = job.errorMessage || job.errorCode || 'GitHub sync failed.';
+      logs.push({ level: 'error', at: stamp, message: detail });
+    } else if (job.errorMessage) {
+      logs.push({ level: 'warn', at: stamp, message: job.errorMessage });
+    }
+
+    if (terminal) {
+      const merged =
+        job.status === 'COMPLETED' && Array.isArray(job.validationRecords)
+          ? job.validationRecords.filter((r) => r.mergeStatus === 'MERGED').length
+          : null;
+      const suffix = merged !== null ? ` (${merged} PR(s) merged).` : '.';
+      logs.push({
+        level: 'info',
+        at: stamp,
+        message: `GitHub sync finished with status ${toPublicStatus(job.status)}${suffix}`,
+      });
+    }
+
+    const filtered = logs.filter(Boolean);
 
     return res.status(200).json({
       jobId: job.jobId,
       source: 'github',
       status: toPublicStatus(job.status),
-      logs,
+      logs: filtered,
     });
   } catch (err) {
     console.error('[getSyncJobLogs] Error:', err);
