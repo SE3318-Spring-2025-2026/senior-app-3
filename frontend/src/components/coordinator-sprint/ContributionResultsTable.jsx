@@ -101,6 +101,7 @@ const ContributionResultsTable = ({ summary }) => {
                 <th className="text-left px-3 py-2 font-semibold text-slate-700">Completed SP</th>
                 <th className="text-left px-3 py-2 font-semibold text-slate-700">Target SP</th>
                 <th className="text-left px-3 py-2 font-semibold text-slate-700">Ratio</th>
+                <th className="text-left px-3 py-2 font-semibold text-slate-700">JIRA Issues</th>
                 <th className="text-left px-3 py-2 font-semibold text-slate-700">Mapping Warnings</th>
               </tr>
             </thead>
@@ -111,6 +112,11 @@ const ContributionResultsTable = ({ summary }) => {
                   <td className="px-3 py-2 text-slate-700">{row.completedStoryPoints}</td>
                   <td className="px-3 py-2 text-slate-700">{row.targetStoryPoints}</td>
                   <td className="px-3 py-2 text-slate-700">{formatRatio(row.contributionRatio)}</td>
+                  <td className="px-3 py-2 text-slate-700">
+                    {Array.isArray(row.jiraIssueKeys) && row.jiraIssueKeys.length > 0
+                      ? row.jiraIssueKeys.join(', ')
+                      : '—'}
+                  </td>
                   <td className="px-3 py-2 text-slate-700">{row.mappingWarningsCount}</td>
                 </tr>
               ))}
