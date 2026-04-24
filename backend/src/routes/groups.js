@@ -36,7 +36,8 @@ const { triggerGitHubSync, getSyncJobStatus, getLatestSyncJob, getSyncJobLogs } 
 const { triggerJiraSync, getJiraSyncStatus, getJiraSyncLogs } = require('../controllers/jiraSync');
 const {
   recalculateContributions,
-} = require('../controllers/sprintTracking');
+  requireCoordinatorRole,
+} = require('../controllers/contributionRatios');
 
 // Integrated Controllers from both branches
 const { submitDeliverableHandler } = require('../controllers/deliverables'); // From main
@@ -197,6 +198,7 @@ router.post(
   '/:groupId/sprints/:sprintId/contributions/recalculate',
   authMiddleware,
   roleMiddleware(['coordinator', 'admin']),
+  requireCoordinatorRole,
   recalculateContributions
 );
 

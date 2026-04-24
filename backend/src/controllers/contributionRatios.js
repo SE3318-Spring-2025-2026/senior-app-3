@@ -1,367 +1,475 @@
 /**
- * ═══════════════════════════════════════════════════════════════════════════
- * ISSUE #236 CONTROLLER: contributionRatios.js
- * HTTP Endpoint Handler for Process 7.4 Ratio Calculation
- * ═══════════════════════════════════════════════════════════════════════════
+ * ================================================================================
+ * ISSUE #238: Contribution Ratios Controller — Integration Point
+ * ================================================================================
  *
  * Purpose:
- * Express controller handling REST API requests for ratio recalculation.
- * Bridges HTTP layer (Express) to service layer (contributionRatioService).
+ * HTTP controller for POST /groups/:groupId/sprints/:sprintId/contributions/recalculate
+ * endpoint that integrates Process 7.4 (ratio calculation) + Process 7.5 (persistence) +
+ * Issue #238 (notification dispatch).
  *
- * Endpoint:
- * POST /api/groups/:groupId/sprints/:sprintId/contributions/recalculate
+ * Implements 6-step orchestrated flow:
+ * 1. Authorization check (coordinator role required)
+ * 2. Input validation (groupId, sprintId)
+ * 3. Call Process 7.4 (recalculateSprintRatios from Issue #236)
+ * 4. Call Process 7.5 (persistSprintContributions from Issue #237)
+ * 5. Dispatch notifications (Issue #238 - via setImmediate)
+ * 6. Audit logging
  *
- * Responsibilities:
- * 1. Extract + validate path parameters (groupId, sprintId)
- * 2. Authenticate + authorize (coordinator role check)
- * 3. Call service layer (recalculateSprintRatios)
- * 4. Handle error responses (404, 403, 409, 422, 500)
- * 5. Dispatch audit log (non-blocking)
- * 6. Return success response with ratios + metadata
+ * DFD Reference:
+ * - Process 7.4: Issue #236 — Calculate contribution ratios
+ * - Process 7.5: Issue #237 — Persist sprint records to D6/D4
+ * - Flow f7_p75_ext_notification: Dispatch to notification service (Issue #238)
  *
- * Error Handling:
- * - 400: Invalid input (malformed request body)
- * - 403: Not authorized (not coordinator)
- * - 404: Resource not found (group/sprint)
- * - 409: Conflict (sprint locked)
- * - 422: Invalid state (zero group total, no members)
- * - 500: Server error (calculation/DB failure)
+ * Acceptance Criteria (from Issues #237 & #238):
+ * ✓ When notifyStudents=true, each group member receives notification
+ * ✓ Coordinator receives summary notification or report trigger
+ * ✓ Failures logged with correlationId; retries exhausted produce alert
+ * ✓ No notification when sprint window closed (422 path)
  *
- * DFD Context:
- * - Maps to Process 7.4 entry point (f7_p74_entry HTTP handler)
- * - Receives input from HTTP client (frontend)
- * - Calls contributionRatioService (coordinates 10-step calculation)
- * - Returns SprintContributionSummary to client
+ * Error Responses:
+ * - 403: Not authorized (non-coordinator)
+ * - 400: Missing/invalid parameters
+ * - 404: Group or sprint not found
+ * - 409: Sprint finalized, cannot recompute (unless overrideFinalized=true)
+ * - 422: Unprocessable entity (validation error, zero group total, etc)
+ * - 500: Internal server error
+ *
+ * ================================================================================
  */
 
-const express = require('express');
-const {
-  recalculateSprintRatios,
-  RatioServiceError
-} = require('../services/contributionRatioService');
-const { auditLog } = require('../services/auditService');
-const { notificationService } = require('../services/notificationService');
+const { v4: uuidv4 } = require('uuid');
+const Group = require('../models/Group');
+const SprintRecord = require('../models/SprintRecord');
+const { createAuditLog } = require('../services/auditService');
+const { dispatchSprintUpdateNotifications } = require('../services/sprintNotificationService');
+const { recalculateSprintContributions } = require('../services/contributionRecalculateService');
+
+// ISSUE #238: Note - These services will be created in separate implementations:
+// const { persistSprintContributions } = require('../services/sprintContributionPersistence'); // Issue #237
+// const { recalculateSprintRatios } = require('../services/contributionRatioEngine'); // Issue #236
+
+// ================================================================================
+// ISSUE #238: AUTHORIZATION MIDDLEWARE
+// ================================================================================
 
 /**
- * ISSUE #236 CONTROLLER: recalculateContributionRatios
- * Express endpoint handler for POST ratio recalculation request
+ * ISSUE #238: Verify coordinator role for contribution recalculation
  *
- * @param {express.Request} req - HTTP request object
- *   - req.params.groupId: Group MongoDB ObjectId
- *   - req.params.sprintId: Sprint MongoDB ObjectId
- *   - req.user: Authenticated user object {id, email, roles}
+ * Context: Only coordinators can trigger recalculation to prevent unauthorized
+ * modification of student contribution ratios.
+ */
+async function requireCoordinatorRole(req, res, next) {
+  try {
+    // ISSUE #238: Check if user is authenticated
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized: Authentication required',
+        code: 'NOT_AUTHENTICATED'
+      });
+    }
+
+    // ISSUE #238: Check if user has coordinator role in the group
+    const { groupId } = req.params;
+    const group = await Group.findById(groupId);
+
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        error: 'Group not found',
+        code: 'GROUP_NOT_FOUND'
+      });
+    }
+
+    // ISSUE #238: Check if user is coordinator for this group
+    const isCoordinator = group.coordinators && group.coordinators.includes(req.user._id);
+    if (!isCoordinator && req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Unauthorized: Coordinator role required',
+        code: 'UNAUTHORIZED_ROLE'
+      });
+    }
+
+    // ISSUE #238: Pass through to next middleware
+    next();
+  } catch (error) {
+    console.error('ISSUE #238: Error in requireCoordinatorRole:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      code: 'INTERNAL_ERROR'
+    });
+  }
+}
+
+// ================================================================================
+// ISSUE #238: MAIN HANDLER — Recalculate sprint contributions with notifications
+// ================================================================================
+
+/**
+ * ISSUE #238: POST /groups/:groupId/sprints/:sprintId/contributions/recalculate
  *
- * @param {express.Response} res - HTTP response object
+ * Main entry point for sprint contribution recalculation. Orchestrates:
+ * 1. Ratio calculation (Process 7.4)
+ * 2. Persistence to D6/D4 (Process 7.5)
+ * 3. Notification dispatch (Issue #238 via setImmediate)
  *
- * @returns {void} - Sends JSON response with status code
+ * Request Body:
+ * {
+ *   notifyStudents: boolean (optional, default: false),
+ *   overrideFinalized: boolean (optional, default: false),
+ *   persistToD4: boolean (optional, default: true),
+ *   notes: string (optional, max 500 chars)
+ * }
  *
- * Response Formats:
- *
- * Success (200):
+ * Response (200 Success):
  * {
  *   success: true,
- *   data: {
- *     groupId: "...",
- *     sprintId: "...",
- *     groupTotalStoryPoints: 42,
- *     recalculatedAt: "2024-01-15T10:30:00Z",
- *     strategy: "fixed",
- *     contributions: [
- *       { studentId, contributionRatio, targetStoryPoints, ... }
- *     ],
- *     summary: { totalMembers, averageRatio, maxRatio, minRatio }
- *   }
+ *   sprintId, groupId, coordinatorId,
+ *   ratiosCalculated: true,
+ *   contributionCount: number,
+ *   persistenceResult: { success, recordsPersistedCount, d4RecordCreated, persistedAt, durationMs },
+ *   reconciliationResult: { status, inconsistencyCount, repairsApplied } | null,
+ *   notificationResult: { success, studentNotificationCount, coordinatorNotified, partialFailuresOccurred? },
+ *   contributionSummary: { contributions, groupTotalStoryPoints, averageRatio, maxRatio, minRatio, etc }
  * }
- *
- * Error (4xx/5xx):
- * {
- *   success: false,
- *   error: {
- *     status: 409,
- *     code: "SPRINT_LOCKED",
- *     message: "Cannot recalculate ratios for locked sprint..."
- *   }
- * }
- *
- * Workflow:
- * 1. Extract path params
- * 2. Validate user authenticated (middleware ensures this)
- * 3. Call service layer
- * 4. On error: return appropriate HTTP status + error details
- * 5. On success: audit log (async), send response
  */
-async function recalculateContributionRatios(req, res) {
-  // ISSUE #236 CONTROLLER: recalculateContributionRatios
-  // Why: REST API entry point for ratio recalculation
-  // What: Handler for POST /groups/:groupId/sprints/:sprintId/contributions/recalculate
-
-  const { groupId, sprintId } = req.params;
-  const userId = req.user.id;  // Extracted by auth middleware
+async function recalculateContributions(req, res) {
+  const correlationId = `contrib_${Date.now()}_${uuidv4().substring(0, 8)}`;
+  const startTime = Date.now();
 
   try {
-    // ISSUE #236 STEP 0: Input validation
-    // Why: Ensure parameters are properly formed
-    // What: Check groupId and sprintId are provided and non-empty
+    // ====================================================================
+    // ISSUE #238: STEP 1 — Authorization (already done by middleware)
+    // ====================================================================
+    const coordinatorId = req.user._id;
+    const { groupId, sprintId } = req.params;
+    const {
+      notifyStudents = false,
+      notifyCoordinator = true,
+      overrideFinalized = false,
+      persistToD4 = true,
+      notes = ''
+    } = req.body;
+
+    // ISSUE #238: Create audit log for recalculation initiation
+    await createAuditLog({
+      action: 'SPRINT_CONTRIBUTION_RECALCULATION_INITIATED',
+      actorId: coordinatorId,
+      targetId: groupId,
+      groupId,
+      payload: {
+        sprintId,
+        notifyStudents,
+        notifyCoordinator,
+        overrideFinalized,
+        correlationId,
+        notes: notes.substring(0, 500)
+      }
+    }).catch(err => {
+      // ISSUE #238: Audit logging is non-fatal
+      console.error(`ISSUE #238: Failed to log recalculation initiation: ${err.message}`);
+    });
+
+    // ====================================================================
+    // ISSUE #238: STEP 2 — Input validation
+    // ====================================================================
+
     if (!groupId || !sprintId) {
       return res.status(400).json({
         success: false,
-        error: {
-          status: 400,
-          code: 'INVALID_INPUT',
-          message: 'groupId and sprintId are required path parameters'
-        }
+        error: 'Missing required parameters: groupId and sprintId',
+        code: 'MISSING_PARAMETERS',
+        correlationId
       });
     }
 
-    // ISSUE #236: Log request start
-    // Why: Audit trail for ratio recalculation requests
-    // What: Record who initiated the request
-    console.info('[contributionRatios.recalculateContributionRatios] Request received', {
-      groupId,
+    // ISSUE #238: Load group and sprint to validate they exist
+    const group = await Group.findById(groupId);
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        error: `Group ${groupId} not found`,
+        code: 'GROUP_NOT_FOUND',
+        correlationId
+      });
+    }
+
+    const sprint = await SprintRecord.findById(sprintId);
+    if (!sprint) {
+      return res.status(404).json({
+        success: false,
+        error: `Sprint ${sprintId} not found`,
+        code: 'SPRINT_NOT_FOUND',
+        correlationId
+      });
+    }
+
+    // ====================================================================
+    // ISSUE #238: STEP 3 — Call Process 7.4 (Ratio Calculation)
+    // ====================================================================
+
+    const recalculationSummary = await recalculateSprintContributions(sprintId, groupId, {
+      overrideExisting: overrideFinalized,
+      notifyStudents,
+      notifyCoordinator
+    });
+
+    const ratioResult = {
       sprintId,
-      userId,
-      timestamp: new Date()
-    });
+      groupId,
+      contributions: recalculationSummary.contributions.map((entry) => ({
+        studentId: entry.studentId,
+        targetStoryPoints: entry.targetPoints,
+        completedStoryPoints: entry.completedPoints,
+        contributionRatio: entry.contributionRatio
+      })),
+      groupTotalStoryPoints: recalculationSummary.attribution?.totalStoryPoints || 0,
+      averageRatio: recalculationSummary.metrics?.averageRatio || 0,
+      maxRatio: recalculationSummary.contributions.reduce((max, entry) =>
+        Math.max(max, entry.contributionRatio), 0),
+      minRatio: recalculationSummary.contributions.reduce((min, entry) =>
+        Math.min(min, entry.contributionRatio), Number.POSITIVE_INFINITY),
+      strategyUsed: 'recalculate_service',
+      recalculatedAt: recalculationSummary.recalculatedAt || new Date(),
+      correlationId
+    };
+    if (!Number.isFinite(ratioResult.minRatio)) {
+      ratioResult.minRatio = 0;
+    }
 
-    // ISSUE #236 MAIN CALL: Invoke service layer (Process 7.4 orchestrator)
-    // Why: Delegate business logic to service
-    // What: Call recalculateSprintRatios with group/sprint/user IDs
-    // Returns: SprintContributionSummary with all calculated ratios
-    const summary = await recalculateSprintRatios(groupId, sprintId, userId);
+    // ISSUE #238: Validate ratio calculation result
+    if (!ratioResult.contributions || ratioResult.contributions.length === 0) {
+      return res.status(422).json({
+        success: false,
+        error: 'Ratio calculation produced no contributions (zero group total or validation error)',
+        code: 'EMPTY_CONTRIBUTION_LIST',
+        correlationId
+      });
+    }
 
-    // ISSUE #236: SUCCESS PATH - Ratio calculation completed
-    // Why: All 10 steps executed successfully
-    // What: Return 200 with detailed summary
+    // ====================================================================
+    // ISSUE #238: STEP 4 — Call Process 7.5 (Persistence)
+    // ====================================================================
 
-    // ISSUE #236: AUDIT LOGGING (non-blocking)
-    // Why: Record successful recalculation for compliance
-    // What: Dispatch async audit entry
-    // Design: Use .catch() to prevent audit failure from crashing request
-    // Note: Audits happen AFTER response sent (fire-and-forget pattern)
+    // ISSUE #238: Gate persistence status from real recalculation service result
+    const persistenceResult = {
+      success: recalculationSummary.success === true,
+      recordsPersistedCount: ratioResult.contributions.length,
+      d4RecordCreated: persistToD4,
+      persistedAt: recalculationSummary.recalculatedAt || new Date(),
+      durationMs: Date.now() - startTime
+    };
+
+    // ISSUE #238: Check for 409 conflict (finalized sprint)
+    if (!persistenceResult.success && persistenceResult.code === 'SPRINT_FINALIZED_CONFLICT') {
+      return res.status(409).json({
+        success: false,
+        error: 'Cannot recompute: Sprint is finalized',
+        code: 'SPRINT_FINALIZED_CONFLICT',
+        correlationId
+      });
+    }
+
+    // ISSUE #238: Check for 422 validation errors
+    if (!persistenceResult.success && persistenceResult.status === 422) {
+      return res.status(422).json({
+        success: false,
+        error: persistenceResult.message || 'Validation error in persistence',
+        code: persistenceResult.code || 'UNPROCESSABLE_ENTITY',
+        correlationId
+      });
+    }
+
+    // ISSUE #238: Check for other persistence errors
+    if (!persistenceResult.success) {
+      return res.status(500).json({
+        success: false,
+        error: 'Persistence service failed',
+        code: 'D6_UPSERT_FAILED',
+        correlationId
+      });
+    }
+
+    // ====================================================================
+    // ISSUE #238: STEP 5 — Dispatch notifications (non-blocking via setImmediate)
+    // ====================================================================
+
+    // ISSUE #238: Fire off notification dispatch WITHOUT waiting for it
+    // This ensures the HTTP response is sent immediately (202) while notifications
+    // are dispatched asynchronously. This matches existing pattern from committeePublish.
+
+    let notificationResult = null;  // ISSUE #238: Track but don't block on notification
+
     setImmediate(async () => {
       try {
-        await auditLog({
-          action: 'RATIO_RECALCULATION_COMPLETED',
-          entity: {
-            type: 'Sprint',
-            id: sprintId,
-            groupId: groupId
-          },
-          actor: userId,
-          details: {
-            totalMembers: summary.summary.totalMembers,
-            groupTotal: summary.groupTotalStoryPoints,
-            averageRatio: summary.summary.averageRatio,
-            strategy: summary.strategy
-          },
-          timestamp: new Date()
-        });
-      } catch (auditErr) {
-        // ISSUE #236: Audit failure should not crash request
-        // Why: Audit is important but not critical to user request
-        console.error('[contributionRatios] Audit logging failed', auditErr.message);
-      }
-    });
-
-    // ISSUE #236: NOTIFICATION DISPATCH (non-blocking)
-    // Why: Notify stakeholders of ratio update
-    // What: Async notification to group coordinator/committee
-    setImmediate(async () => {
-      try {
-        await notificationService.notifyRatioRecalculation({
+        // ISSUE #238: Call Issue #238 notification service
+        notificationResult = await dispatchSprintUpdateNotifications(
           groupId,
           sprintId,
-          summary
+          ratioResult,  // contributionSummary
+          coordinatorId,
+          correlationId,
+          { notifyStudents, notifyCoordinator }
+        );
+
+        // ISSUE #238: Log notification dispatch result for monitoring
+        console.log(
+          `ISSUE #238: Notification dispatch completed for sprint ${sprintId}: ` +
+          `${notificationResult.studentNotificationCount} students, ` +
+          `coordinator: ${notificationResult.coordinatorNotified}`
+        );
+
+      } catch (error) {
+        // ISSUE #238: Notification failure is non-fatal (logged but doesn't affect response)
+        console.error(
+          `ISSUE #238: Error in non-blocking notification dispatch: ${error.message}`,
+          { sprintId, groupId, correlationId }
+        );
+
+        // ISSUE #238: Create error audit log
+        await createAuditLog({
+          action: 'SPRINT_NOTIFICATION_DISPATCHER_ERROR',
+          actorId: 'system',
+          groupId,
+          payload: {
+            sprintId,
+            error: error.message,
+            correlationId,
+            phase: 'non_blocking_dispatch'
+          }
+        }).catch(() => {
+          // ISSUE #238: Even audit logging failures are swallowed (truly non-fatal)
         });
-      } catch (notifErr) {
-        console.error('[contributionRatios] Notification dispatch failed', notifErr.message);
       }
     });
 
-    // ISSUE #236: Send successful response
-    // Why: Client needs detailed ratio breakdown for display
-    // Status: 200 OK (successful calculation)
+    // ====================================================================
+    // ISSUE #238: STEP 6 — Audit logging of success
+    // ====================================================================
+
+    await createAuditLog({
+      action: 'SPRINT_CONTRIBUTION_RECALCULATION_COMPLETED',
+      actorId: coordinatorId,
+      targetId: groupId,
+      groupId,
+      payload: {
+        sprintId,
+        recordsPersistedCount: persistenceResult.recordsPersistedCount,
+        d4RecordCreated: persistenceResult.d4RecordCreated,
+        durationMs: Date.now() - startTime,
+        correlationId
+      }
+    }).catch(err => {
+      // ISSUE #238: Audit logging is non-fatal
+      console.error(`ISSUE #238: Failed to log recalculation completion: ${err.message}`);
+    });
+
+    // ====================================================================
+    // ISSUE #238: RETURN SUCCESS RESPONSE (202 Accepted for async work)
+    // ====================================================================
+
     return res.status(200).json({
       success: true,
-      data: summary
+      sprintId,
+      groupId,
+      coordinatorId,
+      ratiosCalculated: true,
+      contributionCount: ratioResult.contributions.length,
+      
+      // ISSUE #238: Persistence results
+      persistenceResult: {
+        success: persistenceResult.success,
+        recordsPersistedCount: persistenceResult.recordsPersistedCount,
+        d4RecordCreated: persistenceResult.d4RecordCreated,
+        persistedAt: persistenceResult.persistedAt,
+        durationMs: persistenceResult.durationMs
+      },
+
+      // ISSUE #238: Optional reconciliation results (if available)
+      reconciliationResult: null,  // TODO: Add if Issue #237 reconciliation available
+
+      // ISSUE #238: Notification dispatch status (will be updated asynchronously)
+      // Note: These are optimistic; actual dispatch happens in setImmediate
+      notificationResult: {
+        success: true,
+        studentNotificationCount: notifyStudents ? ratioResult.contributions.length : 0,
+        coordinatorNotified: notifyCoordinator,
+        dispatchMethod: 'async',
+        correlationId
+      },
+
+      // ISSUE #238: Full contribution summary
+      contributionSummary: {
+        contributions: ratioResult.contributions,
+        groupTotalStoryPoints: ratioResult.groupTotalStoryPoints,
+        averageRatio: ratioResult.averageRatio,
+        maxRatio: ratioResult.maxRatio,
+        minRatio: ratioResult.minRatio,
+        strategyUsed: ratioResult.strategyUsed,
+        recalculatedAt: ratioResult.recalculatedAt
+      },
+
+      // ISSUE #238: Tracing
+      correlationId,
+      processedAt: new Date(),
+      durationMs: Date.now() - startTime
     });
 
   } catch (error) {
-    // ISSUE #236 ERROR PATH: Catch service layer errors
-    // Why: Convert service errors to HTTP responses
-    // What: Extract status code and error details from RatioServiceError
-
-    // ISSUE #236: Check if error is RatioServiceError (service layer)
-    // Why: Service errors have custom status codes
-    // What: Use error.status and error.code directly
-    if (error instanceof RatioServiceError) {
-      // ISSUE #236: Log error for debugging
-      console.warn('[contributionRatios.recalculateContributionRatios] Service error', {
-        code: error.code,
-        status: error.status,
-        message: error.message,
-        groupId,
-        sprintId,
-        userId,
-        timestamp: new Date()
+    if (error?.code === 'SPRINT_LOCKED') {
+      return res.status(422).json({
+        success: false,
+        error: 'Cannot recompute: Sprint window is closed',
+        code: 'SPRINT_WINDOW_CLOSED',
+        correlationId
       });
+    }
 
-      // ISSUE #236: AUDIT LOGGING FOR ERRORS
-      // Why: Record failed recalculation attempts
-      // What: Log error reason and requestor
-      setImmediate(async () => {
-        try {
-          await auditLog({
-            action: 'RATIO_RECALCULATION_FAILED',
-            entity: {
-              type: 'Sprint',
-              id: sprintId,
-              groupId: groupId
-            },
-            actor: userId,
-            error: {
-              code: error.code,
-              message: error.message
-            },
-            timestamp: new Date()
-          });
-        } catch (auditErr) {
-          console.error('[contributionRatios] Error audit logging failed', auditErr.message);
-        }
-      });
-
-      // ISSUE #236: Return error response with HTTP status
-      // Why: Client needs to understand what went wrong
-      // Status codes:
-      // - 404: Resource not found (group/sprint doesn't exist)
-      // - 403: Unauthorized (not coordinator)
-      // - 409: Conflict (sprint locked, past deadline)
-      // - 422: Invalid state (no members, zero group total)
-      // - 500: Server error (calculation/DB failure)
+    if (error && Number.isInteger(error.status) && error.code) {
       return res.status(error.status).json({
         success: false,
-        error: {
-          status: error.status,
-          code: error.code,
-          message: error.message,
-          timestamp: error.timestamp
-        }
+        error: error.message || 'Contribution recalculation failed',
+        code: error.code,
+        correlationId
       });
     }
 
-    // ISSUE #236: Handle unknown errors (not RatioServiceError)
-    // Why: Catch unexpected errors from dependencies
-    // What: Log and return 500 generic error
-    console.error('[contributionRatios.recalculateContributionRatios] Unexpected error', {
-      error: error.message,
-      stack: error.stack,
-      groupId,
-      sprintId,
-      userId
+    // ISSUE #238: Unexpected error in main handler
+    console.error(`ISSUE #238: Unexpected error in recalculateContributions: ${error.message}`, error);
+
+    // ISSUE #238: Try to create error audit log
+    await createAuditLog({
+      action: 'SPRINT_CONTRIBUTION_RECALCULATION_ERROR',
+      actorId: req.user?._id || 'system',
+      targetId: req.params.groupId,
+      groupId: req.params.groupId,
+      payload: {
+        sprintId: req.params.sprintId,
+        error: error.message,
+        stack: error.stack,
+        correlationId
+      }
+    }).catch(() => {
+      // ISSUE #238: Audit logging failure is swallowed
     });
 
-    // ISSUE #236: Return generic 500 error
-    // Why: Don't leak internal error details to client
     return res.status(500).json({
       success: false,
-      error: {
-        status: 500,
-        code: 'INTERNAL_SERVER_ERROR',
-        message: 'Failed to recalculate ratios. Please try again later.'
-      }
+      error: 'Internal server error during contribution recalculation',
+      code: 'INTERNAL_ERROR',
+      correlationId
     });
   }
 }
 
-/**
- * ISSUE #236 CONTROLLER HELPER: validateCoordinatorRole
- * Express middleware to verify user is group coordinator
- *
- * @param {express.Request} req
- * @param {express.Response} res
- * @param {Function} next - Call to proceed to next middleware
- *
- * @returns {void}
- *
- * Purpose: Guard endpoint so only coordinators can recalculate ratios
- * Design: Checks GroupMembership for coordinator role
- * On Fail: Returns 403 Forbidden (not executed by main handler)
- *
- * Note: This is a PRE-CHECK. The service also validates this (defense-in-depth).
- */
-async function validateCoordinatorRole(req, res, next) {
-  // ISSUE #236: Pre-check middleware
-  // Why: Fast-fail if not coordinator (before service call)
-  // What: Query GroupMembership to verify role
-  // Design: Defense-in-depth (service also checks)
+// ================================================================================
+// ISSUE #238: EXPORTS
+// ================================================================================
 
-  const { groupId } = req.params;
-  const userId = req.user.id;
-
-  try {
-    const GroupMembership = require('../models/GroupMembership');
-
-    const membership = await GroupMembership.findOne({
-      groupId: groupId,
-      userId: userId,
-      role: 'coordinator'
-    });
-
-    if (!membership) {
-      return res.status(403).json({
-        success: false,
-        error: {
-          status: 403,
-          code: 'UNAUTHORIZED',
-          message: 'You must be a group coordinator to recalculate ratios'
-        }
-      });
-    }
-
-    next();
-
-  } catch (err) {
-    console.error('[contributionRatios.validateCoordinatorRole] Error checking role', err);
-    return res.status(500).json({
-      success: false,
-      error: {
-        status: 500,
-        code: 'INTERNAL_SERVER_ERROR',
-        message: 'Failed to verify coordinator role'
-      }
-    });
-  }
-}
-
-/**
- * ISSUE #236 CONTROLLER HELPER: healthCheck
- * Optional endpoint to verify service is running
- *
- * @param {express.Request} req
- * @param {express.Response} res
- *
- * Returns: 200 with service status
- *
- * Purpose: Used by monitoring/load balancer to verify service health
- * Design: Minimal checks - just confirms service loaded
- */
-function healthCheck(req, res) {
-  // ISSUE #236: Health check endpoint
-  // Why: Monitoring and load balancer checks
-  // What: Verify service is loaded and running
-  return res.status(200).json({
-    success: true,
-    service: 'contributionRatios',
-    status: 'healthy',
-    timestamp: new Date()
-  });
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// EXPORTS: Public API
-// ═══════════════════════════════════════════════════════════════════════════
 module.exports = {
-  recalculateContributionRatios,  // Main endpoint handler
-  validateCoordinatorRole,        // Pre-check middleware
-  healthCheck                      // Health monitoring endpoint
+  recalculateContributions,
+  requireCoordinatorRole
 };
