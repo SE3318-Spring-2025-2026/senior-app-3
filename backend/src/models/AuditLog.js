@@ -128,6 +128,31 @@ const auditLogSchema = new mongoose.Schema(
         'GITHUB_SYNC_INITIATED',
         'GITHUB_SYNC_COMPLETED',
         'GITHUB_SYNC_FAILED',
+
+        // ================================================================================
+        // ISSUE #241: Operational Hooks & Idempotency — Webhook & Attribution Tracking
+        // ================================================================================
+        // ISSUE #241: Webhook delivery lifecycle events
+        // Track every webhook delivery attempt, retry, success, and failure
+        'WEBHOOK_DELIVERY_INITIATED',      // New webhook job created
+        'WEBHOOK_DELIVERY_DISPATCHED',     // Webhook sent to external service
+        'WEBHOOK_DELIVERY_SUCCEEDED',      // External service accepted webhook
+        'WEBHOOK_DELIVERY_FAILED',         // Webhook failed after max retries
+        'WEBHOOK_DELIVERY_RETRIED',        // Webhook retry attempt scheduled
+        'WEBHOOK_DELIVERY_ERROR',          // Unexpected error during webhook processing
+
+        // ISSUE #241: Attribution changes & audit tracking
+        // Track when student contribution ratios change due to sync operations
+        'ATTRIBUTION_RATIO_CHANGED',       // Student contribution ratio updated (includes old/new)
+        'ATTRIBUTION_SYNC_INITIATED',      // GitHub sync started for attribution
+        'ATTRIBUTION_SYNC_COMPLETED',      // Attribution sync finished
+        'ATTRIBUTION_MISMATCH_DETECTED',   // Old vs new ratio doesn't match (anomaly)
+
+        // ISSUE #241: Idempotency & duplicate detection
+        // Track idempotency enforcement and duplicate request detection
+        'IDEMPOTENCY_KEY_VALIDATED',       // Idempotency key checked and validated
+        'DUPLICATE_REQUEST_DETECTED',      // Duplicate request found (replayed)
+        'FINGERPRINT_COLLISION_DETECTED',  // Rare: SHA256 collision detected
       ],
     },
     actorId: {

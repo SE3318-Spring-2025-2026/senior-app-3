@@ -70,6 +70,42 @@ const gitHubSyncJobSchema = new mongoose.Schema(
 
     /** Who triggered the sync */
     triggeredBy: { type: String, default: null },
+
+    // =========================================================================
+    // ISSUE #241: Operational Hooks & Idempotency Fields
+    // =========================================================================
+
+    /**
+     * ISSUE #241: CorrelationId for distributed tracing
+     * Links this job to the HTTP request that triggered it.
+     * Used to correlate logs across GitHub sync, JIRA, notifications, and audits.
+     */
+    correlationId: {
+      type: String,
+      index: true,
+      default: null
+    },
+
+    /**
+     * ISSUE #241: Idempotency key from client
+     * Allows client to safely retry the POST request with same key.
+     * If not provided in request, a generated UUID is stored.
+     */
+    idempotencyKey: {
+      type: String,
+      index: true,
+      default: null
+    },
+
+    /**
+     * ISSUE #241: Request fingerprint (SHA256 hash)
+     * SHA256(JSON.stringify(payload) + idempotencyKey)
+     * Used for deduplication and detecting replay attacks.
+     */
+    fingerprint: {
+      type: String,
+      default: null
+    }
   },
   {
     timestamps: true,
@@ -81,5 +117,17 @@ const gitHubSyncJobSchema = new mongoose.Schema(
 gitHubSyncJobSchema.index({ groupId: 1, sprintId: 1, status: 1 });
 // Fast job retrieval by jobId
 gitHubSyncJobSchema.index({ jobId: 1 }, { unique: true });
+
+// =========================================================================
+// ISSUE #241: Indexes for operational tracking
+// =========================================================================
+
+// ISSUE #241: Index for correlationId tracing
+// Query: find all sync jobs triggered by same request
+gitHubSyncJobSchema.index({ correlationId: 1, createdAt: -1 });
+
+// ISSUE #241: Index for idempotency key
+// Query: find sync job by idempotency key (for replay detection)
+gitHubSyncJobSchema.index({ idempotencyKey: 1, fingerprint: 1 });
 
 module.exports = mongoose.model('GitHubSyncJob', gitHubSyncJobSchema);
