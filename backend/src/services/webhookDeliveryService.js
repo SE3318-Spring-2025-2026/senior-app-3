@@ -27,6 +27,7 @@ const { WebhookDelivery, WEBHOOK_STATUS } = require('../models/WebhookDelivery')
 const { WebhookSignature } = require('../models/WebhookSignature');
 const AuditLog = require('../models/AuditLog');
 const { getCorrelationId, createChildContext } = require('../middleware/correlationId');
+const { logError, logInfo } = require('../utils/structuredLogger');
 
 /**
  * ISSUE #241: Configuration for retry logic
@@ -156,6 +157,7 @@ async function dispatchWebhook(params) {
       targetService: params.targetService,
       payload: params.payload,
       correlationId: params.correlationId,
+      externalRequestId: params.externalRequestId || null,
       context: params.context,
       status: WEBHOOK_STATUS.PENDING,
       events: [{
@@ -177,7 +179,11 @@ async function dispatchWebhook(params) {
       user: params.context?.initiatedBy || 'system',
       payload: {
         webhookId: savedWebhook.webhookId,
+        jobId: params.context?.jobId || null,
         correlationId: params.correlationId,
+        externalRequestId: params.externalRequestId || null,
+        groupId: params.context?.groupId || null,
+        sprintId: params.context?.sprintId || null,
         targetService: params.targetService,
         idempotencyKey: params.idempotencyKey
       }
@@ -186,16 +192,40 @@ async function dispatchWebhook(params) {
     // ISSUE #241: Schedule for async processing (non-blocking)
     // Use setImmediate to defer to next event loop iteration
     setImmediate(() => {
-      processWebhookDelivery(savedWebhook.webhookId, params.correlationId)
-        .catch(error => {
-          console.error('ISSUE #241: Webhook processing error:', error);
-          // ISSUE #241: Error logged but not thrown (async task)
+      try {
+        processWebhookDelivery(savedWebhook.webhookId, params.correlationId)
+          .catch(error => {
+            logError('Webhook processing error', {
+              service_name: 'webhook_dispatch',
+              correlationId: params.correlationId,
+              externalRequestId: params.externalRequestId || null,
+              webhookId: savedWebhook.webhookId,
+              jobId: params.context?.jobId || null,
+              error: error.message
+            });
+            // ISSUE #241: Error logged but not thrown (async task)
+          });
+      } catch (setImmediateErr) {
+        logError('Webhook setImmediate dispatch failure', {
+          service_name: 'webhook_dispatch',
+          correlationId: params.correlationId,
+          externalRequestId: params.externalRequestId || null,
+          webhookId: savedWebhook.webhookId,
+          jobId: params.context?.jobId || null,
+          error: setImmediateErr.message
         });
+      }
     });
 
     return savedWebhook;
   } catch (error) {
-    console.error('ISSUE #241: Error dispatching webhook:', error);
+    logError('Error dispatching webhook', {
+      service_name: 'webhook_dispatch',
+      correlationId: params?.correlationId || null,
+      externalRequestId: params?.externalRequestId || null,
+      jobId: params?.context?.jobId || null,
+      error: error.message
+    });
     throw error;
   }
 }
@@ -228,7 +258,13 @@ async function processWebhookDelivery(webhookId, correlationId) {
 
     // ISSUE #241: Check if already succeeded (idempotency for retries)
     if (webhook.status === WEBHOOK_STATUS.SUCCEEDED) {
-      console.log(`[${correlationId}] Webhook already succeeded: ${webhookId}`);
+      logInfo('Webhook already succeeded', {
+        service_name: 'webhook_dispatch',
+        correlationId,
+        externalRequestId: webhook.externalRequestId || null,
+        webhookId,
+        jobId: webhook.context?.jobId || null
+      });
       return webhook;
     }
 
@@ -257,7 +293,11 @@ async function processWebhookDelivery(webhookId, correlationId) {
           action: 'WEBHOOK_DELIVERY_RETRIED',
           payload: {
             webhookId,
+            jobId: webhook.context?.jobId || null,
             correlationId,
+            externalRequestId: webhook.externalRequestId || null,
+            groupId: webhook.context?.groupId || null,
+            sprintId: webhook.context?.sprintId || null,
             attempt: webhook.retryCount,
             nextRetry: nextRetryTime,
             error: error.message
@@ -267,7 +307,14 @@ async function processWebhookDelivery(webhookId, correlationId) {
         // ISSUE #241: Schedule next attempt
         setTimeout(() => {
           processWebhookDelivery(webhookId, correlationId)
-            .catch(e => console.error('ISSUE #241: Retry processing error:', e));
+            .catch(e => logError('Webhook retry processing error', {
+              service_name: 'webhook_dispatch',
+              correlationId,
+              externalRequestId: webhook.externalRequestId || null,
+              webhookId,
+              jobId: webhook.context?.jobId || null,
+              error: e.message
+            }));
         }, retryDelay);
 
         return { scheduled: true, nextRetry: nextRetryTime };
@@ -280,7 +327,11 @@ async function processWebhookDelivery(webhookId, correlationId) {
           action: 'WEBHOOK_DELIVERY_FAILED',
           payload: {
             webhookId,
+            jobId: webhook.context?.jobId || null,
             correlationId,
+            externalRequestId: webhook.externalRequestId || null,
+            groupId: webhook.context?.groupId || null,
+            sprintId: webhook.context?.sprintId || null,
             attempts: webhook.retryCount,
             error: error.message,
             statusCode: error.statusCode
@@ -299,7 +350,12 @@ async function processWebhookDelivery(webhookId, correlationId) {
       action: 'WEBHOOK_DELIVERY_SUCCEEDED',
       payload: {
         webhookId,
+        jobId: webhook.context?.jobId || null,
         correlationId,
+        externalRequestId: webhook.externalRequestId || null,
+        groupId: webhook.context?.groupId || null,
+        sprintId: webhook.context?.sprintId || null,
+        attempt: webhook.retryCount,
         targetService: webhook.targetService,
         statusCode: response.statusCode
       }
@@ -307,17 +363,30 @@ async function processWebhookDelivery(webhookId, correlationId) {
 
     return webhook;
   } catch (error) {
-    console.error(`[${correlationId}] ISSUE #241: Final webhook error:`, error);
+    logError('Final webhook error', {
+      service_name: 'webhook_dispatch',
+      correlationId,
+      externalRequestId: null,
+      webhookId,
+      error: error.message
+    });
 
     // ISSUE #241: Log unexpected error
     await AuditLog.create({
       action: 'WEBHOOK_DELIVERY_ERROR',
       payload: {
         webhookId,
+        jobId: null,
         correlationId,
         error: error.message
       }
-    }).catch(e => console.error('Failed to log webhook error:', e));
+    }).catch(e => logError('Failed to persist webhook error audit', {
+      service_name: 'webhook_dispatch',
+      correlationId,
+      externalRequestId: null,
+      webhookId,
+      error: e.message
+    }));
 
     throw error;
   }

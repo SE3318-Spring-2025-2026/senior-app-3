@@ -25,9 +25,8 @@
  */
 
 const crypto = require('crypto');
-const { v4: uuidv4 } = require('uuid');
 const { WebhookSignature } = require('../models/WebhookSignature');
-const { WebhookDelivery, WEBHOOK_STATUS } = require('../models/WebhookDelivery');
+const { logError } = require('../utils/structuredLogger');
 
 /**
  * ISSUE #241: Idempotency key validation constants
@@ -64,7 +63,7 @@ const IDEMPOTENCY_KEY_CONFIG = {
  * Priority order:
  * 1. HTTP headers (Idempotency-Key, X-Idempotency-Key, etc.)
  * 2. JSON request body fields
- * 3. Generate new UUID if not provided
+ * 3. Deterministically derive key from request identity if not provided
  *
  * @param {Object} req - Express request object
  * @returns {Object} { idempotencyKey, source }
@@ -95,13 +94,36 @@ function extractIdempotencyKey(req) {
     }
   }
 
-  // ISSUE #241: Step 3 — Generate new key if not provided
-  // Allows requests without explicit idempotency key to still work
-  const generatedKey = `generated_${uuidv4()}`;
+  const generatedKey = generateDeterministicIdempotencyKey(req);
   return {
     idempotencyKey: generatedKey,
-    source: 'generated'
+    source: 'derived'
   };
+}
+
+function stableStringify(value) {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  }
+  const keys = Object.keys(value).sort();
+  const content = keys
+    .map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`)
+    .join(',');
+  return `{${content}}`;
+}
+
+function generateDeterministicIdempotencyKey(req) {
+  const method = req?.method || '';
+  const originalUrl = req?.originalUrl || req?.url || '';
+  const actorId = req?.user?.userId || req?.user?.id || 'anonymous';
+  const body = stableStringify(req?.body || {});
+  return crypto
+    .createHash('sha256')
+    .update(`${method}::${originalUrl}::${body}::${actorId}`)
+    .digest('hex');
 }
 
 /**
@@ -172,9 +194,7 @@ function validateIdempotencyKey(key) {
  * @returns {String} SHA256 hex hash
  */
 function computeFingerprint(payload, idempotencyKey) {
-  // ISSUE #241: Serialize payload deterministically
-  // Sort keys to ensure consistent hashing regardless of key order
-  const payloadString = JSON.stringify(payload, Object.keys(payload).sort());
+  const payloadString = stableStringify(payload || {});
 
   // ISSUE #241: Concatenate payload + key
   // Key prevents hash collisions from different keys
@@ -191,135 +211,53 @@ function computeFingerprint(payload, idempotencyKey) {
 }
 
 /**
- * ISSUE #241: Check for duplicate request
- * 
- * Queries WebhookSignature for existing fingerprint.
- * If found and not expired, returns existing webhook ID.
- * If not found or expired, returns null for new webhook creation.
+ * Atomically acquires idempotency signature ownership.
+ * This removes read-then-write races under concurrent identical requests.
  *
- * @param {String} fingerprint - SHA256 hash of request
- * @param {String} idempotencyKey - Idempotency key
- * @returns {Promise<Object|null>} Existing signature or null
+ * @param {Object} params
+ * @param {String} params.fingerprint
+ * @param {String} params.idempotencyKey
+ * @param {String} params.webhookId
+ * @param {Object} params.context
+ * @returns {Promise<{ acquired: boolean, signature: Object }>}
  */
-async function checkForDuplicate(fingerprint, idempotencyKey) {
-  try {
-    // ISSUE #241: Query WebhookSignature collection
-    const signature = await WebhookSignature.findByFingerprint(
-      fingerprint,
-      idempotencyKey
-    );
+async function acquireIdempotencySignature(params, options = {}) {
+  const { session = null } = options;
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + IDEMPOTENCY_KEY_CONFIG.EXPIRATION_MS);
 
-    if (signature) {
-      // ISSUE #241: Duplicate detected — record replay
-      await signature.recordReplay();
-
-      return {
-        isDuplicate: true,
-        webhookId: signature.webhookId,
-        replayCount: signature.replayCount,
-        firstSeenAt: signature.firstSeenAt
-      };
-    }
-
-    // ISSUE #241: New request — no duplicate found
-    return null;
-  } catch (error) {
-    // ISSUE #241: Log error but don't block request
-    // Idempotency is best-effort; database errors should not break APIs
-    console.error('ISSUE #241: Duplicate check error:', error);
-    return null;
-  }
-}
-
-/**
- * ISSUE #241: Register new request signature
- * 
- * Creates WebhookSignature record to track this request for future
- * duplicate detection.
- *
- * @param {Object} params - Parameters
- * @param {String} params.fingerprint - SHA256 hash
- * @param {String} params.idempotencyKey - Client-provided key
- * @param {String} params.webhookId - Webhook ID for this request
- * @param {Object} params.context - Request context
- * @returns {Promise<Object>} Created signature
- */
-async function registerSignature(params) {
-  try {
-    // ISSUE #241: Create WebhookSignature to enable duplicate detection
-    const signature = await WebhookSignature.createSignature({
-      fingerprint: params.fingerprint,
-      idempotencyKey: params.idempotencyKey,
-      webhookId: params.webhookId,
-      context: params.context
-    });
-
-    return signature;
-  } catch (error) {
-    // ISSUE #241: Handle unique constraint violation (extremely rare)
-    // Could happen if two requests with same fingerprint arrive simultaneously
-    if (error.code === 11000) {
-      // ISSUE #241: Collision detected — query and return existing
-      console.error('ISSUE #241: Fingerprint collision detected:', error);
-      const existing = await WebhookSignature.findOne({
-        fingerprint: params.fingerprint
-      });
-      if (existing) {
-        return existing;
+  const result = await WebhookSignature.findOneAndUpdate(
+    { fingerprint: params.fingerprint },
+    {
+      $setOnInsert: {
+        idempotencyKey: params.idempotencyKey,
+        fingerprint: params.fingerprint,
+        webhookId: params.webhookId,
+        firstSeenAt: now,
+        replayCount: 1,
+        context: params.context || {},
+        expiresAt
+      },
+      $set: {
+        'context.correlationId': params.context?.correlationId || null
       }
-    }
+    },
+    { upsert: true, new: true, includeResultMetadata: true, ...(session ? { session } : {}) }
+  );
 
-    // ISSUE #241: Re-throw other errors
-    throw error;
+  const acquired = Boolean(result.lastErrorObject?.upserted);
+  if (!acquired) {
+    await WebhookSignature.updateOne(
+      { _id: result.value._id },
+      { $inc: { replayCount: 1 } },
+      session ? { session } : undefined
+    );
   }
-}
 
-/**
- * ISSUE #241: Get idempotency status for a request
- * 
- * Returns comprehensive idempotency information:
- * - Whether request was duplicate
- * - Previous webhook ID if duplicate
- * - Replay count
- * - First occurrence time
- *
- * @param {Object} req - Express request object
- * @returns {Promise<Object>} Idempotency status
- */
-async function getIdempotencyStatus(req) {
-  try {
-    // ISSUE #241: Extract idempotency key from request
-    const { idempotencyKey, source } = extractIdempotencyKey(req);
-
-    // ISSUE #241: Validate key format
-    const validation = validateIdempotencyKey(idempotencyKey);
-    if (!validation.valid) {
-      return {
-        valid: false,
-        error: validation.error
-      };
-    }
-
-    // ISSUE #241: Compute request fingerprint
-    const fingerprint = computeFingerprint(req.body || {}, idempotencyKey);
-
-    // ISSUE #241: Check for duplicate
-    const duplicate = await checkForDuplicate(fingerprint, idempotencyKey);
-
-    return {
-      valid: true,
-      idempotencyKey,
-      fingerprint,
-      source,
-      ...duplicate
-    };
-  } catch (error) {
-    console.error('ISSUE #241: Error getting idempotency status:', error);
-    return {
-      valid: false,
-      error: error.message
-    };
-  }
+  return {
+    acquired,
+    signature: result.value
+  };
 }
 
 /**
@@ -343,48 +281,46 @@ async function getIdempotencyStatus(req) {
  * @returns {Promise<Object>} Idempotency status
  */
 async function enforceIdempotency(req, res) {
-  // ISSUE #241: Get complete idempotency status
-  const status = await getIdempotencyStatus(req);
+  try {
+    const { idempotencyKey, source } = extractIdempotencyKey(req);
+    const validation = validateIdempotencyKey(idempotencyKey);
+    if (!validation.valid) {
+      return {
+        valid: false,
+        isDuplicate: false,
+        statusCode: 400,
+        error: validation.error
+      };
+    }
 
-  if (!status.valid) {
-    // ISSUE #241: Invalid idempotency key — bad request
-    return {
-      valid: false,
-      isDuplicate: false,
-      statusCode: 400,
-      error: status.error
-    };
-  }
+    const fingerprint = computeFingerprint(req.body || {}, idempotencyKey);
 
-  // ISSUE #241: Attach to request for service layer access
-  req.idempotencyKey = status.idempotencyKey;
-  req.fingerprint = status.fingerprint;
+    req.idempotencyKey = idempotencyKey;
+    req.fingerprint = fingerprint;
+    req.idempotencySource = source;
 
-  // ISSUE #241: Set response header with fingerprint
-  // Client can use this for debugging
-  res.setHeader('X-Fingerprint', status.fingerprint);
-  res.setHeader('X-Idempotency-Key', status.idempotencyKey);
-
-  if (status.isDuplicate) {
-    // ISSUE #241: Duplicate detected — set appropriate status
-    res.setHeader('X-Idempotency-Replayed', 'true');
-    res.setHeader('X-Replay-Count', status.replayCount);
+    res.setHeader('X-Fingerprint', fingerprint);
+    res.setHeader('X-Idempotency-Key', idempotencyKey);
 
     return {
       valid: true,
-      isDuplicate: true,
-      webhookId: status.webhookId,
-      replayCount: status.replayCount,
-      statusCode: 200  // 200 OK for duplicates (RFC 7231)
+      isDuplicate: false,
+      statusCode: 202
+    };
+  } catch (error) {
+    logError('Idempotency enforcement failed', {
+      service_name: 'sync_deduplication',
+      correlationId: req?.correlationId || null,
+      externalRequestId: req?.externalRequestId || null,
+      error: error.message
+    });
+    return {
+      valid: false,
+      isDuplicate: false,
+      statusCode: 500,
+      error: 'Failed to enforce idempotency'
     };
   }
-
-  // ISSUE #241: New request — continue processing
-  return {
-    valid: true,
-    isDuplicate: false,
-    statusCode: 202  // 202 Accepted for new async requests
-  };
 }
 
 /**
@@ -413,11 +349,11 @@ function getIdempotencyKey(req) {
 
 module.exports = {
   extractIdempotencyKey,
+  generateDeterministicIdempotencyKey,
   validateIdempotencyKey,
+  stableStringify,
   computeFingerprint,
-  checkForDuplicate,
-  registerSignature,
-  getIdempotencyStatus,
+  acquireIdempotencySignature,
   enforceIdempotency,
   getIdempotencyKey,
   IDEMPOTENCY_KEY_CONFIG

@@ -78,6 +78,11 @@ const webhookDeliverySchema = new Schema({
     required: true,
     index: true
   },
+  externalRequestId: {
+    type: String,
+    default: null,
+    index: true
+  },
 
   // ISSUE #241: Target endpoint information
   // Identifies which service this webhook targets
@@ -204,6 +209,7 @@ webhookDeliverySchema.index({ correlationId: 1, createdAt: -1 });
  * Query: db.webhookDeliveries.find({ 'context.groupId': 'g123', 'context.sprintId': 's456' })
  */
 webhookDeliverySchema.index({ 'context.groupId': 1, 'context.sprintId': 1, createdAt: -1 });
+webhookDeliverySchema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
 
 // ================================================================================
 // ISSUE #241: INSTANCE METHODS

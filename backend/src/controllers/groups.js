@@ -10,6 +10,7 @@ const AdvisorRequest = require('../models/AdvisorRequest');
 const { createAuditLog } = require('../services/auditService');
 const { forwardToMemberRequestPipeline, forwardOverrideToReconciliation } = require('../services/groupService');
 const { dispatchGroupCreationNotification, dispatchAdvisorRequestNotification } = require('../services/notificationService');
+const { getCorrelationId } = require('../middleware/correlationId');
 const { INACTIVE_GROUP_STATUSES, VALID_STATUS_TRANSITIONS } = require('../utils/groupStatusEnum');
 const SyncErrorLog = require('../models/SyncErrorLog');
 
@@ -1385,6 +1386,8 @@ const validateAdvisorRequest = async (groupId, professorId, requesterId, authUse
  */
 const createAdvisorRequest = async (req, res) => {
   try {
+    const correlationId = getCorrelationId(req);
+    const externalRequestId = req.externalRequestId || null;
     const { groupId, professorId, requesterId, message } = req.body;
     const { userId: authUserId } = req.user;
 
@@ -1507,6 +1510,8 @@ const createAdvisorRequest = async (req, res) => {
           groupId: requestResult.groupId,
           requesterId: requestResult.requesterId,
           message: requestResult.message || null,
+          correlationId,
+          externalRequestId,
         });
 
         if (dispatchResult.ok) {

@@ -26,6 +26,7 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
+const { logInfo } = require('../utils/structuredLogger');
 
 /**
  * ISSUE #241: Generate unique correlation ID
@@ -69,6 +70,12 @@ function correlationIdMiddleware() {
                                    req.headers['correlation-id'] ||
                                    req.body?.correlationId;
 
+    const incomingExternalRequestId = req.headers['x-external-request-id'] ||
+                                      req.headers['external-request-id'] ||
+                                      req.headers['x-request-id'] ||
+                                      req.headers['request-id'] ||
+                                      req.body?.externalRequestId;
+
     // ISSUE #241: Step 2 — Use existing or generate new
     // Allows client-side tracing integration if they provide ID
     const correlationId = incomingCorrelationId || generateCorrelationId();
@@ -76,17 +83,28 @@ function correlationIdMiddleware() {
     // ISSUE #241: Step 3 — Attach to request object for service layer access
     // Services and controllers can access via req.correlationId
     req.correlationId = correlationId;
+    req.externalRequestId = incomingExternalRequestId || null;
 
     // ISSUE #241: Step 4 — Set response header for client tracing
     // Client can use returned header to correlate with their logs
     res.setHeader('X-Correlation-ID', correlationId);
+    if (req.externalRequestId) {
+      res.setHeader('X-External-Request-ID', req.externalRequestId);
+    }
 
     // ISSUE #241: Optional: Attach to res.locals for template access
     res.locals.correlationId = correlationId;
+    res.locals.externalRequestId = req.externalRequestId;
 
     // ISSUE #241: Log entry point for debugging (dev mode only)
     if (process.env.NODE_ENV === 'development') {
-      console.log(`[${correlationId}] ${req.method} ${req.path}`);
+      logInfo('Correlation middleware request trace', {
+        service_name: 'correlation_middleware',
+        correlationId,
+        externalRequestId: req.externalRequestId || null,
+        method: req.method,
+        path: req.path
+      });
     }
 
     // ISSUE #241: Continue to next middleware

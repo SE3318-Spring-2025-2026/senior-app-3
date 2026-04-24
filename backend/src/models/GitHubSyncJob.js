@@ -96,6 +96,11 @@ const gitHubSyncJobSchema = new mongoose.Schema(
       index: true,
       default: null
     },
+    externalRequestId: {
+      type: String,
+      index: true,
+      default: null
+    },
 
     /**
      * ISSUE #241: Request fingerprint (SHA256 hash)
@@ -129,5 +134,11 @@ gitHubSyncJobSchema.index({ correlationId: 1, createdAt: -1 });
 // ISSUE #241: Index for idempotency key
 // Query: find sync job by idempotency key (for replay detection)
 gitHubSyncJobSchema.index({ idempotencyKey: 1, fingerprint: 1 });
+gitHubSyncJobSchema.index(
+  { idempotencyKey: 1, fingerprint: 1 },
+  { unique: true, sparse: true, name: 'uniq_idempotency_fingerprint' }
+);
+gitHubSyncJobSchema.index({ groupId: 1, sprintId: 1, jobId: 1 });
+gitHubSyncJobSchema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
 
 module.exports = mongoose.model('GitHubSyncJob', gitHubSyncJobSchema);

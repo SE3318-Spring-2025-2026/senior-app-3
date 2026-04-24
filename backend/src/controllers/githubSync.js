@@ -52,12 +52,14 @@ const Group = require('../models/Group');
 const SprintRecord = require('../models/SprintRecord');
 const { githubSyncWorker, GitHubSyncError } = require('../services/githubSyncService');
 const { createAuditLog } = require('../services/auditService');
+const { logError } = require('../utils/structuredLogger');
 
 // ISSUE #241: Import middleware and services
 const { getCorrelationId } = require('../middleware/correlationId');
-const { enforceIdempotency, registerSignature } = require('../services/syncDeduplicationService');
-const { dispatchWebhook } = require('../services/webhookDeliveryService');
-const { WebhookSignature } = require('../models/WebhookSignature');
+const {
+  enforceIdempotency,
+  acquireIdempotencySignature
+} = require('../services/syncDeduplicationService');
 
 /**
  * POST /groups/:groupId/sprints/:sprintId/github-sync
@@ -82,6 +84,7 @@ const triggerGitHubSync = async (req, res) => {
   // ISSUE #241: Extract correlationId from request (or generate new one)
   // Attach to request for propagation through entire sync pipeline
   const correlationId = getCorrelationId(req);
+  const externalRequestId = req.externalRequestId || req.headers['x-request-id'] || null;
 
   try {
     // =========================================================================
@@ -97,38 +100,6 @@ const triggerGitHubSync = async (req, res) => {
         message: idempotencyStatus.error,
         correlationId
       });
-    }
-
-    if (idempotencyStatus.isDuplicate) {
-      // ISSUE #241: Duplicate request detected — return existing job
-      // This provides safe retry semantics (RFC 7231)
-      const existingJob = await GitHubSyncJob.findOne({ jobId: idempotencyStatus.webhookId }).lean();
-      
-      if (existingJob) {
-        // ISSUE #241: Log duplicate request detection
-        await createAuditLog({
-          action: 'DUPLICATE_REQUEST_DETECTED',
-          actorId,
-          groupId,
-          targetId: existingJob.jobId,
-          payload: {
-            correlationId,
-            idempotencyKey: req.idempotencyKey,
-            replayCount: idempotencyStatus.replayCount,
-            originalRequest: new Date(idempotencyStatus.firstSeenAt)
-          }
-        }).catch(err => console.error('ISSUE #241: Audit log error:', err.message));
-
-        // ISSUE #241: Return existing job with 200 OK (idempotent response)
-        return res.status(200).json({
-          job_id: existingJob.jobId,
-          status: existingJob.status,
-          message: 'Returning existing job (idempotent replay)',
-          correlationId,
-          replay: true,
-          replayCount: idempotencyStatus.replayCount
-        });
-      }
     }
 
     // ========================================================================
@@ -164,69 +135,125 @@ const triggerGitHubSync = async (req, res) => {
       });
     }
 
-    // ── Concurrency lock: check for existing IN_PROGRESS job ────────────────
+    // ── Atomic idempotency acquisition: single job per fingerprint ──────────
+    let job = null;
+    let replayJob = null;
+    const session = await GitHubSyncJob.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const proposedJobId = `ghsync_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const upsertResult = await GitHubSyncJob.findOneAndUpdate(
+          { idempotencyKey: req.idempotencyKey, fingerprint: req.fingerprint },
+          {
+            $setOnInsert: {
+              jobId: proposedJobId,
+              groupId,
+              sprintId,
+              status: 'PENDING',
+              triggeredBy: actorId,
+              correlationId,
+              externalRequestId,
+              idempotencyKey: req.idempotencyKey,
+              fingerprint: req.fingerprint
+            }
+          },
+          { new: true, upsert: true, includeResultMetadata: true, session }
+        );
+        job = upsertResult.value;
+        const isNewJob = Boolean(upsertResult.lastErrorObject?.upserted);
+        if (!isNewJob) {
+          replayJob = job;
+          return;
+        }
+
+        await GitHubSyncJob.updateOne({ _id: job._id }, {
+          $set: {
+            groupId,
+            sprintId,
+            status: 'PENDING',
+            triggeredBy: actorId,
+            correlationId,
+            externalRequestId,
+            idempotencyKey: req.idempotencyKey,
+            fingerprint: req.fingerprint
+          }
+        }, { session });
+
+        const signatureLock = await acquireIdempotencySignature({
+          fingerprint: req.fingerprint,
+          idempotencyKey: req.idempotencyKey,
+          webhookId: job.jobId,
+          context: {
+            endpoint: `/groups/${groupId}/sprints/${sprintId}/github-sync`,
+            method: 'POST',
+            userId: actorId,
+            correlationId,
+            clientIp: req.ip
+          }
+        }, { session });
+
+        if (!signatureLock.acquired && signatureLock.signature?.webhookId !== job.jobId) {
+          replayJob = await GitHubSyncJob.findOne({ jobId: signatureLock.signature.webhookId }).lean().session(session);
+          return;
+        }
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    if (replayJob) {
+      const replayStatusCode = ['PENDING', 'IN_PROGRESS'].includes(replayJob.status) ? 202 : 200;
+      return res.status(replayStatusCode).json({
+        job_id: replayJob.jobId,
+        status: replayJob.status,
+        message: replayStatusCode === 202
+          ? 'Returning existing in-flight job (atomic idempotency)'
+          : 'Returning existing completed job (atomic idempotency)',
+        correlationId,
+        externalRequestId,
+        replay: true,
+        result: replayJob.status === 'COMPLETED' ? replayJob.validationRecords : undefined
+      });
+    }
+
+    // Additional lock check (legacy callers without idempotency key).
     const existingLock = await GitHubSyncJob.findOne({
       groupId,
       sprintId,
       status: 'IN_PROGRESS',
+      jobId: { $ne: job.jobId }
     }).lean();
-
     if (existingLock) {
-      return res.status(409).json({
-        error: 'SYNC_ALREADY_RUNNING',
-        message: `A GitHub sync is already in progress for group ${groupId} / sprint ${sprintId}`,
+      return res.status(202).json({
         job_id: existingLock.jobId,
-        correlationId
+        status: existingLock.status,
+        message: 'Returning existing in-flight job',
+        correlationId,
+        externalRequestId,
+        replay: true
       });
     }
 
-    // ── Acquire lock: create PENDING job ────────────────────────────────────
-    const job = await GitHubSyncJob.create({
+    await createAuditLog({
+      action: 'IDEMPOTENCY_KEY_VALIDATED',
+      actorId,
+      groupId,
+      targetId: job.jobId,
+      payload: {
+        correlationId,
+        externalRequestId,
+        idempotencyKey: req.idempotencyKey,
+        fingerprint: req.fingerprint
+      }
+    }).catch((err) => logError('Audit log failed for idempotency validation', {
+      service_name: 'github_sync',
+      correlationId,
+      externalRequestId,
       groupId,
       sprintId,
-      status: 'PENDING',
-      triggeredBy: actorId,
-      // ISSUE #241: Attach correlationId to job for tracing
-      correlationId,
-      // ISSUE #241: Attach idempotency key for tracking
-      idempotencyKey: req.idempotencyKey,
-      fingerprint: req.fingerprint
-    });
-
-    // ========================================================================
-    // ISSUE #241: Step 3 — Register signature for duplicate detection
-    // ========================================================================
-    // Store this request's fingerprint so future retries are detected
-    try {
-      await registerSignature({
-        fingerprint: req.fingerprint,
-        idempotencyKey: req.idempotencyKey,
-        webhookId: job.jobId,
-        context: {
-          endpoint: `/groups/${groupId}/sprints/${sprintId}/github-sync`,
-          method: 'POST',
-          userId: actorId,
-          correlationId,
-          clientIp: req.ip
-        }
-      });
-
-      // ISSUE #241: Log signature registration
-      await createAuditLog({
-        action: 'IDEMPOTENCY_KEY_VALIDATED',
-        actorId,
-        groupId,
-        targetId: job.jobId,
-        payload: {
-          correlationId,
-          idempotencyKey: req.idempotencyKey,
-          fingerprint: req.fingerprint
-        }
-      }).catch(err => console.error('ISSUE #241: Audit log error:', err.message));
-    } catch (signatureErr) {
-      console.error('ISSUE #241: Signature registration error (non-fatal):', signatureErr.message);
-      // Continue even if signature registration fails
-    }
+      jobId: job?.jobId || null,
+      error: err.message
+    }));
 
     // ── Audit: sync initiated (non-fatal) ───────────────────────────────────
     try {
@@ -237,6 +264,7 @@ const triggerGitHubSync = async (req, res) => {
         targetId: job.jobId,
         payload: {
           correlationId,
+          externalRequestId,
           sprintId,
           jobId: job.jobId,
           idempotencyKey: req.idempotencyKey
@@ -245,7 +273,15 @@ const triggerGitHubSync = async (req, res) => {
         userAgent: req.headers['user-agent'],
       });
     } catch (auditErr) {
-      console.error('[triggerGitHubSync] Audit log failed (non-fatal):', auditErr.message);
+      logError('Audit log failed for sync initiated', {
+        service_name: 'github_sync',
+        correlationId,
+        externalRequestId,
+        groupId,
+        sprintId,
+        jobId: job?.jobId || null,
+        error: auditErr.message
+      });
     }
 
     // – Respond 202 immediately ──────────────────────────────────────────────
@@ -254,6 +290,7 @@ const triggerGitHubSync = async (req, res) => {
       status: 'PENDING',
       message: 'GitHub sync job accepted. PR validation will run asynchronously.',
       correlationId,
+      externalRequestId,
       idempotencyKey: req.idempotencyKey
     });
 
@@ -262,9 +299,29 @@ const triggerGitHubSync = async (req, res) => {
     // =========================================================================
     // setImmediate ensures the HTTP response is fully flushed before worker runs
     setImmediate(() => {
-      githubSyncWorker(groupId, sprintId, job.jobId, correlationId).catch((err) => {
-        console.error(`[${correlationId}] triggerGitHubSync: Unhandled worker error:`, err);
-      });
+      try {
+        githubSyncWorker(groupId, sprintId, job.jobId, correlationId, externalRequestId).catch((err) => {
+          logError('Unhandled worker error from triggerGitHubSync', {
+            service_name: 'github_sync',
+            correlationId,
+            externalRequestId,
+            groupId,
+            sprintId,
+            jobId: job?.jobId || null,
+            error: err.message
+          });
+        });
+      } catch (setImmediateErr) {
+        logError('setImmediate dispatch error in triggerGitHubSync', {
+          service_name: 'github_sync',
+          correlationId,
+          externalRequestId,
+          groupId,
+          sprintId,
+          jobId: job?.jobId || null,
+          error: setImmediateErr.message
+        });
+      }
     });
 
   } catch (err) {
@@ -277,58 +334,21 @@ const triggerGitHubSync = async (req, res) => {
         504: { error: 'GATEWAY_TIMEOUT' },
       };
       const body = statusMap[err.status] || { error: 'INTERNAL_ERROR' };
-      return res.status(err.status).json({ ...body, message: err.message, correlationId });
+      return res.status(err.status).json({ ...body, message: err.message, correlationId, externalRequestId });
     }
-    console.error(`[${correlationId}] [triggerGitHubSync] Unexpected error:`, err);
+    logError('Unexpected error in triggerGitHubSync', {
+      service_name: 'github_sync',
+      correlationId,
+      externalRequestId,
+      groupId,
+      sprintId,
+      error: err.message
+    });
     return res.status(500).json({
       error: 'INTERNAL_ERROR',
       message: 'An unexpected error occurred',
-      correlationId
-    });
-  }
-};
-        actorId,
-        groupId,
-        targetId: job.jobId,
-        payload: { sprintId, jobId: job.jobId },
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent'],
-      });
-    } catch (auditErr) {
-      console.error('[triggerGitHubSync] Audit log failed (non-fatal):', auditErr.message);
-    }
-
-    // ── Respond 202 immediately ──────────────────────────────────────────────
-    res.status(202).json({
-      job_id: job.jobId,
-      status: 'PENDING',
-      message: 'GitHub sync job accepted. PR validation will run asynchronously.',
-    });
-
-    // ── Fire async worker (detached — does NOT await response) ──────────────
-    // setImmediate ensures the HTTP response is fully flushed before worker runs
-    setImmediate(() => {
-      githubSyncWorker(groupId, sprintId, job.jobId).catch((err) => {
-        console.error('[triggerGitHubSync] Unhandled worker error:', err);
-      });
-    });
-
-  } catch (err) {
-    // Propagation from GitHubSyncError (pre-flight checks)
-    if (err instanceof GitHubSyncError) {
-      const statusMap = {
-        400: { error: 'INVALID_GITHUB_CREDENTIALS' },
-        404: { error: 'JIRA_DATA_MISSING' },
-        502: { error: 'UPSTREAM_PROVIDER_ERROR' },
-        504: { error: 'GATEWAY_TIMEOUT' },
-      };
-      const body = statusMap[err.status] || { error: 'INTERNAL_ERROR' };
-      return res.status(err.status).json({ ...body, message: err.message });
-    }
-    console.error('[triggerGitHubSync] Unexpected error:', err);
-    return res.status(500).json({
-      error: 'INTERNAL_ERROR',
-      message: 'An unexpected error occurred',
+      correlationId,
+      externalRequestId
     });
   }
 };
@@ -374,7 +394,15 @@ const getSyncJobStatus = async (req, res) => {
       createdAt: job.createdAt,
     });
   } catch (err) {
-    console.error(`[${correlationId}] [getSyncJobStatus] Error:`, err);
+    logError('Error in getSyncJobStatus', {
+      service_name: 'github_sync',
+      correlationId,
+      externalRequestId: req.externalRequestId || null,
+      groupId,
+      sprintId,
+      jobId,
+      error: err.message
+    });
     return res.status(500).json({
       error: 'INTERNAL_ERROR',
       message: 'An unexpected error occurred',
@@ -429,7 +457,14 @@ const getLatestSyncJob = async (req, res) => {
       createdAt: job.createdAt,
     });
   } catch (err) {
-    console.error(`[${correlationId}] [getLatestSyncJob] Error:`, err);
+    logError('Error in getLatestSyncJob', {
+      service_name: 'github_sync',
+      correlationId,
+      externalRequestId: req.externalRequestId || null,
+      groupId,
+      sprintId,
+      error: err.message
+    });
     return res.status(500).json({
       error: 'INTERNAL_ERROR',
       message: 'An unexpected error occurred',
