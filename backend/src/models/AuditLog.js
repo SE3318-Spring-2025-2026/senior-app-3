@@ -155,8 +155,6 @@ const auditLogSchema = new mongoose.Schema(
         'IDEMPOTENCY_KEY_VALIDATED',       // Idempotency key checked and validated
         'DUPLICATE_REQUEST_DETECTED',      // Duplicate request found (replayed)
         'FINGERPRINT_COLLISION_DETECTED',  // Rare: SHA256 collision detected
-        'SECURITY_AUDIT',
-        'CREDENTIAL_ROTATED',
 
         // --- Sprint Notifications (Issue #238 - Process 7.5) ---
         'SPRINT_CONTRIBUTION_RECALCULATION_INITIATED',
@@ -174,6 +172,16 @@ const auditLogSchema = new mongoose.Schema(
         'JIRA_SYNC_INITIATED',
         'JIRA_SYNC_COMPLETED',
         'JIRA_SYNC_FAILED',
+
+        // --- ISSUE #253: Final Grade Approval (Process 8.4) ---
+        // Purpose: Persist coordinator approval decisions with audit trail
+        // Context: Coordinator approves computed grades and optionally applies per-student overrides
+        // These actions bridge grade computation (8.1-8.3) and publication (Issue #255)
+        'FINAL_GRADE_APPROVED',           // Coordinator approved grade(s) for a group
+        'FINAL_GRADE_REJECTED',           // Coordinator rejected grade(s) (terminal state)
+        'FINAL_GRADE_OVERRIDE_APPLIED',   // Individual student grade was manually overridden
+        'FINAL_GRADE_APPROVAL_CONFLICT',  // Attempted duplicate approval (409 error)
+        'FINAL_GRADE_PUBLISHED',          // Grade published to D7 (Issue #255)
       ],
     },
     actorId: {
