@@ -13,6 +13,8 @@ const auditLogRoutes = require('./routes/auditLogs');
 const deliverableRoutes = require('./routes/deliverables');
 const reviewRoutes = require('./routes/reviews');
 const commentsRoutes = require('./routes/comments');
+// ISSUE #253: Import final grades approval routes (Process 8.4)
+const finalGradesRoutes = require('./routes/finalGrades');
 const { errorHandler } = require('./middleware/auth');
 const { correlationIdMiddleware } = require('./middleware/correlationId');
 const { logInfo, logError } = require('./utils/structuredLogger');
@@ -103,6 +105,9 @@ app.use('/api/v1/audit-logs', auditLogRoutes);
 app.use('/api/v1/deliverables', deliverableRoutes);
 app.use('/api/v1/reviews', reviewRoutes);
 app.use('/api/v1/comments', commentsRoutes);
+// ISSUE #253: Register final grades approval routes (Process 8.4)
+// Endpoint: POST /api/v1/groups/:groupId/final-grades/approval
+app.use('/api/v1/groups', finalGradesRoutes);
 
 // 404 Handler
 app.use((req, res) => {
