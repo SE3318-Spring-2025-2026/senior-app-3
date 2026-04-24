@@ -22,21 +22,38 @@ const {
 } = require('../migrations/migrationRunner');
 const User = require('../src/models/User');
 const ContributionRecord = require('../src/models/ContributionRecord');
+const SprintIssue = require('../src/models/SprintIssue');
+const SprintReport = require('../src/models/SprintReport');
+
+let MongoMemoryServer;
+try {
+  ({ MongoMemoryServer } = require('mongodb-memory-server'));
+} catch (error) {
+  MongoMemoryServer = null;
+}
 
 describe('Migrations - Runner and State Management', () => {
+  let mongod;
+
   // Establish connection before tests
   beforeAll(async () => {
+    if (MongoMemoryServer) {
+      mongod = await MongoMemoryServer.create();
+      await mongoose.connect(mongod.getUri());
+      return;
+    }
+
     const mongoUri = process.env.MONGODB_TEST_URI || 'mongodb://localhost:27017/senior-app-migrations-test';
-    await mongoose.connect(mongoUri, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
-  });
+    await mongoose.connect(mongoUri);
+  }, 60000);
 
   // Disconnect after tests
   afterAll(async () => {
     await mongoose.disconnect();
-  });
+    if (mongod) {
+      await mongod.stop();
+    }
+  }, 60000);
 
   // Clear collections and migration log before each test
   beforeEach(async () => {
@@ -521,118 +538,243 @@ describe('Migrations - Runner and State Management', () => {
     });
   });
 
-  describe('Migration 011 - Canonical Process 7 Collections', () => {
-    const migrationName = '011_reconcile_process7_canonical_collections';
+  describe('Process 7 canonical schema cleanup', () => {
+    it('includes the new canonical cleanup migration in the registry', () => {
+      const names = migrations.map((migration) => migration.name);
+      expect(names).toContain('011_reconcile_process7_canonical_collections');
+    });
 
-    const run011 = async () => {
-      const migration = migrations.find((m) => m.name === migrationName);
-      expect(migration).toBeDefined();
+    it('creates canonical indexes for sprint issues and sprint contributions', async () => {
+      const migration = migrations.find(
+        (entry) => entry.name === '011_reconcile_process7_canonical_collections'
+      );
+
       await runMigrationUp(migration, mongoose);
-      return migration;
-    };
 
-    it('should be registered in migration index', () => {
-      const names = migrations.map((m) => m.name);
-      expect(names).toContain(migrationName);
+      const sprintIssueIndexes = await mongoose.connection.db
+        .collection('sprint_issues')
+        .indexes();
+      const sprintContributionIndexes = await mongoose.connection.db
+        .collection('sprint_contributions')
+        .indexes();
+
+      expect(
+        sprintIssueIndexes.some(
+          (index) => index.unique && index.key.groupId === 1 && index.key.sprintId === 1 && index.key.issueKey === 1
+        )
+      ).toBe(true);
+      expect(
+        sprintContributionIndexes.some(
+          (index) => index.unique && index.key.groupId === 1 && index.key.sprintId === 1 && index.key.studentId === 1
+        )
+      ).toBe(true);
     });
 
-    it('should backfill github_sync_jobs.validationRecords into pr_validations', async () => {
-      await mongoose.connection.db.createCollection('github_sync_jobs');
-      await mongoose.connection.db.collection('github_sync_jobs').insertOne({
-        jobId: 'ghsync_test_1',
-        groupId: 'grp_011',
-        sprintId: 'spr_011',
-        validationRecords: [
-          {
-            issueKey: 'ISSUE-101',
-            prId: '42',
-            prUrl: 'https://example.com/pr/42',
-            mergeStatus: 'MERGED',
-            rawState: 'merged',
-            lastValidated: new Date('2026-01-01T10:00:00.000Z'),
-          },
-        ],
-        completedAt: new Date('2026-01-01T10:01:00.000Z'),
+    it('backfills legacy contributionrecords into canonical sprint_contributions', async () => {
+      await mongoose.connection.db.createCollection('contributionrecords');
+      await mongoose.connection.db.collection('contributionrecords').insertOne({
+        contributionRecordId: 'ctr_legacy',
+        groupId: 'grp_legacy',
+        sprintId: 'spr_legacy',
+        studentId: 'std_legacy',
+        storyPointsAssigned: 5,
+        storyPointsCompleted: 3,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       });
 
-      await run011();
+      const migration = migrations.find(
+        (entry) => entry.name === '011_reconcile_process7_canonical_collections'
+      );
+      await runMigrationUp(migration, mongoose);
 
-      const row = await mongoose.connection.db.collection('pr_validations').findOne({
-        groupId: 'grp_011',
-        sprintId: 'spr_011',
-        issueKey: 'ISSUE-101',
-        prId: '42',
+      const canonical = await mongoose.connection.db.collection('sprint_contributions').findOne({
+        groupId: 'grp_legacy',
+        sprintId: 'spr_legacy',
+        studentId: 'std_legacy',
       });
-      expect(row).toBeTruthy();
-      expect(row.mergeStatus).toBe('MERGED');
-      expect(row.prUrl).toBe('https://example.com/pr/42');
+
+      expect(canonical).toBeTruthy();
+      expect(canonical.storyPointsAssigned).toBe(5);
+      expect(canonical.storyPointsCompleted).toBe(3);
     });
 
-    it('should skip malformed contributionrecords with null canonical ids', async () => {
+    it('skips malformed legacy contributionrecords instead of collapsing them into one row', async () => {
       await mongoose.connection.db.createCollection('contributionrecords');
       await mongoose.connection.db.collection('contributionrecords').insertMany([
         {
-          contributionRecordId: 'ctr_valid',
-          groupId: 'grp_valid',
-          sprintId: 'spr_valid',
-          studentId: 'std_valid',
-          storyPointsAssigned: 8,
+          contributionRecordId: 'ctr_bad_1',
+          sprintId: 'spr_missing_group',
+          studentId: 'std_missing_group',
         },
         {
-          contributionRecordId: 'ctr_bad',
-          groupId: null,
-          sprintId: 'spr_bad',
-          studentId: 'std_bad',
-          storyPointsAssigned: 13,
+          contributionRecordId: 'ctr_bad_2',
+          groupId: 'grp_missing_student',
+          sprintId: 'spr_missing_student',
         },
       ]);
 
-      await run011();
+      const migration = migrations.find(
+        (entry) => entry.name === '011_reconcile_process7_canonical_collections'
+      );
+      await runMigrationUp(migration, mongoose);
 
-      const valid = await mongoose.connection.db.collection('sprint_contributions').findOne({
-        contributionRecordId: 'ctr_valid',
-      });
-      const malformed = await mongoose.connection.db.collection('sprint_contributions').findOne({
-        contributionRecordId: 'ctr_bad',
-      });
+      const malformed1 = await mongoose.connection.db
+        .collection('sprint_contributions')
+        .findOne({
+          sprintId: 'spr_missing_group',
+          studentId: 'std_missing_group',
+        });
+      const malformed2 = await mongoose.connection.db
+        .collection('sprint_contributions')
+        .findOne({
+          groupId: 'grp_missing_student',
+          sprintId: 'spr_missing_student',
+        });
 
-      expect(valid).toBeTruthy();
-      expect(malformed).toBeFalsy();
+      expect(malformed1).toBeNull();
+      expect(malformed2).toBeNull();
     });
 
-    it('should set locked=false by default for backfilled rows', async () => {
-      await mongoose.connection.db.createCollection('contributionrecords');
-      await mongoose.connection.db.collection('contributionrecords').insertOne({
-        contributionRecordId: 'ctr_lock_default',
-        groupId: 'grp_lock',
-        sprintId: 'spr_lock',
-        studentId: 'std_lock',
+    it('backfills github_sync_jobs validationRecords into canonical pr_validations', async () => {
+      await mongoose.connection.db.createCollection('github_sync_jobs');
+      await mongoose.connection.db.collection('github_sync_jobs').insertOne({
+        jobId: 'ghsync_test',
+        groupId: 'grp_pr',
+        sprintId: 'spr_pr',
+        status: 'COMPLETED',
+        completedAt: new Date('2026-04-24T10:00:00.000Z'),
+        validationRecords: [
+          {
+            issueKey: 'ISSUE-42',
+            prId: '123',
+            prUrl: 'https://github.com/example/repo/pull/123',
+            mergeStatus: 'MERGED',
+            rawState: 'clean',
+            lastValidated: new Date('2026-04-24T09:59:00.000Z'),
+          },
+        ],
       });
 
-      await run011();
+      const migration = migrations.find(
+        (entry) => entry.name === '011_reconcile_process7_canonical_collections'
+      );
+      await runMigrationUp(migration, mongoose);
 
-      const row = await mongoose.connection.db.collection('sprint_contributions').findOne({
-        contributionRecordId: 'ctr_lock_default',
+      const validation = await mongoose.connection.db.collection('pr_validations').findOne({
+        groupId: 'grp_pr',
+        sprintId: 'spr_pr',
+        issueKey: 'ISSUE-42',
+        prId: '123',
       });
-      expect(row).toBeTruthy();
-      expect(row.locked).toBe(false);
+
+      expect(validation).toBeTruthy();
+      expect(validation.mergeStatus).toBe('MERGED');
+      expect(validation.prUrl).toBe('https://github.com/example/repo/pull/123');
+      expect(validation.rawState).toBe('clean');
     });
 
-    it('should enforce canonical unique key on sprint_contributions', async () => {
-      await run011();
+    it('enforces canonical unique keys for sprint issues', async () => {
+      await runMigrationUp(
+        migrations.find((entry) => entry.name === '011_reconcile_process7_canonical_collections'),
+        mongoose
+      );
+
+      await SprintIssue.create({
+        groupId: 'grp_dupe',
+        sprintId: 'spr_dupe',
+        issueKey: 'ISSUE-1',
+      });
+
+      await expect(
+        SprintIssue.create({
+          groupId: 'grp_dupe',
+          sprintId: 'spr_dupe',
+          issueKey: 'ISSUE-1',
+        })
+      ).rejects.toThrow(/duplicate key|E11000/);
+    });
+
+    it('enforces canonical unique keys for sprint contributions', async () => {
+      await runMigrationUp(
+        migrations.find((entry) => entry.name === '011_reconcile_process7_canonical_collections'),
+        mongoose
+      );
+
       await ContributionRecord.create({
-        groupId: 'grp_unique',
-        sprintId: 'spr_unique',
-        studentId: 'std_unique',
+        groupId: 'grp_dupe',
+        sprintId: 'spr_dupe',
+        studentId: 'std_1',
       });
 
       await expect(
         ContributionRecord.create({
-          groupId: 'grp_unique',
-          sprintId: 'spr_unique',
-          studentId: 'std_unique',
+          groupId: 'grp_dupe',
+          sprintId: 'spr_dupe',
+          studentId: 'std_1',
         })
       ).rejects.toThrow(/duplicate key|E11000/);
+    });
+
+    it('writes SprintIssue and ContributionRecord to canonical collections', async () => {
+      expect(SprintIssue.collection.collectionName).toBe('sprint_issues');
+      expect(ContributionRecord.collection.collectionName).toBe('sprint_contributions');
+    });
+
+    it('supports multiple sprint report variants for same group and sprint', async () => {
+      await runMigrationUp(
+        migrations.find((entry) => entry.name === '011_reconcile_process7_canonical_collections'),
+        mongoose
+      );
+
+      await SprintReport.create({
+        groupId: 'grp_rpt',
+        sprintId: 'spr_rpt',
+        reportType: 'D4_PRELIM',
+      });
+
+      await expect(
+        SprintReport.create({
+          groupId: 'grp_rpt',
+          sprintId: 'spr_rpt',
+          reportType: 'D4_FINAL',
+        })
+      ).resolves.toBeTruthy();
+
+      await expect(
+        SprintReport.create({
+          groupId: 'grp_rpt',
+          sprintId: 'spr_rpt',
+          reportType: 'D4_FINAL',
+        })
+      ).rejects.toThrow(/duplicate key|E11000/);
+    });
+
+    it('creates traceability indexes for sprint reports', async () => {
+      await runMigrationUp(
+        migrations.find((entry) => entry.name === '011_reconcile_process7_canonical_collections'),
+        mongoose
+      );
+
+      const sprintReportIndexes = await mongoose.connection.db
+        .collection('sprint_reports')
+        .indexes();
+
+      expect(
+        sprintReportIndexes.some(
+          (index) =>
+            index.unique &&
+            index.key.groupId === 1 &&
+            index.key.sprintId === 1 &&
+            index.key.reportType === 1
+        )
+      ).toBe(true);
+      expect(
+        sprintReportIndexes.some((index) => index.key.deliverableIds === 1)
+      ).toBe(true);
+      expect(
+        sprintReportIndexes.some((index) => index.key.sourceVersionRef === 1)
+      ).toBe(true);
     });
   });
 });

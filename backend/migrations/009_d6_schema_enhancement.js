@@ -1,7 +1,8 @@
 module.exports = {
+  name: '009_d6_schema_enhancement',
   up: async (db) => {
     // Issue #86: Enhance D6 schema for committee assignment and cross-reference ingestion
-    const sprintRecordCollection = db.collection('sprint_records');
+    const sprintRecordCollection = db.connection.db.collection('sprint_records');
 
     // Add compound index for efficient f14 cross-reference queries
     await sprintRecordCollection.createIndex(
@@ -23,7 +24,7 @@ module.exports = {
   },
 
   down: async (db) => {
-    const sprintRecordCollection = db.collection('sprint_records');
+    const sprintRecordCollection = db.connection.db.collection('sprint_records');
     
     // Drop Issue #86 specific indexes
     await sprintRecordCollection.dropIndex('deliverableRefs_groupId_idx').catch(() => {});
