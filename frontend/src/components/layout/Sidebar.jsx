@@ -23,6 +23,13 @@ const Sidebar = () => {
     return user.role.charAt(0).toUpperCase() + user.role.slice(1).replace(/_/g, ' ');
   };
 
+  const reviewGroupId = [
+    user?.groupId,
+    user?.advisedGroupId,
+    user?.advisorGroupId,
+    user?.currentGroupId,
+  ].find((value) => typeof value === 'string' && value.trim() && !value.includes(':'));
+
   const navSections = [
     {
       title: 'Main',
@@ -45,7 +52,7 @@ const Sidebar = () => {
     },
     {
       title: 'Academic Center',
-      requiredRoles: ['professor', 'admin', 'committee_member', 'coordinator'],
+      requiredRoles: ['professor', 'advisor', 'admin', 'committee_member', 'coordinator'],
       items: [
         {
           label: 'Inbox', path: '/professor/inbox', icon: (
@@ -54,6 +61,13 @@ const Sidebar = () => {
             </svg>
           ), requiredRoles: ['professor']
         },
+        ...(reviewGroupId ? [{
+          label: 'Grade Review', path: `/groups/${reviewGroupId}/final-grades/review`, icon: (
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-6m4 6V7m4 10v-4M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            </svg>
+          ), requiredRoles: ['professor', 'advisor']
+        }] : []),
         {
           label: 'Jury Committees', path: '/jury/committees', icon: (
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -106,6 +120,13 @@ const Sidebar = () => {
           label: 'Submit Deliverable', path: '/dashboard/submit-deliverable', icon: (
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+          ), requiredRoles: ['student']
+        },
+        {
+          label: 'Final Grades', path: '/me/final-grades', icon: (
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414A1 1 0 0119 9.414V19a2 2 0 01-2 2z" />
             </svg>
           ), requiredRoles: ['student']
         },

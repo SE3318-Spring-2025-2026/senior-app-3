@@ -35,6 +35,7 @@ const Group = require('../src/models/Group');
 const SprintRecord = require('../src/models/SprintRecord');
 const ContributionRecord = require('../src/models/ContributionRecord');
 const GitHubSyncJob = require('../src/models/GitHubSyncJob');
+const SprintIssue = require('../src/models/SprintIssue');
 const AuditLog = require('../src/models/AuditLog');
 const { encrypt } = require('../src/utils/cryptoUtils');
 
@@ -248,6 +249,24 @@ describe('Process 7.2 — GitHub PR Sync', () => {
       expect(issues.length).toBeGreaterThanOrEqual(2);
       expect(issues.map((i) => i.key)).toContain('del_001');
       expect(issues.map((i) => i.key)).toContain('del_002');
+    });
+
+    it('prefers canonical SprintIssue rows from Process 7.1 when present', async () => {
+      const groupId = unique('grp');
+      const sprintId = unique('spr');
+
+      await SprintIssue.create({
+        groupId,
+        sprintId,
+        issueKey: 'SPM-777',
+        storyPoints: 8,
+        status: 'Done',
+      });
+
+      const { getSprintIssues: gsi } = require('../src/services/githubSyncService');
+      const issues = await gsi(sprintId, groupId);
+
+      expect(issues.some((issue) => issue.key === 'SPM-777' && issue.source === 'sprint_issue')).toBe(true);
     });
 
     it('supplements with ContributionRecord entries', async () => {

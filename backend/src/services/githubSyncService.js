@@ -31,6 +31,7 @@ const Group = require('../models/Group');
 const SprintRecord = require('../models/SprintRecord');
 const ContributionRecord = require('../models/ContributionRecord');
 const GitHubSyncJob = require('../models/GitHubSyncJob');
+const SprintIssue = require('../models/SprintIssue');
 const { createAuditLog } = require('./auditService');
 const { decrypt } = require('../utils/cryptoUtils');
 
@@ -153,27 +154,43 @@ async function getGitHubConfig(groupId) {
  * @throws {GitHubSyncError} 404 JIRA_DATA_MISSING if D6 is empty for this sprint
  */
 async function getSprintIssues(sprintId, groupId) {
+  const sprintIssues = await SprintIssue.find({ sprintId, groupId }).lean();
   const sprintRecord = await SprintRecord.findOne({ sprintId, groupId }).lean();
   const contributions = await ContributionRecord.find({ sprintId, groupId }).lean();
 
   const issues = [];
 
+  // Source 0: canonical SprintIssue rows from Process 7.1
+  for (const sprintIssue of sprintIssues) {
+    issues.push({
+      key: sprintIssue.issueKey,
+      prLink: null,
+      source: 'sprint_issue',
+    });
+  }
+
   // Source 1: deliverable refs from SprintRecord
   if (sprintRecord?.deliverableRefs?.length) {
     for (const ref of sprintRecord.deliverableRefs) {
-      issues.push({
-        key: ref.deliverableId,
-        prLink: null, // will be resolved by branch pattern
-        source: 'deliverable_ref',
-      });
+      const alreadyAdded = issues.some((issue) => issue.key === ref.deliverableId);
+      if (!alreadyAdded) {
+        issues.push({
+          key: ref.deliverableId,
+          prLink: null, // will be resolved by branch pattern
+          source: 'deliverable_ref',
+        });
+      }
     }
   }
 
-  // Source 2: ContributionRecord entries — validate every linked JIRA key (multi-issue)
+  // Source 2: ContributionRecord entries (unique student work items)
   for (const contrib of contributions) {
-    const rawKeys = Array.isArray(contrib.jiraIssueKeys) ? contrib.jiraIssueKeys : [];
     const studentKeys =
-      rawKeys.length > 0 ? rawKeys.map((k) => String(k).trim()).filter(Boolean) : [`${sprintId}-${contrib.studentId}`];
+      Array.isArray(contrib.jiraIssueKeys) && contrib.jiraIssueKeys.length > 0
+        ? contrib.jiraIssueKeys
+        : contrib.jiraIssueKey
+          ? [contrib.jiraIssueKey]
+          : [`${sprintId}-${contrib.studentId}`];
 
     for (const key of studentKeys) {
       const alreadyAdded = issues.some((i) => i.key === key);
