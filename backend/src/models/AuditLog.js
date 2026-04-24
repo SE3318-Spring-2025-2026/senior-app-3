@@ -128,6 +128,16 @@ const auditLogSchema = new mongoose.Schema(
         'GITHUB_SYNC_INITIATED',
         'GITHUB_SYNC_COMPLETED',
         'GITHUB_SYNC_FAILED',
+
+        // --- ISSUE #253: Final Grade Approval (Process 8.4) ---
+        // Purpose: Persist coordinator approval decisions with audit trail
+        // Context: Coordinator approves computed grades and optionally applies per-student overrides
+        // These actions bridge grade computation (8.1-8.3) and publication (Issue #255)
+        'FINAL_GRADE_APPROVED',           // Coordinator approved grade(s) for a group
+        'FINAL_GRADE_REJECTED',           // Coordinator rejected grade(s) (terminal state)
+        'FINAL_GRADE_OVERRIDE_APPLIED',   // Individual student grade was manually overridden
+        'FINAL_GRADE_APPROVAL_CONFLICT',  // Attempted duplicate approval (409 error)
+        'FINAL_GRADE_PUBLISHED',          // Grade published to D7 (Issue #255)
       ],
     },
     actorId: {
