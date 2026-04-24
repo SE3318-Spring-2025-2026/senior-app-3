@@ -101,6 +101,24 @@ function assertUnlocked(sprint, lockedCount) {
   }
 }
 
+function validateContributionRecalculationBoundary({
+  sprintLocked = false,
+  configPublished = true,
+  scheduleWindowOpen = true
+} = {}) {
+  if (sprintLocked) {
+    throw new RatioServiceError(422, 'SPRINT_LOCKED', 'Sprint contribution recalculation is locked.');
+  }
+
+  if (!configPublished) {
+    throw new RatioServiceError(422, 'CONFIG_UNPUBLISHED', 'Sprint configuration is not published.');
+  }
+
+  if (!scheduleWindowOpen) {
+    throw new RatioServiceError(422, 'SPRINT_WINDOW_CLOSED', 'Sprint contribution window is closed.');
+  }
+}
+
 async function fetchMembersAndContributions(groupId, sprintId, session) {
   const members = await GroupMembership.find({ groupId, status: 'approved' }).session(session);
   if (!members.length) {
@@ -418,6 +436,7 @@ module.exports = {
   RatioServiceError,
   recalculateSprintRatios,
   validateInputs,
+  validateContributionRecalculationBoundary,
   loadTargetsFromD8,
   normalizeGroupRatios,
   emitContributionCalculatedHandoff,
