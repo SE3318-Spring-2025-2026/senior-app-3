@@ -123,6 +123,16 @@ const finalGradeSchema = new mongoose.Schema(
       index: true
     },
 
+    /**
+     * ISSUE #253 HARDENING: Publish cycle identifier for versioned approvals.
+     * Ensures approvals are deduplicated per group + cycle.
+     */
+    publishCycle: {
+      type: String,
+      required: true,
+      index: true
+    },
+
     // =========================================================================
     // ISSUE #253: Computed Grade Fields (Input from Process 8.3)
     // =========================================================================
@@ -241,6 +251,17 @@ const finalGradeSchema = new mongoose.Schema(
     },
 
     /**
+     * ISSUE #253 HARDENING: Durable storage of pre-override value.
+     * Stored side-by-side with overriddenFinalGrade for audit traceability.
+     */
+    originalFinalGrade: {
+      type: Number,
+      default: null,
+      min: 0,
+      max: 100
+    },
+
+    /**
      * ISSUE #253: Who applied the override?
      * Same as approvedBy if override applied during approval
      */
@@ -327,8 +348,8 @@ const finalGradeSchema = new mongoose.Schema(
  * Prevents duplicates; used for upsert operations
  */
 finalGradeSchema.index(
-  { groupId: 1, studentId: 1 },
-  { unique: true, name: 'idx_final_grade_unique_group_student' }
+  { groupId: 1, publishCycle: 1, studentId: 1 },
+  { unique: true, name: 'idx_final_grade_unique_group_cycle_student' }
 );
 
 /**
@@ -458,11 +479,19 @@ finalGradeSchema.statics.findByGroupAndStatus = function(groupId, status) {
  * @param {String} groupId - Group to query
  * @returns {Array} All approved but not yet published grades
  */
-finalGradeSchema.statics.findApprovedByGroup = function(groupId) {
-  return this.find({
+finalGradeSchema.statics.findApprovedByGroup = function(groupId, publishCycle = null) {
+  const query = {
     groupId,
     status: FINAL_GRADE_STATUS.APPROVED,
     publishedAt: null
+  };
+
+  if (publishCycle !== null && publishCycle !== undefined) {
+    query.publishCycle = publishCycle;
+  }
+
+  return this.find({
+    ...query
   }).sort({ approvedAt: -1 });
 };
 
@@ -472,10 +501,17 @@ finalGradeSchema.statics.findApprovedByGroup = function(groupId) {
  * @param {String} groupId - Group to check
  * @returns {Boolean} True if any grade already approved
  */
-finalGradeSchema.statics.hasApprovedGrades = async function(groupId) {
+finalGradeSchema.statics.hasTerminalGrades = async function(groupId, publishCycle) {
   const count = await this.countDocuments({
     groupId,
-    status: { $in: [FINAL_GRADE_STATUS.APPROVED, FINAL_GRADE_STATUS.PUBLISHED] }
+    publishCycle,
+    status: {
+      $in: [
+        FINAL_GRADE_STATUS.APPROVED,
+        FINAL_GRADE_STATUS.REJECTED,
+        FINAL_GRADE_STATUS.PUBLISHED
+      ]
+    }
   });
 
   return count > 0;

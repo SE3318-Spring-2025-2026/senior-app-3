@@ -53,6 +53,7 @@ exports.up = async (db) => {
         required: [
           'finalGradeId',
           'groupId',
+          'publishCycle',
           'studentId',
           'baseGroupScore',
           'individualRatio',
@@ -75,6 +76,11 @@ exports.up = async (db) => {
           groupId: {
             bsonType: 'string',
             description: 'Group context (D2 reference)'
+          },
+
+          publishCycle: {
+            bsonType: 'string',
+            description: 'Publish cycle identifier for this approval attempt'
           },
 
           studentId: {
@@ -148,6 +154,11 @@ exports.up = async (db) => {
             maximum: 100
           },
 
+          originalFinalGrade: {
+            bsonType: ['number', 'null'],
+            description: 'Original computed grade before override'
+          },
+
           overriddenBy: {
             bsonType: ['string', 'null'],
             description: 'Coordinator who applied override'
@@ -215,15 +226,15 @@ exports.up = async (db) => {
     // ISSUE #253: CREATE INDEXES
     // =========================================================================
 
-    // ISSUE #253: INDEX 1 - Unique (groupId, studentId)
-    // Ensures one final grade per student per group
+    // ISSUE #253: INDEX 1 - Unique (groupId, publishCycle, studentId)
+    // Ensures one final grade per student per group per cycle
     // Used for: Upsert operations, duplicate prevention
-    console.log('[Issue #253] Creating unique index on (groupId, studentId)...');
+    console.log('[Issue #253] Creating unique index on (groupId, publishCycle, studentId)...');
     await db.collection('final_grades').createIndex(
-      { groupId: 1, studentId: 1 },
+      { groupId: 1, publishCycle: 1, studentId: 1 },
       {
         unique: true,
-        name: 'idx_final_grade_unique_group_student'
+        name: 'idx_final_grade_unique_group_cycle_student'
       }
     );
     console.log('[Issue #253] ✓ Unique index created');

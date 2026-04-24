@@ -7,7 +7,7 @@
  * HTTP request handler for coordinator approval endpoint.
  * Responsible for:
  * 1. Role-based access control (coordinator-only)
- * 2. Request validation (coordinatorId, decision, overrides)
+ * 2. Request validation (publishCycle, decision, overrides)
  * 3. Calling approval service
  * 4. Error handling and status codes
  * 5. Response formatting for frontend (Issue #252)
@@ -33,7 +33,7 @@ const { approveGroupGrades, GradeApprovalError } = require('../services/approval
  *
  * Request body (from Issue #252):
  * {
- *   coordinatorId: String,           // Who is approving?
+ *   publishCycle: String,            // Version/cycle identifier for approval dedupe
  *   decision: "approve" | "reject",  // Approval decision
  *   overrideEntries: [               // Optional per-student grade adjustments
  *     {
@@ -52,7 +52,7 @@ const { approveGroupGrades, GradeApprovalError } = require('../services/approval
  *   approvalId: String,
  *   timestamp: Date,
  *   groupId: String,
- *   coordinatorId: String,
+ *   // coordinatorId is derived from req.user.userId (token identity)
  *   decision: String,
  *   totalStudents: Number,
  *   approvedCount: Number,
@@ -86,7 +86,8 @@ const approveGroupGradesHandler = async (req, res) => {
     // ========================================================================
 
     const { groupId } = req.params;
-    const { coordinatorId, decision, overrideEntries, reason } = req.body;
+    const { publishCycle, decision, overrideEntries, reason } = req.body;
+    const coordinatorId = req.user.userId;
 
     // ISSUE #253: Validate groupId parameter
     if (!groupId || typeof groupId !== 'string' || groupId.trim() === '') {
@@ -96,11 +97,18 @@ const approveGroupGradesHandler = async (req, res) => {
       });
     }
 
-    // ISSUE #253: Validate coordinatorId (must match authenticated user)
+    // ISSUE #253 HARDENING: coordinator identity comes from authenticated token
     if (!coordinatorId) {
       return res.status(422).json({
-        error: 'coordinatorId is required',
-        code: 'MISSING_COORDINATOR_ID'
+        error: 'Authenticated coordinator identity is missing',
+        code: 'MISSING_AUTH_USER_ID'
+      });
+    }
+
+    if (!publishCycle || typeof publishCycle !== 'string' || publishCycle.trim() === '') {
+      return res.status(422).json({
+        error: 'publishCycle is required',
+        code: 'MISSING_PUBLISH_CYCLE'
       });
     }
 
@@ -125,6 +133,7 @@ const approveGroupGradesHandler = async (req, res) => {
     try {
       approvalResult = await approveGroupGrades(
         groupId,
+        publishCycle,
         coordinatorId,
         decision,
         overrideEntries || [],

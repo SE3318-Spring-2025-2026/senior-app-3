@@ -93,6 +93,14 @@ const validateOverrideEntries = (overrideEntries = []) => {
       );
     }
 
+    if (!entry.comment || typeof entry.comment !== 'string' || entry.comment.trim() === '') {
+      throw new GradeApprovalError(
+        `Override entry ${index}: comment is required`,
+        422,
+        'MISSING_OVERRIDE_REASON'
+      );
+    }
+
     // Check grade ranges
     if (entry.overriddenFinalGrade < 0 || entry.overriddenFinalGrade > 100) {
       throw new GradeApprovalError(
@@ -168,11 +176,20 @@ const createOverrideMap = (overrideEntries = []) => {
  */
 const approveGroupGrades = async (
   groupId,
+  publishCycle,
   coordinatorId,
   decision,
   overrideEntries = [],
   reason = null
 ) => {
+  if (!publishCycle || typeof publishCycle !== 'string' || publishCycle.trim() === '') {
+    throw new GradeApprovalError(
+      'publishCycle is required',
+      422,
+      'MISSING_PUBLISH_CYCLE'
+    );
+  }
+
   // ISSUE #253: Validate input decision
   if (!['approve', 'reject'].includes(decision)) {
     throw new GradeApprovalError(
@@ -186,6 +203,32 @@ const approveGroupGrades = async (
   validateOverrideEntries(overrideEntries);
   const overrideMap = createOverrideMap(overrideEntries);
 
+  // ISSUE #253 HARDENING: Terminal state check is cycle-aware
+  const hasExistingApproval = await FinalGrade.hasTerminalGrades(
+    groupId,
+    publishCycle
+  );
+  if (hasExistingApproval) {
+    // ISSUE #253: Log conflict for audit trail (before throwing)
+    await AuditLog.create({
+      action: 'FINAL_GRADE_APPROVAL_CONFLICT',
+      actorId: coordinatorId,
+      groupId: groupId,
+      payload: {
+        decision,
+        publishCycle,
+        attemptedAt: new Date(),
+        reason: 'Terminal state reached for this cycle'
+      }
+    });
+
+    throw new GradeApprovalError(
+      'Grades for this group and cycle are already in a terminal state',
+      409,
+      'CYCLE_ALREADY_TERMINAL'
+    );
+  }
+
   // ISSUE #253: Fetch current preview grades from FinalGrade collection
   // These are the computed grades that need coordinator approval
   // Filter for pending grades that haven't been approved yet
@@ -193,6 +236,7 @@ const approveGroupGrades = async (
   try {
     previewGrades = await FinalGrade.find({
       groupId: groupId,
+      publishCycle,
       status: FINAL_GRADE_STATUS.PENDING
     });
   } catch (error) {
@@ -205,32 +249,9 @@ const approveGroupGrades = async (
 
   if (!previewGrades || previewGrades.length === 0) {
     throw new GradeApprovalError(
-      `No preview grades found for group ${groupId}`,
+      `No preview grades found for group ${groupId} in cycle ${publishCycle}`,
       404,
       'NO_PREVIEW_GRADES'
-    );
-  }
-
-  // ISSUE #253: Check for duplicate approval (409 Conflict)
-  // Prevents coordinator from approving same grades twice
-  const hasExistingApproval = await FinalGrade.hasApprovedGrades(groupId);
-  if (hasExistingApproval) {
-    // ISSUE #253: Log conflict for audit trail (before throwing)
-    await AuditLog.create({
-      action: 'FINAL_GRADE_APPROVAL_CONFLICT',
-      actorId: coordinatorId,
-      groupId: groupId,
-      payload: {
-        decision,
-        attemptedAt: new Date(),
-        reason: 'Duplicate approval attempted'
-      }
-    });
-
-    throw new GradeApprovalError(
-      'Grades for this group have already been approved',
-      409,
-      'ALREADY_APPROVED'
     );
   }
 
@@ -254,9 +275,10 @@ const approveGroupGrades = async (
 
       // ISSUE #253: Create or update FinalGrade record
       let finalGrade = await FinalGrade.findOneAndUpdate(
-        { groupId, studentId },
+        { groupId, publishCycle, studentId },
         {
           groupId,
+          publishCycle,
           studentId,
           baseGroupScore,
           individualRatio,
@@ -276,19 +298,30 @@ const approveGroupGrades = async (
         // ISSUE #253: Apply override if provided for this student
         if (studentOverride) {
           finalGrade.overrideApplied = true;
+          finalGrade.originalFinalGrade = finalGrade.computedFinalGrade;
           finalGrade.overriddenFinalGrade = studentOverride.overriddenFinalGrade;
           finalGrade.overriddenBy = coordinatorId;
           finalGrade.overrideComment = studentOverride.comment;
+          finalGrade.overrideEntries = [
+            {
+              studentId,
+              originalFinalGrade: finalGrade.computedFinalGrade,
+              overriddenFinalGrade: studentOverride.overriddenFinalGrade,
+              comment: studentOverride.comment,
+              overriddenAt: new Date()
+            }
+          ];
         }
 
         // ISSUE #253: Log successful approval
         auditLogs.push({
-          action: 'FINAL_GRADE_APPROVED',
+          action: 'GRADE_APPROVED',
           actorId: coordinatorId,
           targetId: studentId,
           groupId,
           payload: {
             studentId,
+            publishCycle,
             computedFinalGrade,
             approvedAt: new Date(),
             overrideApplied: !!studentOverride,
@@ -299,12 +332,13 @@ const approveGroupGrades = async (
         // ISSUE #253: Log override separately if applied
         if (studentOverride) {
           auditLogs.push({
-            action: 'FINAL_GRADE_OVERRIDE_APPLIED',
+            action: 'GRADE_OVERRIDDEN',
             actorId: coordinatorId,
             targetId: studentId,
             groupId,
             payload: {
               studentId,
+              publishCycle,
               originalGrade: computedFinalGrade,
               overriddenGrade: studentOverride.overriddenFinalGrade,
               comment: studentOverride.comment
@@ -320,12 +354,13 @@ const approveGroupGrades = async (
 
         // ISSUE #253: Log rejection
         auditLogs.push({
-          action: 'FINAL_GRADE_REJECTED',
+          action: 'GRADE_REJECTED',
           actorId: coordinatorId,
           targetId: studentId,
           groupId,
           payload: {
             studentId,
+            publishCycle,
             computedFinalGrade,
             rejectedAt: new Date(),
             reason: reason || 'No reason provided'
@@ -376,6 +411,7 @@ const approveGroupGrades = async (
 
       // Approval context
       groupId,
+      publishCycle,
       coordinatorId,
       decision,
       totalStudents: createdGrades.length,
@@ -397,6 +433,7 @@ const approveGroupGrades = async (
         computedFinalGrade: grade.computedFinalGrade,
         effectiveFinalGrade: grade.getEffectiveFinalGrade(),
         overrideApplied: grade.overrideApplied,
+        originalFinalGrade: grade.originalFinalGrade,
         overriddenGrade: grade.overriddenFinalGrade,
         approvedAt: grade.approvedAt,
         approvedBy: grade.approvedBy
@@ -441,8 +478,8 @@ const approveGroupGrades = async (
  * @param {String} groupId - Group to fetch grades for
  * @returns {Promise<Array>} Array of approved FinalGrade objects
  */
-const getApprovedGradesForGroup = async (groupId) => {
-  return await FinalGrade.findApprovedByGroup(groupId);
+const getApprovedGradesForGroup = async (groupId, publishCycle = null) => {
+  return await FinalGrade.findApprovedByGroup(groupId, publishCycle);
 };
 
 /**
@@ -461,8 +498,8 @@ const getGroupApprovalSummary = async (groupId) => {
  * @param {String} groupId - Group to check
  * @returns {Promise<Boolean>} True if approved/published
  */
-const isGroupApproved = async (groupId) => {
-  return await FinalGrade.hasApprovedGrades(groupId);
+const isGroupApproved = async (groupId, publishCycle) => {
+  return await FinalGrade.hasTerminalGrades(groupId, publishCycle);
 };
 
 /**
