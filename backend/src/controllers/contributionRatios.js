@@ -43,6 +43,7 @@ const Group = require('../models/Group');
 const SprintRecord = require('../models/SprintRecord');
 const { createAuditLog } = require('../services/auditService');
 const { dispatchSprintUpdateNotifications } = require('../services/sprintNotificationService');
+const { recalculateSprintContributions } = require('../services/contributionRecalculateService');
 
 // ISSUE #238: Note - These services will be created in separate implementations:
 // const { persistSprintContributions } = require('../services/sprintContributionPersistence'); // Issue #237
@@ -145,7 +146,13 @@ async function recalculateContributions(req, res) {
     // ====================================================================
     const coordinatorId = req.user._id;
     const { groupId, sprintId } = req.params;
-    const { notifyStudents = false, overrideFinalized = false, persistToD4 = true, notes = '' } = req.body;
+    const {
+      notifyStudents = false,
+      notifyCoordinator = true,
+      overrideFinalized = false,
+      persistToD4 = true,
+      notes = ''
+    } = req.body;
 
     // ISSUE #238: Create audit log for recalculation initiation
     await createAuditLog({
@@ -156,6 +163,7 @@ async function recalculateContributions(req, res) {
       payload: {
         sprintId,
         notifyStudents,
+        notifyCoordinator,
         overrideFinalized,
         correlationId,
         notes: notes.substring(0, 500)
@@ -203,27 +211,34 @@ async function recalculateContributions(req, res) {
     // ISSUE #238: STEP 3 — Call Process 7.4 (Ratio Calculation)
     // ====================================================================
 
-    // ISSUE #238: TODO - Call Issue #236 service here
-    // const ratioResult = await recalculateSprintRatios(groupId, sprintId, { correlationId });
-    
-    // ISSUE #238: For now, use mock data (will be replaced with Issue #236 service)
+    const recalculationSummary = await recalculateSprintContributions(sprintId, groupId, {
+      overrideExisting: overrideFinalized,
+      notifyStudents,
+      notifyCoordinator
+    });
+
     const ratioResult = {
       sprintId,
       groupId,
-      contributions: group.members.map(m => ({
-        studentId: m.studentId,
-        targetStoryPoints: 20,
-        completedStoryPoints: Math.floor(Math.random() * 25),
-        contributionRatio: Math.random() * 1.0
+      contributions: recalculationSummary.contributions.map((entry) => ({
+        studentId: entry.studentId,
+        targetStoryPoints: entry.targetPoints,
+        completedStoryPoints: entry.completedPoints,
+        contributionRatio: entry.contributionRatio
       })),
-      groupTotalStoryPoints: 100,
-      averageRatio: 0.7,
-      maxRatio: 1.0,
-      minRatio: 0.3,
-      strategyUsed: 'weighted_by_pr_review',
-      recalculatedAt: new Date(),
+      groupTotalStoryPoints: recalculationSummary.attribution?.totalStoryPoints || 0,
+      averageRatio: recalculationSummary.metrics?.averageRatio || 0,
+      maxRatio: recalculationSummary.contributions.reduce((max, entry) =>
+        Math.max(max, entry.contributionRatio), 0),
+      minRatio: recalculationSummary.contributions.reduce((min, entry) =>
+        Math.min(min, entry.contributionRatio), Number.POSITIVE_INFINITY),
+      strategyUsed: 'recalculate_service',
+      recalculatedAt: recalculationSummary.recalculatedAt || new Date(),
       correlationId
     };
+    if (!Number.isFinite(ratioResult.minRatio)) {
+      ratioResult.minRatio = 0;
+    }
 
     // ISSUE #238: Validate ratio calculation result
     if (!ratioResult.contributions || ratioResult.contributions.length === 0) {
@@ -239,22 +254,13 @@ async function recalculateContributions(req, res) {
     // ISSUE #238: STEP 4 — Call Process 7.5 (Persistence)
     // ====================================================================
 
-    // ISSUE #238: TODO - Call Issue #237 service here
-    // const persistenceResult = await persistSprintContributions(
-    //   groupId,
-    //   sprintId,
-    //   ratioResult,
-    //   coordinatorId,
-    //   { persistToD4, allowOverrideFinalized: overrideFinalized, correlationId }
-    // );
-
-    // ISSUE #238: For now, use mock persistence result
+    // ISSUE #238: Gate persistence status from real recalculation service result
     const persistenceResult = {
-      success: true,
+      success: recalculationSummary.success === true,
       recordsPersistedCount: ratioResult.contributions.length,
       d4RecordCreated: persistToD4,
-      persistedAt: new Date(),
-      durationMs: 145
+      persistedAt: recalculationSummary.recalculatedAt || new Date(),
+      durationMs: Date.now() - startTime
     };
 
     // ISSUE #238: Check for 409 conflict (finalized sprint)
@@ -306,7 +312,7 @@ async function recalculateContributions(req, res) {
           ratioResult,  // contributionSummary
           coordinatorId,
           correlationId,
-          { notifyStudents, notifyCoordinator: true }  // ISSUE #238: Always send coordinator summary
+          { notifyStudents, notifyCoordinator }
         );
 
         // ISSUE #238: Log notification dispatch result for monitoring
@@ -390,7 +396,7 @@ async function recalculateContributions(req, res) {
       notificationResult: {
         success: true,
         studentNotificationCount: notifyStudents ? ratioResult.contributions.length : 0,
-        coordinatorNotified: true,
+        coordinatorNotified: notifyCoordinator,
         dispatchMethod: 'async',
         correlationId
       },
@@ -413,6 +419,24 @@ async function recalculateContributions(req, res) {
     });
 
   } catch (error) {
+    if (error?.code === 'SPRINT_LOCKED') {
+      return res.status(422).json({
+        success: false,
+        error: 'Cannot recompute: Sprint window is closed',
+        code: 'SPRINT_WINDOW_CLOSED',
+        correlationId
+      });
+    }
+
+    if (error && Number.isInteger(error.status) && error.code) {
+      return res.status(error.status).json({
+        success: false,
+        error: error.message || 'Contribution recalculation failed',
+        code: error.code,
+        correlationId
+      });
+    }
+
     // ISSUE #238: Unexpected error in main handler
     console.error(`ISSUE #238: Unexpected error in recalculateContributions: ${error.message}`, error);
 
@@ -436,7 +460,6 @@ async function recalculateContributions(req, res) {
       success: false,
       error: 'Internal server error during contribution recalculation',
       code: 'INTERNAL_ERROR',
-      message: error.message,
       correlationId
     });
   }

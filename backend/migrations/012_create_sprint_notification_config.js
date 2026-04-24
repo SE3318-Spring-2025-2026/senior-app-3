@@ -99,23 +99,23 @@ exports.up = async (db) => {
     // ISSUE #238: Step 2 — Create indexes (idempotent)
     // ========================================================================
 
-    // ISSUE #238: Index 1 — Primary idempotent key lookup
-    // Used in: upsert pattern to ensure only one config per (sprintId, groupId)
+    // ISSUE #238: Index 1 — Active-record unique lookup
+    // Used in: upsert pattern to ensure only one active config per (sprintId, groupId)
     try {
-      console.log('ISSUE #238: Creating index 1: (sprintId, groupId) UNIQUE...');
+      console.log('ISSUE #238: Creating index 1: active (sprintId, groupId) UNIQUE...');
       await db.collection('sprintnotificationconfigs').createIndex(
         { sprintId: 1, groupId: 1 },
         { 
-          unique: true, 
-          sparse: true,
-          name: 'idx_sprint_group_unique'
+          unique: true,
+          partialFilterExpression: { deletedAt: null },
+          name: 'idx_active_sprint_group_unique'
         }
       );
-      console.log('✅ ISSUE #238: Index 1 created (sprintId, groupId)');
+      console.log('✅ ISSUE #238: Index 1 created (active sprintId, groupId)');
     } catch (error) {
       // ISSUE #238: Error code 85 = index already exists (idempotent)
       if (error.code === 85) {
-        console.log('⏭️  ISSUE #238: Index 1 already exists (sprintId, groupId)');
+        console.log('⏭️  ISSUE #238: Index 1 already exists (active sprintId, groupId)');
       } else {
         throw error;
       }

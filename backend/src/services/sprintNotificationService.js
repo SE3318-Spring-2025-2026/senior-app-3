@@ -28,12 +28,10 @@
 
 const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
-const { retryNotificationWithBackoff, isTransientError } = require('./notificationRetry');
+const { retryNotificationWithBackoff } = require('./notificationRetry');
 const { createAuditLog } = require('./auditService');
 const SprintNotificationConfig = require('../models/SprintNotificationConfig');
 const Group = require('../models/Group');
-const User = require('../models/User');
-const AuditLog = require('../models/AuditLog');
 const SyncErrorLog = require('../models/SyncErrorLog');
 
 // ISSUE #238: Get notification service URL from environment
@@ -243,8 +241,15 @@ async function dispatchSprintUpdateNotifications(
       };
     }
 
-    // ISSUE #238: Check if notifications are enabled (master flag)
-    if (!config.notifyStudents && !config.notifyCoordinator) {
+    const shouldNotifyStudents = options.notifyStudents === false
+      ? false
+      : (options.notifyStudents === true ? true : config.notifyStudents);
+    const shouldNotifyCoordinator = options.notifyCoordinator === false
+      ? false
+      : (options.notifyCoordinator === true ? true : config.notifyCoordinator);
+
+    // ISSUE #238: Check if notifications are enabled after applying request-level overrides
+    if (!shouldNotifyStudents && !shouldNotifyCoordinator) {
       // ISSUE #238: Notifications disabled, record as 'skipped' in audit
       await createAuditLog({
         action: 'SPRINT_NOTIFICATION_SKIPPED',
@@ -253,7 +258,7 @@ async function dispatchSprintUpdateNotifications(
         groupId,
         payload: {
           sprintId,
-          reason: 'notifications_disabled_for_sprint',
+          reason: 'all_notifications_disabled_by_override_or_config',
           correlationId
         }
       }).catch(() => {}); // Non-fatal
@@ -263,7 +268,7 @@ async function dispatchSprintUpdateNotifications(
         skipped: true,
         studentNotificationCount: 0,
         coordinatorNotified: false,
-        reason: 'Notifications disabled for this sprint'
+        reason: 'All notifications disabled by override or config'
       };
     }
 
@@ -290,7 +295,7 @@ async function dispatchSprintUpdateNotifications(
     // ISSUE #238: Step 2 — Dispatch student notifications (if enabled)
     // ====================================================================
 
-    if (config.notifyStudents && contributionSummary.contributions && contributionSummary.contributions.length > 0) {
+    if (shouldNotifyStudents && contributionSummary.contributions && contributionSummary.contributions.length > 0) {
       // ISSUE #238: Send one notification per student in group
       for (const studentContribution of contributionSummary.contributions) {
         try {
@@ -308,7 +313,7 @@ async function dispatchSprintUpdateNotifications(
             payload,
             config.maxRetryAttempts,
             config.retryBackoffMs,
-            { sprintId, groupId, studentId: studentContribution.studentId }
+            { sprintId, groupId, studentId: studentContribution.studentId, correlationId }
           );
 
           // ISSUE #238: Track successful dispatch
@@ -358,7 +363,7 @@ async function dispatchSprintUpdateNotifications(
     // ISSUE #238: Step 3 — Dispatch coordinator summary notification
     // ====================================================================
 
-    if (config.notifyCoordinator) {
+    if (shouldNotifyCoordinator) {
       try {
         // ISSUE #238: Build coordinator summary notification
         const coordinatorPayload = buildCoordinatorNotificationPayload(
@@ -381,7 +386,7 @@ async function dispatchSprintUpdateNotifications(
           coordinatorPayload,
           config.maxRetryAttempts,
           config.retryBackoffMs,
-          { sprintId, groupId, coordinatorId }
+          { sprintId, groupId, coordinatorId, correlationId }
         );
 
         // ISSUE #238: Track successful coordinator dispatch
@@ -522,17 +527,21 @@ async function dispatchNotificationWithRetry(payload, maxAttempts = 3, backoffMs
         );
 
         // ISSUE #238: Extract notification ID from response
-        return response.data.notification_id || response.data.notificationId || uuidv4();
+        const notificationId = response.data.notification_id || response.data.notificationId || uuidv4();
+        return { success: true, notificationId };
       },
-      maxAttempts,
-      backoffMs,
       {
-        serviceName: 'sprint_notification',
-        context
+        maxRetries: maxAttempts,
+        backoffMs,
+        context: {
+          serviceName: 'sprint_notification',
+          correlationId: context.correlationId || payload.correlationId,
+          ...context
+        }
       }
     );
 
-    return result;
+    return result.notificationId;
   } catch (error) {
     // ISSUE #238: Permanent error after all retries exhausted
     console.error(
@@ -542,16 +551,26 @@ async function dispatchNotificationWithRetry(payload, maxAttempts = 3, backoffMs
 
     // ISSUE #238: Create SyncErrorLog entry for permanent failure (for manual review/alert)
     await SyncErrorLog.create({
-      service: 'sprint_notification',
+      service: 'notification',
       groupId: context.groupId,
       actorId: 'system',
       attempts: maxAttempts,
+      correlationId: context.correlationId || payload.correlationId || null,
+      serviceName: 'sprint_notification',
+      metadata: {
+        studentId: context.studentId || null,
+        coordinatorId: context.coordinatorId || null,
+        sprintId: context.sprintId || null,
+        groupId: context.groupId || null
+      },
       lastError: JSON.stringify({
         message: error.message,
         code: error.code,
         studentId: context.studentId,
         coordinatorId: context.coordinatorId,
-        sprintId: context.sprintId
+        sprintId: context.sprintId,
+        correlationId: context.correlationId || payload.correlationId || null,
+        serviceName: 'sprint_notification'
       })
     }).catch(err => {
       // ISSUE #238: Error logging itself is non-fatal

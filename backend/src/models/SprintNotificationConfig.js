@@ -88,7 +88,6 @@ const sprintNotificationConfigSchema = new mongoose.Schema({
   // ISSUE #238: Unique composite index (sprintId, groupId) to prevent duplicate configs
   _uniqueKey: {
     type: String,
-    unique: true,
     sparse: true,
     description: 'Composite key: sprintId#groupId for idempotent upsert pattern'
   },
@@ -237,7 +236,11 @@ const sprintNotificationConfigSchema = new mongoose.Schema({
  */
 sprintNotificationConfigSchema.index(
   { sprintId: 1, groupId: 1 },
-  { unique: true, sparse: true, name: 'idx_sprint_group_unique' }
+  {
+    unique: true,
+    partialFilterExpression: { deletedAt: null },
+    name: 'idx_active_sprint_group_unique'
+  }
 );
 
 /**
