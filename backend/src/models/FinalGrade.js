@@ -539,7 +539,169 @@ finalGradeSchema.statics.getSummary = async function(groupId) {
 };
 
 // ================================================================================
-// ISSUE #253: EXPORTS
+// ISSUE #255: PUBLISH VALIDATION & HELPER METHODS
+// ================================================================================
+
+/**
+ * ISSUE #255: Check if all grades for a group are ready to publish
+ * 
+ * Requirements for publish eligibility:
+ * 1. All grades must have status = 'approved' (from Issue #253)
+ * 2. No grades can already be 'published' (idempotency guard)
+ * 3. Group must have at least one grade record
+ * 4. Use case: Pre-flight validation before starting publish transaction
+ *
+ * @param {String} groupId - Group to check for publishability
+ * @returns {Object} { canPublish: Boolean, reason?: String, count: Number }
+ *
+ * Example:
+ *   const check = await FinalGrade.checkPublishEligibility('group_123');
+ *   if (!check.canPublish) {
+ *     throw new PublishError(check.reason, 409);
+ *   }
+ */
+finalGradeSchema.statics.checkPublishEligibility = async function(groupId) {
+  // ISSUE #255: Fetch all grade records for this group
+  const allGrades = await this.find({ groupId });
+  
+  // ISSUE #255: Reject if no grades exist (404 - no prior approval)
+  if (allGrades.length === 0) {
+    return {
+      canPublish: false,
+      reason: 'No grades found for this group. Run approval process first (Issue #253).',
+      count: 0
+    };
+  }
+
+  // ISSUE #255: Check for already-published grades (409 - idempotency)
+  const publishedCount = allGrades.filter(
+    g => g.status === FINAL_GRADE_STATUS.PUBLISHED
+  ).length;
+
+  if (publishedCount > 0) {
+    return {
+      canPublish: false,
+      reason: `${publishedCount}/${allGrades.length} grades already published. Cannot republish.`,
+      count: allGrades.length,
+      publishedCount
+    };
+  }
+
+  // ISSUE #255: Check if any grades are NOT approved (missing approval state)
+  const notApprovedCount = allGrades.filter(
+    g => g.status !== FINAL_GRADE_STATUS.APPROVED && 
+         g.status !== FINAL_GRADE_STATUS.REJECTED
+  ).length;
+
+  if (notApprovedCount > 0) {
+    return {
+      canPublish: false,
+      reason: `${notApprovedCount}/${allGrades.length} grades not approved yet. Complete approval workflow first (Issue #253).`,
+      count: allGrades.length,
+      notApprovedCount
+    };
+  }
+
+  // ISSUE #255: Check if rejected grades exist (cannot publish rejected)
+  const rejectedCount = allGrades.filter(
+    g => g.status === FINAL_GRADE_STATUS.REJECTED
+  ).length;
+
+  if (rejectedCount > 0) {
+    return {
+      canPublish: false,
+      reason: `${rejectedCount}/${allGrades.length} grades have been rejected. Cannot publish rejected grades.`,
+      count: allGrades.length,
+      rejectedCount
+    };
+  }
+
+  // ISSUE #255: All grades approved, none published → OK to proceed
+  return {
+    canPublish: true,
+    count: allGrades.length,
+    approvedCount: allGrades.length
+  };
+};
+
+/**
+ * ISSUE #255: Get effective final grade (override if exists, else computed)
+ * 
+ * When publishing to D7, we need to determine which grade to write:
+ * - If overrideApplied=true: use overriddenFinalGrade (Issue #253 override)
+ * - Otherwise: use computedFinalGrade (from Process 8.3)
+ *
+ * @returns {Number} The grade to publish (0-100)
+ *
+ * Example:
+ *   const grade = finalGradeDoc.getEffectiveGrade();
+ *   // Returns either override or computed, maintaining audit trail
+ */
+finalGradeSchema.methods.getEffectiveGrade = function() {
+  // ISSUE #255: If override was applied during approval (Issue #253), use override
+  if (this.overrideApplied && this.overriddenFinalGrade !== null) {
+    return this.overriddenFinalGrade;
+  }
+  
+  // ISSUE #255: Otherwise use computed grade from Process 8.3
+  return this.computedFinalGrade;
+};
+
+/**
+ * ISSUE #255: Prepare grade for D7 publication
+ * 
+ * Transforms the grade record into D7 publication format:
+ * - Includes all metadata needed for student/faculty notifications
+ * - Preserves audit trail (approvedBy, overrides, timestamps)
+ * - Marks status as published with publishedAt timestamp
+ *
+ * @param {String} publishedBy - Coordinator ID performing publish
+ * @param {Date} publishedAt - Publication timestamp
+ * @returns {Object} D7-ready grade object
+ */
+finalGradeSchema.methods.toPublishFormat = function(publishedBy, publishedAt) {
+  // ISSUE #255: Compute final grade to publish (override if exists)
+  const effectiveFinalGrade = this.getEffectiveGrade();
+
+  // ISSUE #255: Build D7-ready object with all necessary fields for Issue #255
+  return {
+    finalGradeId: this.finalGradeId,
+    groupId: this.groupId,
+    studentId: this.studentId,
+    
+    // ISSUE #255: Computed inputs (from Process 8.3)
+    baseGroupScore: this.baseGroupScore,
+    individualRatio: this.individualRatio,
+    computedFinalGrade: this.computedFinalGrade,
+
+    // ISSUE #255: Published grade (either override or computed)
+    finalGrade: effectiveFinalGrade,
+
+    // ISSUE #255: Approval metadata (from Issue #253)
+    approvedBy: this.approvedBy,
+    approvedAt: this.approvedAt,
+    approvalComment: this.approvalComment,
+
+    // ISSUE #255: Override metadata if applied (audit trail)
+    overrideApplied: this.overrideApplied,
+    overriddenFinalGrade: this.overriddenFinalGrade,
+    overriddenBy: this.overriddenBy,
+    overrideComment: this.overrideComment,
+    overriddenAt: this.overriddenAt,
+
+    // ISSUE #255: Publication metadata (Process 8.5)
+    status: FINAL_GRADE_STATUS.PUBLISHED,
+    publishedBy,
+    publishedAt,
+
+    // ISSUE #255: Timestamps for audit trail
+    createdAt: this.createdAt,
+    updatedAt: new Date()
+  };
+};
+
+// ================================================================================
+// ISSUE #253 & #255: EXPORTS
 // ================================================================================
 
 const FinalGrade = mongoose.model('FinalGrade', finalGradeSchema);

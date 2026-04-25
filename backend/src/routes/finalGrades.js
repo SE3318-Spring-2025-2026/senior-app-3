@@ -119,8 +119,44 @@ router.post(
 
 /**
  * ================================================================================
- * ISSUE #253: EXPORTS
+ * ISSUE #255: PUBLISH FINAL GRADES ENDPOINT
+ * ================================================================================
+ */
+
+/**
+ * ISSUE #255: POST /groups/:groupId/final-grades/publish
+ * 
+ * Endpoint for coordinator to publish approved final grades to D7.
+ * This is the Process 8.5 publication endpoint that:
+ * 1. Validates prior approval (from Issue #253)
+ * 2. Atomically writes grades to D7 collection with status='published'
+ * 3. Dispatches student & faculty notifications with retry
+ * 4. Returns publication confirmation with timestamps
+ *
+ * Middleware chain (same as approval):
+ * 1. authMiddleware - Verify JWT token is valid
+ * 2. roleMiddleware(['coordinator']) - Only coordinators can publish
+ *
+ * Handler: publishFinalGradesHandler
+ * - Calls publishService.publishFinalGrades()
+ * - Returns FinalGradePublishResult for Issue #252 UI
+ * - Handles errors: 404 (no grades), 409 (already published), 422 (incomplete approval), 500 (transaction)
+ */
+router.post(
+  '/:groupId/final-grades/publish',
+  // ISSUE #255: Verify user is authenticated
+  authMiddleware,
+  // ISSUE #255: Verify user has coordinator role (Process 4.2)
+  roleMiddleware(['coordinator']),
+  // ISSUE #255: Process publish request with transaction
+  require('../controllers/finalGradeController').publishFinalGradesHandler
+);
+
+/**
+ * ================================================================================
+ * ISSUE #253 & #255: EXPORTS
  * ================================================================================
  */
 
 module.exports = router;
+

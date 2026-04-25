@@ -27,13 +27,36 @@ try {
 }
 
 function toFiniteNumber(value, fallback = 0) {
-  const numeric = Number(value);
+  let candidate = value;
+  if (typeof candidate === 'string') {
+    const trimmed = candidate.trim();
+    // Accept localized decimal commas (e.g. "85,5" -> "85.5")
+    candidate = trimmed.includes(',') ? trimmed.replace(',', '.') : trimmed;
+  }
+  const numeric = Number(candidate);
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
 function roundToTwoDecimals(value) {
   const safe = toFiniteNumber(value, 0);
-  return Math.round((safe + Number.EPSILON) * ROUNDING_SCALE) / ROUNDING_SCALE;
+  const normalized = safe.toFixed(12);
+  const isNegative = normalized.startsWith('-');
+  const unsigned = isNegative ? normalized.slice(1) : normalized;
+  const [wholePartRaw = '0', fractionRaw = ''] = unsigned.split('.');
+  const fraction = (fractionRaw + '000').slice(0, 3);
+  const firstTwo = Number(fraction.slice(0, 2));
+  const thirdDigit = Number(fraction[2]);
+
+  let wholePart = Number(wholePartRaw);
+  let cents = firstTwo + (thirdDigit >= 5 ? 1 : 0);
+  if (cents >= ROUNDING_SCALE) {
+    wholePart += 1;
+    cents -= ROUNDING_SCALE;
+  }
+
+  const rounded = wholePart + cents / ROUNDING_SCALE;
+  const signed = isNegative ? -rounded : rounded;
+  return Object.is(signed, -0) ? 0 : signed;
 }
 
 function hasNegativeWeightValues(value) {
@@ -105,9 +128,11 @@ class FinalGradeCalculationService {
         entry?.ratio ?? entry?.contributionRatio,
         DEFAULT_RATIO
       );
-      const safeRatio = roundToTwoDecimals(rawRatio);
-      // Senkronizasyon: Yuvarlanmış değeri hem çıktı hem de hesaplama için ortak kullanıyoruz
-      const computedFinalGrade = roundToTwoDecimals(adjustedBaseScore * safeRatio);
+      // Regression Protection: Contribution ratios and final grades should never be negative.
+      // Clamping to 0 ensures stability in edge cases.
+      const safeRatio = Math.max(0, roundToTwoDecimals(rawRatio));
+      
+      const computedFinalGrade = Math.max(0, roundToTwoDecimals(adjustedBaseScore * safeRatio));
 
       return {
         studentId: entry?.studentId || '',

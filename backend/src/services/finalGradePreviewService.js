@@ -1,8 +1,29 @@
 'use strict';
 
+/**
+ * ================================================================================
+ * FINAL GRADE PREVIEW SERVICE
+ * ================================================================================
+ * 
+ * Process 8.1 - 8.3: Compute and preview final grades before approval/publication
+ * 
+ * This service generates grade previews by aggregating data from:
+ * - D4: Base group score (milestone scoring)
+ * - D5: Student contributions (attendance, deliverable completion)
+ * - D8: Feedback aggregates (peer, advisor, presentation scores)
+ */
+
 const Deliverable = require('../models/Deliverable');
 const ContributionRecord = require('../models/ContributionRecord');
 const { FinalGradeCalculationService } = require('./finalGradeCalculationService');
+
+class PreviewError extends Error {
+  constructor(message, statusCode = 500) {
+    super(message);
+    this.name = 'PreviewError';
+    this.statusCode = statusCode;
+  }
+}
 
 class FinalGradePreviewService {
   constructor() {
@@ -15,8 +36,7 @@ class FinalGradePreviewService {
    */
   async previewGroupGrade(groupId) {
     if (!groupId) {
-      const error = new Error('groupId is required');
-      error.status = 400;
+      const error = new PreviewError('groupId is required', 400);
       throw error;
     }
 
@@ -73,17 +93,13 @@ class FinalGradePreviewService {
       rubricWeights.deliverables[item.deliverableId] = weight;
 
       if (!item.evaluations || item.evaluations.length === 0) {
-        const error = new Error(`Missing Evaluation Data: Zorunlu deliverable (${item.deliverableId}) henüz puanlanmamış.`);
-        error.status = 400;
-        throw error;
+        throw new PreviewError(`Missing Evaluation Data: Zorunlu deliverable (${item.deliverableId}) henüz puanlanmamış.`, 400);
       }
 
       // Check partial evaluations (if 2 out of 3 graded, etc.) and NULL vs 0.
       const hasPending = item.evaluations.some(ev => ev.status === 'pending' || ev.score == null);
       if (hasPending) {
-        const error = new Error(`Incomplete Evaluations: Deliverable (${item.deliverableId}) jüri değerlendirmeleri tamamlanmamış (Kısmi değerlendirme).`);
-        error.status = 409;
-        throw error;
+        throw new PreviewError(`Incomplete Evaluations: Deliverable (${item.deliverableId}) jüri değerlendirmeleri tamamlanmamış (Kısmi değerlendirme).`, 409);
       }
 
       // Compute simple average among the evaluators for this deliverable
@@ -126,20 +142,13 @@ class FinalGradePreviewService {
   }
 }
 
-class PreviewError extends Error {
-  constructor(message, statusCode = 500) {
-    super(message);
-    this.name = 'PreviewError';
-    this.statusCode = statusCode;
-  }
-}
-
 const finalGradePreviewService = new FinalGradePreviewService();
 
 async function generatePreview(groupId) {
   try {
     return await finalGradePreviewService.previewGroupGrade(groupId);
   } catch (error) {
+    if (error instanceof PreviewError) throw error;
     throw new PreviewError(error.message, error.status || 500);
   }
 }
