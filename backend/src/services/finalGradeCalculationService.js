@@ -12,12 +12,20 @@
  * @property {number} computedFinalGrade
  *
  * @typedef {Object} FinalGradesPreview
+ * @property {string} [groupId]
  * @property {number} baseGroupScore
  * @property {FinalGradePreviewEntry[]} students
  */
 
 const DEFAULT_RATIO = 1.0;
 const ROUNDING_SCALE = 100;
+let structuredLogger = null;
+
+try {
+  ({ structuredLogger } = require('../utils/structuredLogger'));
+} catch (_error) {
+  structuredLogger = null;
+}
 
 function toFiniteNumber(value, fallback = 0) {
   const numeric = Number(value);
@@ -29,38 +37,38 @@ function roundToTwoDecimals(value) {
   return Math.round((safe + Number.EPSILON) * ROUNDING_SCALE) / ROUNDING_SCALE;
 }
 
-function sumWeightBucket(bucket) {
-  if (!bucket || typeof bucket !== 'object') {
-    return 0;
+function hasNegativeWeightValues(value) {
+  if (!value || typeof value !== 'object') {
+    return false;
   }
 
-  return Object.values(bucket).reduce((total, current) => {
-    return total + toFiniteNumber(current, 0);
-  }, 0);
+  return Object.values(value).some((entry) => {
+    if (entry && typeof entry === 'object') {
+      return hasNegativeWeightValues(entry);
+    }
+
+    const numeric = Number(entry);
+    return Number.isFinite(numeric) && numeric < 0;
+  });
 }
 
 function resolveRubricMultiplier(rubricWeights) {
-  if (!rubricWeights || typeof rubricWeights !== 'object') {
-    return 1;
+  if (hasNegativeWeightValues(rubricWeights)) {
+    const warningContext = {
+      event: 'final_grade_negative_rubric_weight_detected',
+      rubricWeights,
+    };
+
+    if (structuredLogger && typeof structuredLogger.warn === 'function') {
+      structuredLogger.warn(warningContext);
+    } else {
+      console.warn('[finalGradeCalculationService] negative rubric weights detected', warningContext);
+    }
   }
 
-  const deliverableWeights =
-    rubricWeights.deliverableWeights || rubricWeights.deliverables || {};
-  const sprintWeights =
-    rubricWeights.sprintWeights || rubricWeights.sprints || {};
-
-  const deliverableTotal = sumWeightBucket(deliverableWeights);
-  const sprintTotal = sumWeightBucket(sprintWeights);
-  const totalWeight = deliverableTotal + sprintTotal;
-
-  if (!Number.isFinite(totalWeight) || totalWeight <= 0) {
-    return 1;
-  }
-
-  // OpenAPI Uyumu: baseGroupScore halihazırda weighted (ağırlıklandırılmış) bir puandır.
-  // Bu nedenle, ağırlıkların toplamını yine ağırlıkların toplamına bölerek (weighted average mantığı)
-  // çarpanı 1.0 olarak sabitliyoruz. Serviste tekrar ağırlık uygulamıyoruz.
-  return totalWeight / totalWeight;
+  // Per Process 8.1/8.2, baseGroupScore is already weighted.
+  // Returning 1.0 prevents double-weighting in Process 8.3.
+  return 1.0;
 }
 
 class FinalGradeCalculationService {
@@ -68,12 +76,19 @@ class FinalGradeCalculationService {
    * @param {number} baseGroupScore
    * @param {StudentRatio[]} ratios
    * @param {object} rubricWeights
+   * @param {string|{groupId?: string}} [groupContext]
    * @returns {FinalGradesPreview}
    */
-  computeFinalGrades(baseGroupScore, ratios = [], rubricWeights = {}) {
+  computeFinalGrades(baseGroupScore, ratios = [], rubricWeights = {}, groupContext) {
     const safeBaseGroupScore = toFiniteNumber(baseGroupScore, 0);
     const rubricMultiplier = resolveRubricMultiplier(rubricWeights);
     const adjustedBaseScore = roundToTwoDecimals(safeBaseGroupScore * rubricMultiplier);
+    const resolvedGroupId =
+      typeof groupContext === 'string'
+        ? groupContext
+        : typeof groupContext?.groupId === 'string'
+          ? groupContext.groupId
+          : null;
 
     const students = (Array.isArray(ratios) ? ratios : []).map((entry) => {
       const rawRatio = toFiniteNumber(
@@ -93,10 +108,16 @@ class FinalGradeCalculationService {
 
     // Veri Yapısı Mimari Kararı: Pure function sadece hesaplama sonucunu dönmeli.
     // groupId gibi meta veriler controller/orchestrator katmanında eklenmelidir.
-    return {
+    const result = {
       baseGroupScore: adjustedBaseScore,
       students,
     };
+
+    if (resolvedGroupId) {
+      result.groupId = resolvedGroupId;
+    }
+
+    return result;
   }
 }
 
