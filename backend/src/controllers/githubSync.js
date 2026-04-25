@@ -262,6 +262,20 @@ const triggerGitHubSync = async (req, res) => {
         correlationId,
         externalRequestId
       });
+    } catch (createErr) {
+      if (createErr?.code === 11000) {
+        const existingLock = await GitHubSyncJob.findOne({
+          groupId,
+          sprintId,
+          status: 'IN_PROGRESS',
+        }).lean();
+        return res.status(409).json({
+          error: 'SYNC_ALREADY_RUNNING',
+          message: `A GitHub sync is already in progress for group ${groupId} / sprint ${sprintId}`,
+          job_id: existingLock?.jobId || null,
+        });
+      }
+      throw createErr;
     }
 
     await createAuditLog({
@@ -284,7 +298,6 @@ const triggerGitHubSync = async (req, res) => {
       jobId: job?.jobId || null,
       error: err.message
     }));
-
     // ── Audit: sync initiated (non-fatal) ───────────────────────────────────
     try {
       await createAuditLog({
