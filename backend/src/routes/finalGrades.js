@@ -30,6 +30,7 @@
 
 const express = require('express');
 const router = express.Router({ mergeParams: true });
+const AuditLog = require('../models/AuditLog');
 
 // ISSUE #253: Import middleware for authentication & authorization
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
@@ -38,8 +39,52 @@ const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const {
   approveGroupGradesHandler,
   getGroupApprovalSummaryHandler,
-  previewFinalGradesHandler
+  previewFinalGradesHandler,
+  publishFinalGradesHandler
 } = require('../controllers/finalGradeController');
+
+const publishAuthOrSystemMiddleware = (req, res, next) => {
+  const providedSystemToken = req.headers['x-system-auth'];
+  const expectedSystemToken = process.env.INTERNAL_SYSTEM_TOKEN;
+
+  if (
+    typeof providedSystemToken === 'string' &&
+    typeof expectedSystemToken === 'string' &&
+    expectedSystemToken.length > 0 &&
+    providedSystemToken === expectedSystemToken
+  ) {
+    req.isSystemBackend = true;
+    req.user = {
+      userId: 'SYSTEM',
+      role: 'system',
+      isServiceAccount: true
+    };
+    return next();
+  }
+
+  return authMiddleware(req, res, next);
+};
+
+const deprecatedApprovalRouteWarning = async (req, res, next) => {
+  console.warn('[DEPRECATED_ROUTE_USED] POST /final-grades/approval is deprecated; prefer /final-grades/approve');
+  try {
+    await AuditLog.create({
+      action: 'DEPRECATED_ROUTE_USED',
+      actorId: req?.user?.userId || null,
+      groupId: req?.params?.groupId || null,
+      payload: {
+        route: '/groups/:groupId/final-grades/approval',
+        preferredRoute: '/groups/:groupId/final-grades/approve',
+        method: req.method
+      },
+      ipAddress: req?.ip || null,
+      userAgent: req?.headers?.['user-agent'] || null
+    });
+  } catch (_error) {
+    // Non-fatal deprecation telemetry
+  }
+  next();
+};
 
 /**
  * POST /groups/:groupId/final-grades/preview
@@ -73,10 +118,31 @@ router.post(
   '/:groupId/final-grades/approval',
   // ISSUE #253: Verify user is authenticated
   authMiddleware,
-  // ISSUE #253: Verify user has coordinator role (Process 4.2 role)
-  roleMiddleware(['coordinator']),
+  deprecatedApprovalRouteWarning,
   // ISSUE #253: Process approval request
   approveGroupGradesHandler
+);
+
+/**
+ * POST /groups/:groupId/final-grades/approve
+ *
+ * Alias endpoint for OpenAPI-compatible naming in integration tests.
+ */
+router.post(
+  '/:groupId/final-grades/approve',
+  authMiddleware,
+  approveGroupGradesHandler
+);
+
+/**
+ * POST /groups/:groupId/final-grades/publish
+ *
+ * Security gate endpoint for Process 8.5.
+ */
+router.post(
+  '/:groupId/final-grades/publish',
+  publishAuthOrSystemMiddleware,
+  publishFinalGradesHandler
 );
 
 /**

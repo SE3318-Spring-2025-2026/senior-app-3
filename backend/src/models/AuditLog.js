@@ -161,6 +161,8 @@ const auditLogSchema = new mongoose.Schema(
         'SPRINT_CONTRIBUTION_RECALCULATION_COMPLETED',
         'SPRINT_CONTRIBUTION_RECALCULATION_ERROR',
         'SPRINT_CONTRIBUTIONS_RECALCULATED',
+        'SYSTEM_ACCESS_AUDIT',
+        'DEPRECATED_ROUTE_USED',
         // ISSUE #238: Notification dispatch events for sprint contribution updates
         'SPRINT_NOTIFICATION_DISPATCHED',        // ISSUE #238: Successful notification sent (student or coordinator)
         'SPRINT_NOTIFICATION_FAILED',             // ISSUE #238: Failed notification dispatch attempt (permanent after retries)

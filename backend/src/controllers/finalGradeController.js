@@ -2,6 +2,21 @@
 
 const finalGradePreviewService = require('../services/finalGradePreviewService');
 const { approveGroupGrades, GradeApprovalError } = require('../services/approvalService');
+const Group = require('../models/Group');
+const AuditLog = require('../models/AuditLog');
+
+const PREVIEW_FORBIDDEN_MESSAGE =
+  'Forbidden - only the Coordinator role or authorized Professor/Advisor roles may preview final grades';
+const APPROVAL_FORBIDDEN_MESSAGE =
+  'Forbidden - only the Coordinator role may approve final grades';
+const PUBLISH_FORBIDDEN_MESSAGE =
+  'Forbidden - only the Coordinator role may publish final grades';
+const SYSTEM_ACTOR_ID = 'SYSTEM';
+
+const isCoordinator = (req) => req?.user?.role === 'coordinator';
+const hasValidSystemToken = (req) =>
+  typeof req?.headers?.['x-system-auth'] === 'string' &&
+  req.headers['x-system-auth'] === process.env.INTERNAL_SYSTEM_TOKEN;
 
 /**
  * Controller for Process 8.1 - Final Grade Preview
@@ -37,6 +52,13 @@ const previewFinalGrades = async (req, res, next) => {
  */
 const approveGroupGradesHandler = async (req, res) => {
   try {
+    if (!isCoordinator(req)) {
+      return res.status(403).json({
+        error: APPROVAL_FORBIDDEN_MESSAGE,
+        code: 'UNAUTHORIZED_ROLE'
+      });
+    }
+
     // ========================================================================
     // ISSUE #253: EXTRACT AND VALIDATE REQUEST
     // ========================================================================
@@ -205,8 +227,25 @@ const previewFinalGradesHandler = async (req, res) => {
     const allowedRoles = ['coordinator', 'professor', 'advisor'];
     if (!req.user || !allowedRoles.includes(req.user.role)) {
       return res.status(403).json({
-        error: 'Forbidden - only the Coordinator role or authorized Professor/Advisor roles may preview final grades'
+        error: PREVIEW_FORBIDDEN_MESSAGE,
+        code: 'FORBIDDEN_PREVIEW_ACCESS'
       });
+    }
+
+    // Ownership guard: professor/advisor can preview only if assigned to the group.
+    if (!isCoordinator(req)) {
+      const group = await Group.findOne({ groupId }).select('advisorId professorId').lean();
+      const requesterId = req.user.userId;
+      const isAssigned =
+        (req.user.role === 'advisor' && group?.advisorId === requesterId) ||
+        (req.user.role === 'professor' && group?.professorId === requesterId);
+
+      if (!isAssigned) {
+        return res.status(403).json({
+          error: PREVIEW_FORBIDDEN_MESSAGE,
+          code: 'FORBIDDEN_PREVIEW_ACCESS'
+        });
+      }
     }
 
     // Validation
@@ -245,6 +284,72 @@ const previewFinalGradesHandler = async (req, res) => {
 };
 
 /**
+ * POST /groups/:groupId/final-grades/publish
+ *
+ * Security gate endpoint for Process 8.5.
+ * This handler currently enforces RBAC and returns a deterministic response.
+ */
+const publishFinalGradesHandler = async (req, res) => {
+  const systemAccess = req?.isSystemBackend === true || hasValidSystemToken(req);
+  const actorId = systemAccess ? SYSTEM_ACTOR_ID : (req?.user?.userId || null);
+  if (!isCoordinator(req) && !systemAccess) {
+    return res.status(403).json({
+      error: PUBLISH_FORBIDDEN_MESSAGE,
+      code: 'UNAUTHORIZED_ROLE'
+    });
+  }
+
+  if (systemAccess) {
+    try {
+      await AuditLog.create({
+        action: 'SYSTEM_ACCESS_AUDIT',
+        actorId,
+        groupId: req?.params?.groupId || null,
+        payload: {
+          endpoint: '/groups/:groupId/final-grades/publish',
+          method: req.method,
+          reason: 'publish_system_bypass',
+          viaHeader: 'x-system-auth'
+        },
+        ipAddress: req?.ip || null,
+        userAgent: req?.headers?.['user-agent'] || null
+      });
+    } catch (_auditError) {
+      return res.status(500).json({
+        error: 'System access audit logging failed',
+        code: 'AUDIT_LOG_FAILURE'
+      });
+    }
+  }
+
+  try {
+    await AuditLog.create({
+      action: 'FINAL_GRADE_PUBLISHED',
+      actorId,
+      groupId: req?.params?.groupId || null,
+      payload: {
+        endpoint: '/groups/:groupId/final-grades/publish',
+        method: req.method,
+        accessMode: systemAccess ? 'system' : 'coordinator'
+      },
+      ipAddress: req?.ip || null,
+      userAgent: req?.headers?.['user-agent'] || null
+    });
+  } catch (_publishAuditError) {
+    return res.status(500).json({
+      error: 'Final grade publish audit logging failed',
+      code: 'AUDIT_LOG_FAILURE'
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    groupId: req.params.groupId,
+    message: 'Final grades publish request accepted'
+  });
+};
+
+/**
  * ================================================================================
  * ISSUE #253: EXPORTS
  * ================================================================================
@@ -254,5 +359,6 @@ module.exports = {
   previewFinalGrades,
   approveGroupGradesHandler,
   getGroupApprovalSummaryHandler,
-  previewFinalGradesHandler
+  previewFinalGradesHandler,
+  publishFinalGradesHandler
 };
