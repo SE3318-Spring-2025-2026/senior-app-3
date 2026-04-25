@@ -32,6 +32,16 @@ const publishFinalGrades = async (
     throw new FinalGradePublishError('Publish cycle is required', 400, 'MISSING_PUBLISH_CYCLE');
   }
 
+  const hasPublished = await FinalGrade.exists({
+    groupId,
+    publishCycle: requestedPublishCycle,
+    status: FINAL_GRADE_STATUS.PUBLISHED
+  });
+
+  if (hasPublished) {
+    throw new FinalGradePublishError('Bu notlar zaten yayınlanmış', 409, 'ALREADY_PUBLISHED');
+  }
+
   const approvedSnapshot = await FinalGrade.find({
     groupId,
     status: FINAL_GRADE_STATUS.APPROVED
@@ -55,16 +65,6 @@ const publishFinalGrades = async (
   }
 
   const publishCycle = approvedSnapshot[0].publishCycle;
-
-  const hasPublished = await FinalGrade.exists({
-    groupId,
-    publishCycle,
-    status: FINAL_GRADE_STATUS.PUBLISHED
-  });
-
-  if (hasPublished) {
-    throw new FinalGradePublishError('Bu notlar zaten yayınlanmış', 409, 'ALREADY_PUBLISHED');
-  }
 
   // Transaction
   const session = await FinalGrade.startSession();
@@ -90,11 +90,21 @@ const publishFinalGrades = async (
 
     const publishedCount = updateResult.modifiedCount || 0;
     if (publishedCount === 0) {
-      throw new FinalGradePublishError(
-        'No approved grades found for publication. An Approval Snapshot is required.',
-        422,
-        'NO_APPROVED_GRADES'
-      );
+      const alreadyPublished = await FinalGrade.exists({
+        groupId,
+        publishCycle,
+        status: FINAL_GRADE_STATUS.PUBLISHED
+      }).session(session);
+
+      if (alreadyPublished) {
+        throw new FinalGradePublishError(
+          'Bu notlar başka bir işlem tarafından zaten yayınlanmış.',
+          409,
+          'ALREADY_PUBLISHED'
+        );
+      }
+
+      throw new FinalGradePublishError('Yayınlanacak onaylanmış not bulunamadı.', 422, 'NO_APPROVED_GRADES');
     }
 
     await AuditLog.create(
@@ -136,6 +146,9 @@ const publishFinalGrades = async (
     };
   } catch (error) {
     await session.abortTransaction();
+    if (error instanceof FinalGradePublishError) {
+      throw error;
+    }
     throw new FinalGradePublishError(`Publishing failed: ${error.message}`, 500, 'PUBLISH_FAILED');
   } finally {
     session.endSession();
