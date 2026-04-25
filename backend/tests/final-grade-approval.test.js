@@ -258,7 +258,7 @@ describe('[ISSUE #253] Final Grade Approval Workflow', () => {
               studentId: studentUser1._id.toString(),
               originalFinalGrade: 68,
               overriddenFinalGrade: 75,
-              comment: 'Exceptional contribution in sprint'
+              overrideReason: 'Exceptional contribution in sprint'
             }
           ],
           reason: 'Approved with manual adjustment'
@@ -560,7 +560,7 @@ describe('[ISSUE #253] Final Grade Approval Workflow', () => {
               studentId: studentUser1._id.toString(),
               originalFinalGrade: 76.5,
               overriddenFinalGrade: 80,
-              comment: 'Strong contribution'
+              overrideReason: 'Strong contribution'
             }
           ]
         });

@@ -82,7 +82,7 @@ const CoordinatorFinalGradeApprovalPanel = () => {
     const existing = overrides[student.studentId];
     setActiveStudent(student);
     setOverrideGrade(existing?.overriddenFinalGrade ?? '');
-    setOverrideComment(existing?.comment ?? '');
+    setOverrideComment(existing?.overrideReason ?? '');
     setOverrideError('');
   };
 
@@ -120,7 +120,7 @@ const CoordinatorFinalGradeApprovalPanel = () => {
         studentId: activeStudent.studentId,
         originalFinalGrade: activeStudent.computedFinalGrade,
         overriddenFinalGrade: nextGrade,
-        comment: overrideComment.trim(),
+        overrideReason: overrideComment.trim(),
       },
     }));
     closeOverrideModal();
@@ -135,6 +135,10 @@ const CoordinatorFinalGradeApprovalPanel = () => {
   };
 
   const submitDecision = async (decision) => {
+    if (submitting) {
+      return;
+    }
+
     setSubmitting(true);
     setError('');
     setApprovalResult(null);
@@ -282,7 +286,7 @@ const CoordinatorFinalGradeApprovalPanel = () => {
                         <td>{formatNumber(student.computedFinalGrade)}</td>
                         <td>{override ? formatNumber(override.overriddenFinalGrade) : '-'}</td>
                         <td>{formatNumber(reviewedGrade)}</td>
-                        <td>{override?.comment || '-'}</td>
+                        <td>{override?.overrideReason || '-'}</td>
                         <td>
                           <div className="approval-row-actions">
                             <button type="button" onClick={() => openOverrideModal(student)}>

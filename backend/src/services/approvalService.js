@@ -101,9 +101,10 @@ const validateOverrideEntries = (overrideEntries = []) => {
       );
     }
 
-    if (!entry.comment || typeof entry.comment !== 'string' || entry.comment.trim() === '') {
+    const overrideReason = entry.overrideReason ?? entry.comment;
+    if (!overrideReason || typeof overrideReason !== 'string' || overrideReason.trim() === '') {
       throw new GradeApprovalError(
-        `Override entry ${index}: comment is required`,
+        `Override entry ${index}: overrideReason is required`,
         422,
         'MISSING_OVERRIDE_REASON'
       );
@@ -144,9 +145,10 @@ const createOverrideMap = (overrideEntries = []) => {
   const map = {};
 
   overrideEntries.forEach((entry) => {
+    const overrideReason = entry.overrideReason ?? entry.comment ?? null;
     map[entry.studentId] = {
       overriddenFinalGrade: entry.overriddenFinalGrade,
-      comment: entry.comment || null
+      overrideReason
     };
   });
 
@@ -324,13 +326,13 @@ const approveGroupGrades = async (
           finalGrade.originalFinalGrade = finalGrade.computedFinalGrade;
           finalGrade.overriddenFinalGrade = studentOverride.overriddenFinalGrade;
           finalGrade.overriddenBy = coordinatorId;
-          finalGrade.overrideComment = studentOverride.comment;
+          finalGrade.overrideComment = studentOverride.overrideReason;
           finalGrade.overrideEntries = [
             {
               studentId,
               originalFinalGrade: finalGrade.computedFinalGrade,
               overriddenFinalGrade: studentOverride.overriddenFinalGrade,
-              comment: studentOverride.comment,
+              comment: studentOverride.overrideReason,
               overriddenAt: new Date()
             }
           ];
@@ -364,7 +366,7 @@ const approveGroupGrades = async (
               publishCycle,
               originalGrade: computedFinalGrade,
               overriddenGrade: studentOverride.overriddenFinalGrade,
-              comment: studentOverride.comment
+              overrideReason: studentOverride.overrideReason
             }
           });
         }
@@ -451,7 +453,7 @@ const approveGroupGrades = async (
     };
   } catch (error) {
     // ISSUE #253: Abort transaction on any error
-    if (session) {
+    if (session && session.inTransaction()) {
       await session.abortTransaction();
     }
 

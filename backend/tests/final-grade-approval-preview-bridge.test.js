@@ -144,7 +144,7 @@ describe('Final grade preview approval bridge', () => {
             studentId: 'student-1',
             originalFinalGrade: 80,
             overriddenFinalGrade: 85,
-            comment: 'Coordinator adjustment'
+            overrideReason: 'Coordinator adjustment'
           }
         ],
         reason: 'Approved with adjustment'
@@ -176,6 +176,44 @@ describe('Final grade preview approval bridge', () => {
 
     const finalGrades = await FinalGrade.find({ groupId });
     expect(finalGrades).toHaveLength(0);
+  });
+
+  it('refreshes same-cycle pending snapshot and removes stale pending rows', async () => {
+    await seedPreviewInputs();
+
+    await request(app)
+      .post(`/api/v1/groups/${groupId}/final-grades/preview`)
+      .set('Authorization', `Bearer ${coordinatorToken}`)
+      .send({
+        persistForApproval: true,
+        publishCycle: 'cycle-refresh',
+        useLatestRatios: false
+      });
+
+    await FinalGrade.create({
+      finalGradeId: 'fg_stale_cycle_refresh',
+      groupId,
+      publishCycle: 'cycle-refresh',
+      studentId: 'stale-student',
+      baseGroupScore: 70,
+      individualRatio: 0.5,
+      computedFinalGrade: 35,
+      status: FINAL_GRADE_STATUS.PENDING
+    });
+
+    await request(app)
+      .post(`/api/v1/groups/${groupId}/final-grades/preview`)
+      .set('Authorization', `Bearer ${coordinatorToken}`)
+      .send({
+        persistForApproval: true,
+        publishCycle: 'cycle-refresh',
+        useLatestRatios: false
+      });
+
+    const finalGrades = await FinalGrade.find({ groupId, publishCycle: 'cycle-refresh' }).lean();
+    expect(finalGrades).toHaveLength(1);
+    expect(finalGrades[0].studentId).toBe('student-1');
+    expect(finalGrades[0].status).toBe(FINAL_GRADE_STATUS.PENDING);
   });
 
   it('reject decision creates a terminal rejected state that blocks publishing', async () => {

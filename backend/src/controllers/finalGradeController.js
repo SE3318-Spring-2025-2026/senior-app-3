@@ -24,6 +24,15 @@ const hasValidSystemToken = (req) =>
 const buildPublishCycle = (groupId) =>
   `cycle_${String(groupId).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32)}_${uuidv4().split('-')[0]}`;
 
+const normalizeApprovalDecision = (decision) => {
+  if (typeof decision !== 'string') return null;
+  const normalized = decision.trim().toLowerCase();
+  if (normalized === 'approved') return 'approve';
+  if (normalized === 'rejected') return 'reject';
+  if (normalized === 'approve' || normalized === 'reject') return normalized;
+  return null;
+};
+
 const persistPreviewForApproval = async ({
   groupId,
   preview,
@@ -48,6 +57,15 @@ const persistPreviewForApproval = async ({
   }
 
   const now = new Date();
+  const incomingStudentIds = students.map((student) => student.studentId);
+
+  // Refresh pending snapshot for this cycle to avoid stale/duplicate pending states.
+  await FinalGrade.deleteMany({
+    groupId,
+    publishCycle,
+    status: FINAL_GRADE_STATUS.PENDING,
+    studentId: { $nin: incomingStudentIds }
+  });
 
   for (const student of students) {
     await FinalGrade.findOneAndUpdate(
@@ -259,12 +277,14 @@ const approveGroupGradesHandler = async (req, res) => {
       }
     }
 
-    if (!decision || !['approve', 'reject'].includes(decision)) {
+    const normalizedDecision = normalizeApprovalDecision(decision);
+    if (!normalizedDecision) {
       return res.status(422).json({
-        message: 'decision must be "approve" or "reject"',
+        message: 'decision must be one of "approve", "reject", "APPROVED", or "REJECTED"',
         code: 'INVALID_DECISION'
       });
     }
+    decision = normalizedDecision;
 
     console.log(`[Issue #253] Approval attempt - Group: ${groupId}, Coordinator: ${coordinatorId}, Decision: ${decision}`);
 

@@ -115,7 +115,7 @@ describe('CoordinatorFinalGradeApprovalPanel', () => {
             studentId: 'student-1',
             originalFinalGrade: 80,
             overriddenFinalGrade: 85,
-            comment: 'Strong contribution',
+            overrideReason: 'Strong contribution',
           },
         ],
       });
