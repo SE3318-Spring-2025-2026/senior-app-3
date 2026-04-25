@@ -29,6 +29,11 @@ const AuditLog = require('../models/AuditLog');
 const Group = require('../models/Group');
 const { v4: uuidv4 } = require('uuid');
 
+const supportsMongoTransactions = () => {
+  const topologyType = FinalGrade.db?.client?.topology?.description?.type;
+  return ['ReplicaSetWithPrimary', 'Sharded'].includes(topologyType);
+};
+
 /**
  * ISSUE #253: Error class for grade approval specific errors
  * Used to distinguish approval errors from general application errors
@@ -96,9 +101,10 @@ const validateOverrideEntries = (overrideEntries = []) => {
       );
     }
 
-    if (!entry.comment || typeof entry.comment !== 'string' || entry.comment.trim() === '') {
+    const overrideReason = entry.overrideReason ?? entry.comment;
+    if (!overrideReason || typeof overrideReason !== 'string' || overrideReason.trim() === '') {
       throw new GradeApprovalError(
-        `Override entry ${index}: comment is required`,
+        `Override entry ${index}: overrideReason is required`,
         422,
         'MISSING_OVERRIDE_REASON'
       );
@@ -139,9 +145,10 @@ const createOverrideMap = (overrideEntries = []) => {
   const map = {};
 
   overrideEntries.forEach((entry) => {
+    const overrideReason = entry.overrideReason ?? entry.comment ?? null;
     map[entry.studentId] = {
       overriddenFinalGrade: entry.overriddenFinalGrade,
-      comment: entry.comment || null
+      overrideReason
     };
   });
 
@@ -262,8 +269,12 @@ const approveGroupGrades = async (
   // =========================================================================
   // ISSUE #253: START ATOMIC TRANSACTION
   // =========================================================================
-  const session = await FinalGrade.startSession();
-  session.startTransaction();
+  const shouldUseTransaction = supportsMongoTransactions();
+  const session = shouldUseTransaction ? await FinalGrade.startSession() : null;
+
+  if (session) {
+    session.startTransaction();
+  }
 
   try {
     const createdGrades = [];
@@ -295,7 +306,11 @@ const approveGroupGrades = async (
           computedFinalGrade,
           finalGradeId: uuidv4().split('-')[0]
         },
-        { upsert: true, new: true, session }
+        {
+          upsert: true,
+          new: true,
+          ...(session ? { session } : {})
+        }
       );
 
       // ISSUE #253: Apply approval decision
@@ -311,13 +326,13 @@ const approveGroupGrades = async (
           finalGrade.originalFinalGrade = finalGrade.computedFinalGrade;
           finalGrade.overriddenFinalGrade = studentOverride.overriddenFinalGrade;
           finalGrade.overriddenBy = coordinatorId;
-          finalGrade.overrideComment = studentOverride.comment;
+          finalGrade.overrideComment = studentOverride.overrideReason;
           finalGrade.overrideEntries = [
             {
               studentId,
               originalFinalGrade: finalGrade.computedFinalGrade,
               overriddenFinalGrade: studentOverride.overriddenFinalGrade,
-              comment: studentOverride.comment,
+              comment: studentOverride.overrideReason,
               overriddenAt: new Date()
             }
           ];
@@ -351,7 +366,7 @@ const approveGroupGrades = async (
               publishCycle,
               originalGrade: computedFinalGrade,
               overriddenGrade: studentOverride.overriddenFinalGrade,
-              comment: studentOverride.comment
+              overrideReason: studentOverride.overrideReason
             }
           });
         }
@@ -379,16 +394,18 @@ const approveGroupGrades = async (
       }
 
       // ISSUE #253: Save within transaction
-      await finalGrade.save({ session });
+      await finalGrade.save(session ? { session } : undefined);
       createdGrades.push(finalGrade);
     }
 
     // ISSUE #253: Create all audit logs within transaction
     // Ensures consistency: if we update grades, we must log it
-    await AuditLog.insertMany(auditLogs, { session });
+    await AuditLog.insertMany(auditLogs, session ? { session } : undefined);
 
     // ISSUE #253: Commit transaction
-    await session.commitTransaction();
+    if (session) {
+      await session.commitTransaction();
+    }
 
     // =========================================================================
     // ISSUE #253: END ATOMIC TRANSACTION
@@ -436,8 +453,9 @@ const approveGroupGrades = async (
     };
   } catch (error) {
     // ISSUE #253: Abort transaction on any error
-    await session.abortTransaction();
-    session.endSession();
+    if (session && session.inTransaction()) {
+      await session.abortTransaction();
+    }
 
     if (error instanceof GradeApprovalError) {
       throw error;
@@ -449,7 +467,9 @@ const approveGroupGrades = async (
       'TRANSACTION_FAILED'
     );
   } finally {
-    session.endSession();
+    if (session) {
+      session.endSession();
+    }
   }
 };
 
