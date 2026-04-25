@@ -769,7 +769,37 @@ describe('Process 7.2 — GitHub PR Sync', () => {
 
       expect(settled.status).toBe('FAILED');
       expect(settled.errorCode).toBe('UPSTREAM_PROVIDER_ERROR');
+      expect(settled.errorMessage).toContain('GitHub API');
     }, 12000);
+
+    it('maps persistent 500/502 responses to UPSTREAM_PROVIDER_ERROR', async () => {
+      const { token } = tokenCoordinator();
+      const statuses = [500, 502];
+
+      for (const statusCode of statuses) {
+        await clearAllCollections();
+        const { groupId } = await seedGroupWithGitHub();
+        const sprintId = unique(`spr_${statusCode}`);
+        await seedSprintRecord(groupId, sprintId, {
+          deliverableRefs: [{ deliverableId: `DEL-${statusCode}`, type: 'proposal', submittedAt: new Date() }],
+        });
+
+        const serverError = Object.assign(new Error(`HTTP ${statusCode}`), {
+          response: { status: statusCode },
+        });
+        axios.get = jest.fn().mockRejectedValue(serverError);
+
+        const res = await request(app)
+          .post(`${API}/groups/${groupId}/sprints/${sprintId}/github-sync`)
+          .set('Authorization', `Bearer ${token}`);
+
+        expect(res.status).toBe(202);
+        const settled = await waitForJobToSettle(res.body.job_id, 8000);
+        expect(settled.status).toBe('FAILED');
+        expect(settled.errorCode).toBe('UPSTREAM_PROVIDER_ERROR');
+        expect(settled.errorMessage).toContain('GitHub API');
+      }
+    }, 20000);
 
     it('marks job FAILED with GATEWAY_TIMEOUT when all retries timeout', async () => {
       const { token } = tokenCoordinator();
@@ -864,6 +894,30 @@ describe('Process 7.2 — GitHub PR Sync', () => {
 
       expect(res.status).toBe(409);
       expect(res.body.error).toBe('SYNC_ALREADY_RUNNING');
+    });
+
+    it('returns 409 for the second request in a same-idempotency race', async () => {
+      const { token } = tokenCoordinator();
+      const { groupId } = await seedGroupWithGitHub();
+      const sprintId = unique('spr');
+      await seedSprintRecord(groupId, sprintId);
+
+      axios.get = jest.fn().mockResolvedValue({ data: [] });
+      const idempotencyKey = `idem_key_${Date.now()}_abcdefghijklmnopqrstuvwxyz0123456789`;
+
+      const [res1, res2] = await Promise.all([
+        request(app)
+          .post(`${API}/groups/${groupId}/sprints/${sprintId}/github-sync`)
+          .set('Authorization', `Bearer ${token}`)
+          .set('Idempotency-Key', idempotencyKey),
+        request(app)
+          .post(`${API}/groups/${groupId}/sprints/${sprintId}/github-sync`)
+          .set('Authorization', `Bearer ${token}`)
+          .set('Idempotency-Key', idempotencyKey),
+      ]);
+
+      const statuses = [res1.status, res2.status].sort((a, b) => a - b);
+      expect(statuses).toEqual([202, 409]);
     });
   });
 });

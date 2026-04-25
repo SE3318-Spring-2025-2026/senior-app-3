@@ -230,11 +230,12 @@ const triggerGitHubSync = async (req, res) => {
     }
 
     if (replayJob) {
-      const replayStatusCode = ['PENDING', 'IN_PROGRESS'].includes(replayJob.status) ? 202 : 200;
+      const replayStatusCode = ['PENDING', 'IN_PROGRESS'].includes(replayJob.status) ? 409 : 200;
       return res.status(replayStatusCode).json({
+        error: replayStatusCode === 409 ? 'SYNC_ALREADY_RUNNING' : undefined,
         job_id: replayJob.jobId,
         status: replayJob.status,
-        message: replayStatusCode === 202
+        message: replayStatusCode === 409
           ? 'Returning existing in-flight job (atomic idempotency)'
           : 'Returning existing completed job (atomic idempotency)',
         correlationId,
@@ -252,13 +253,14 @@ const triggerGitHubSync = async (req, res) => {
       jobId: { $ne: job.jobId }
     }).lean();
     if (existingLock) {
-      return res.status(202).json({
+      return res.status(409).json({
+        error: 'SYNC_ALREADY_RUNNING',
+        message: `A GitHub sync is already in progress for group ${groupId} / sprint ${sprintId}`,
+        jobId: existingLock.jobId,
         job_id: existingLock.jobId,
-        status: existingLock.status,
-        message: 'Returning existing in-flight job',
+        source: 'github',
         correlationId,
-        externalRequestId,
-        replay: true
+        externalRequestId
       });
     }
 
@@ -358,6 +360,23 @@ const triggerGitHubSync = async (req, res) => {
     });
 
   } catch (err) {
+    if (err?.code === 11000) {
+      const racingJob = await GitHubSyncJob.findOne({
+        groupId,
+        sprintId,
+        status: { $in: ['PENDING', 'IN_PROGRESS'] },
+      }).lean();
+      return res.status(409).json({
+        error: 'SYNC_ALREADY_RUNNING',
+        message: `A GitHub sync is already in progress for group ${groupId} / sprint ${sprintId}`,
+        jobId: racingJob?.jobId,
+        job_id: racingJob?.jobId,
+        source: 'github',
+        correlationId,
+        externalRequestId
+      });
+    }
+
     // Propagation from GitHubSyncError (pre-flight checks)
     if (err instanceof GitHubSyncError) {
       const statusMap = {

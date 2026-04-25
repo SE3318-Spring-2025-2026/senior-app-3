@@ -41,7 +41,8 @@ const { logError } = require('../utils/structuredLogger');
 // Constants
 // ---------------------------------------------------------------------------
 
-const MAX_RETRY_ATTEMPTS = 3;
+const MAX_RETRIES = 3;
+const MAX_RETRY_ATTEMPTS = MAX_RETRIES + 1;
 const RETRY_BASE_DELAY_MS = 200; // 200 → 400 → 800 ms
 
 // GitHub merge state → internal enum
@@ -336,11 +337,15 @@ class GitHubSyncError extends Error {
  * @param {string} jobId  — GitHubSyncJob.jobId (also the lock key)
  */
 async function githubSyncWorker(groupId, sprintId, jobId, correlationId = null, externalRequestId = null) {
+  let acquiredLock = false;
   let job = await GitHubSyncJob.findOneAndUpdate(
     { jobId, status: 'PENDING' },
     { $set: { status: 'IN_PROGRESS', startedAt: new Date() } },
     { new: true }
   );
+  if (job) {
+    acquiredLock = true;
+  }
   if (!job) {
     job = await GitHubSyncJob.findOne({ jobId });
   }
@@ -355,7 +360,7 @@ async function githubSyncWorker(groupId, sprintId, jobId, correlationId = null, 
     });
     return;
   }
-  if (job.status === 'IN_PROGRESS' && job.startedAt) {
+  if (!acquiredLock && job.status === 'IN_PROGRESS' && job.startedAt) {
     // Already acquired by another worker.
     return;
   }
@@ -436,17 +441,29 @@ async function githubSyncWorker(groupId, sprintId, jobId, correlationId = null, 
     // ── f35: Release lock ────────────────────────────────────────────────────
     await job.save();
 
-    const correlationId = job.correlationId;
+    const finalCorrelationId = job.correlationId || correlationId;
 
-    // Trigger completion notification
-    dispatchSyncNotification({
-      groupId,
-      sprintId,
-      status: job.status,
-      issuesProcessed: validationRecords.length,
-      triggeredBy: job.triggeredBy || 'system',
-      correlationId,
-    });
+    // Trigger completion notification (non-fatal)
+    try {
+      dispatchSyncNotification({
+        groupId,
+        sprintId,
+        status: job.status,
+        issuesProcessed: validationRecords.length,
+        triggeredBy: job.triggeredBy || 'system',
+        correlationId: finalCorrelationId,
+      });
+    } catch (notificationErr) {
+      logError('GitHub sync notification dispatch failed', {
+        service_name: 'github_sync',
+        correlationId: finalCorrelationId,
+        externalRequestId: externalRequestId || job.externalRequestId || null,
+        jobId,
+        groupId,
+        sprintId,
+        error: notificationErr.message
+      });
+    }
 
     // Audit (non-fatal)
     try {
@@ -456,7 +473,7 @@ async function githubSyncWorker(groupId, sprintId, jobId, correlationId = null, 
         groupId,
         targetId: jobId,
         payload: {
-          correlationId: correlationId || job.correlationId,
+          correlationId: finalCorrelationId,
           externalRequestId: externalRequestId || job.externalRequestId || null,
           sprintId,
           jobId,
@@ -465,12 +482,12 @@ async function githubSyncWorker(groupId, sprintId, jobId, correlationId = null, 
           notMergedCount: validationRecords.filter((r) => r.mergeStatus === 'NOT_MERGED').length,
           unknownCount: validationRecords.filter((r) => r.mergeStatus === 'UNKNOWN').length,
         },
-        correlationId,
+        correlationId: finalCorrelationId,
       });
     } catch (auditErr) {
       logError('GitHub sync completion audit write failed', {
         service_name: 'github_sync',
-        correlationId: correlationId || job.correlationId,
+        correlationId: finalCorrelationId,
         externalRequestId: externalRequestId || job.externalRequestId || null,
         jobId,
         groupId,

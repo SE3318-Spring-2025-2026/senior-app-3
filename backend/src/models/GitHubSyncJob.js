@@ -190,7 +190,14 @@ gitHubSyncJobSchema.index({ correlationId: 1, createdAt: -1 });
 gitHubSyncJobSchema.index({ idempotencyKey: 1, fingerprint: 1 });
 gitHubSyncJobSchema.index(
   { idempotencyKey: 1, fingerprint: 1 },
-  { unique: true, sparse: true, name: 'uniq_idempotency_fingerprint' }
+  {
+    unique: true,
+    name: 'uniq_idempotency_fingerprint',
+    partialFilterExpression: {
+      idempotencyKey: { $type: 'string' },
+      fingerprint: { $type: 'string' },
+    }
+  }
 );
 gitHubSyncJobSchema.index({ groupId: 1, sprintId: 1, jobId: 1 });
 gitHubSyncJobSchema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });

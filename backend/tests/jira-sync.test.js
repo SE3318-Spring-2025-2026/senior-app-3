@@ -276,6 +276,39 @@ describe('Process 7.1 - JIRA Sprint Sync', () => {
       expect(attempts).toBeGreaterThanOrEqual(4);
     }, 12000);
 
+    it('handles timeout x3 then succeeds on 4th attempt', async () => {
+      const { token } = tokenFor('coordinator');
+      const { groupId } = await seedJiraGroup();
+      const sprintId = unique('spr');
+      await seedSprintConfig(groupId, sprintId);
+
+      let attempts = 0;
+      const timeoutError = Object.assign(new Error('timeout'), { code: 'ECONNABORTED' });
+
+      axios.get = jest.fn().mockImplementation(() => {
+        attempts++;
+        if (attempts <= 3) {
+          return Promise.reject(timeoutError);
+        }
+        if (attempts === 4) {
+          return Promise.resolve({
+            data: [{ id: 'customfield_10016', name: 'Story Points' }],
+          });
+        }
+        return Promise.resolve({ data: { issues: [] } });
+      });
+
+      const res = await request(app)
+        .post(`${API}/groups/${groupId}/sprints/${sprintId}/jira-sync`)
+        .set('Authorization', `Bearer ${token}`);
+
+      const settled = await waitForJobToSettle(res.body.jobId, 8000);
+
+      expect(settled.status).toBe('COMPLETED');
+      // 3 timeout retries + 1 success for field discovery + 1 search call
+      expect(attempts).toBe(5);
+    }, 12000);
+
     it('marks the job failed with gateway timeout and writes SyncErrorLog after retry exhaustion', async () => {
       const { token } = tokenFor('coordinator');
       const { groupId } = await seedJiraGroup();
@@ -294,6 +327,7 @@ describe('Process 7.1 - JIRA Sprint Sync', () => {
 
       expect(settled.status).toBe('FAILED');
       expect(settled.errorCode).toBe('GATEWAY_TIMEOUT');
+      expect(axios.get).toHaveBeenCalledTimes(4);
       expect(syncErr).toBeTruthy();
     }, 12000);
 
