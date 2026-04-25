@@ -13,7 +13,8 @@ const { decrypt } = require('../utils/cryptoUtils');
 const { createAuditLog } = require('./auditService');
 const { dispatchSyncNotification } = require('./notificationService');
 
-const MAX_RETRY_ATTEMPTS = 3;
+const MAX_RETRIES = 3;
+const MAX_RETRY_ATTEMPTS = MAX_RETRIES + 1;
 const RETRY_BASE_DELAY_MS = 200;
 
 class JiraSyncError extends Error {
@@ -294,7 +295,7 @@ async function logSyncError(groupId, actorId, message) {
     service: 'jira',
     groupId,
     actorId,
-    attempts: MAX_RETRY_ATTEMPTS,
+    attempts: MAX_RETRIES,
     lastError: message,
   });
 }
