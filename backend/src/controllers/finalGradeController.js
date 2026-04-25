@@ -2,6 +2,7 @@
 
 const finalGradePreviewService = require('../services/finalGradePreviewService');
 const { approveGroupGrades, GradeApprovalError } = require('../services/approvalService');
+const { FinalGrade, FINAL_GRADE_STATUS } = require('../models/FinalGrade');
 // ISSUE #255: Import publish service for final grade publication (Process 8.5)
 const { publishFinalGrades } = require('../services/publishService');
 
@@ -172,10 +173,23 @@ const getGroupApprovalSummaryHandler = async (req, res) => {
 
     console.log(`[Issue #253] Summary retrieved for group: ${groupId}`);
 
+    const latestApproved = await FinalGrade.findOne({
+      groupId,
+      status: FINAL_GRADE_STATUS.APPROVED
+    }).sort({ approvedAt: -1, updatedAt: -1 });
+
+    const latestPublished = await FinalGrade.findOne({
+      groupId,
+      status: FINAL_GRADE_STATUS.PUBLISHED
+    }).sort({ publishedAt: -1, updatedAt: -1 });
+
+    const activePublishCycle = latestApproved?.publishCycle || latestPublished?.publishCycle || null;
+
     // ISSUE #253: Return summary
     return res.status(200).json({
       groupId,
       summary,
+      activePublishCycle,
       timestamp: new Date()
     });
   } catch (error) {
@@ -246,9 +260,6 @@ const previewFinalGradesHandler = async (req, res) => {
   }
 };
 
-/**
- * ================================================================================
- * ISSUE #253: EXPORTS
 /**
  * ================================================================================
  * ISSUE #255: PUBLISH FINAL GRADES HANDLER

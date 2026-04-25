@@ -38,7 +38,8 @@ const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 const {
   approveGroupGradesHandler,
   getGroupApprovalSummaryHandler,
-  previewFinalGradesHandler
+  previewFinalGradesHandler,
+  publishFinalGradesHandler
 } = require('../controllers/finalGradeController');
 
 /**
@@ -102,6 +103,18 @@ router.get(
   roleMiddleware(['coordinator']),
   // ISSUE #253: Fetch summary statistics
   getGroupApprovalSummaryHandler
+);
+
+/**
+ * POST /groups/:groupId/final-grades/publish
+ * 
+ * Endpoint for coordinator to publish group's final grades.
+ */
+router.post(
+  '/:groupId/final-grades/publish',
+  authMiddleware,
+  roleMiddleware(['coordinator']),
+  publishFinalGradesHandler
 );
 
 /**

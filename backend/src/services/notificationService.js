@@ -491,6 +491,25 @@ const dispatchSyncNotification = async ({ groupId, sprintId, status, issuesProce
   }
 };
 
+const dispatchBulkFinalGradeNotifications = async (groupId, publishCycle, notificationFlags = {}) => {
+  const response = await axios.post(
+    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+    {
+      type: 'final_grade_published',
+      groupId,
+      publishCycle,
+      notificationFlags: {
+        email: Boolean(notificationFlags.email),
+        sms: Boolean(notificationFlags.sms),
+        push: Boolean(notificationFlags.push),
+      },
+    },
+    { timeout: 5000 }
+  );
+
+  return response.data;
+};
+
 module.exports = {
   dispatchInvitationNotification,
   dispatchMembershipDecisionNotification,
@@ -510,5 +529,6 @@ module.exports = {
   dispatchFinalGradeNotificationToStudent,
   dispatchFinalGradeReportToFaculty,
   dispatchSyncNotification,
+  dispatchBulkFinalGradeNotifications,
   isTransientError,
 };
