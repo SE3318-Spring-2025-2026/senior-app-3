@@ -1,0 +1,54 @@
+[
+  {
+    "name": "Fixture A (Standard)",
+    "input": {
+      "baseGroupScore": 80,
+      "ratio": 1.1,
+      "rubricWeights": {}
+    },
+    "expected": {
+      "studentId": "stu_standard",
+      "contributionRatio": 1.1,
+      "computedFinalGrade": 88.0
+    }
+  },
+  {
+    "name": "Fixture B (Precision)",
+    "input": {
+      "baseGroupScore": 75.5,
+      "ratio": 0.95,
+      "rubricWeights": {}
+    },
+    "expected": {
+      "studentId": "stu_precision",
+      "contributionRatio": 0.95,
+      "computedFinalGrade": 71.73
+    }
+  },
+  {
+    "name": "Fixture C (Outlier)",
+    "input": {
+      "baseGroupScore": 90,
+      "ratio": 1.25,
+      "rubricWeights": {}
+    },
+    "expected": {
+      "studentId": "stu_outlier",
+      "contributionRatio": 1.25,
+      "computedFinalGrade": 112.5
+    }
+  },
+  {
+    "name": "Fixture D (Rubric Weighting)",
+    "input": {
+      "baseGroupScore": 100,
+      "ratio": 1.0,
+      "rubricWeights": [0.4, 0.3, 0.2]
+    },
+    "expected": {
+      "studentId": "stu_rubric",
+      "contributionRatio": 1.0,
+      "computedFinalGrade": 90.0
+    }
+  }
+]
