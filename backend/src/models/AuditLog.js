@@ -128,6 +128,16 @@ const auditLogSchema = new mongoose.Schema(
         'GITHUB_SYNC_INITIATED',
         'GITHUB_SYNC_COMPLETED',
         'GITHUB_SYNC_FAILED',
+
+        // --- Final Grades (Process 8 / Issues #253-#255) ---
+        'FINAL_GRADE_PREVIEW_GENERATED',        // Process 8.1-8.3: Grade computation
+        'FINAL_GRADE_APPROVED',                 // Issue #253: Coordinator approved grade
+        'FINAL_GRADE_REJECTED',                 // Issue #253: Coordinator rejected grade
+        'FINAL_GRADE_OVERRIDE_APPLIED',         // Issue #253: Manual override applied with reason
+        'FINAL_GRADE_APPROVAL_CONFLICT',        // Issue #253: Attempted duplicate approval (409)
+        'FINAL_GRADES_PUBLISHED',               // Issue #255: Grades published to D7
+        'FINAL_GRADE_NOTIFICATION_SENT',        // Issue #255: Student notification dispatched
+        'FINAL_GRADE_NOTIFICATION_FAILED',      // Issue #255: Notification failed after retries
       ],
     },
     actorId: {

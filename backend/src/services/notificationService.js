@@ -312,6 +312,167 @@ const dispatchClarificationRequiredNotification = async ({
   }
 };
 
+/**
+ * ================================================================================
+ * ISSUE #255: Final Grade Notifications
+ * ================================================================================
+ */
+
+/**
+ * ISSUE #255: Dispatch final grade notification to individual student
+ * 
+ * Purpose: Notify student when their final grade has been published (Process 8.5)
+ * 
+ * Integration:
+ * - Called from publishService.js when grades are published
+ * - Uses retryNotificationWithBackoff for 3-attempt retry with exponential backoff
+ * - Fires async via setImmediate (non-blocking)
+ * 
+ * Payload includes:
+ * - groupId: Which group/course?
+ * - studentId: Who is receiving this notification?
+ * - finalGrade: The actual grade (0-100)
+ * - publishedAt: When was it published?
+ * - coordinatorId: Who published it?
+ * - groupName: Human-readable group name for email/UI
+ *
+ * @param {Object} params - Notification parameters
+ * @returns {Promise<Object>} { success, notificationId, error }
+ */
+const dispatchFinalGradeNotificationToStudent = async ({
+  groupId,
+  studentId,
+  finalGrade,
+  publishedAt,
+  coordinatorId,
+  groupName
+}) => {
+  // ISSUE #255: Log notification dispatch
+  console.log(
+    `[Issue #255] Dispatching final grade notification to student ${studentId} in group ${groupId}`
+  );
+
+  try {
+    const response = await axios.post(
+      `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+      {
+        type: 'final_grade_published',  // ISSUE #255: New notification type
+        groupId,
+        studentId,
+        payload: {
+          finalGrade,
+          publishedAt: publishedAt.toISOString(),
+          coordinatorId,
+          groupName,
+          message: `Your final grade for ${groupName} has been published: ${finalGrade}%`
+        }
+      },
+      { timeout: 5000 }
+    );
+
+    // ISSUE #255: Return success with notification ID for audit trail
+    return {
+      success: true,
+      notificationId: response.data.notification_id || `notif_fg_${Date.now()}`,
+      error: null
+    };
+
+  } catch (error) {
+    // ISSUE #255: Log and propagate error for retry handling
+    console.error(
+      `[Issue #255] Error dispatching student notification: ${error.message}`
+    );
+    
+    return {
+      success: false,
+      notificationId: null,
+      error: {
+        message: error.message,
+        code: error.response?.status ? `HTTP_${error.response.status}` : 'NETWORK_ERROR',
+        transient: isTransientError(error)
+      }
+    };
+  }
+};
+
+/**
+ * ISSUE #255: Dispatch final grade report to faculty/committee
+ * 
+ * Purpose: Send aggregate grade report to faculty/committee when grades published (Process 8.5)
+ * 
+ * Integration:
+ * - Called from publishService.js when notifyFaculty flag is true
+ * - Uses retryNotificationWithBackoff for resilience
+ * - Fires async via setImmediate (non-blocking)
+ * 
+ * Payload includes:
+ * - groupId: Which group/course?
+ * - gradeCount: How many students?
+ * - averageGrade: Aggregate statistics
+ * - publishedAt: When was it published?
+ * - coordinatorId: Who published?
+ * - groupName: Human-readable name
+ *
+ * @param {Object} params - Report parameters
+ * @returns {Promise<Object>} { success, notificationId, error }
+ */
+const dispatchFinalGradeReportToFaculty = async ({
+  groupId,
+  gradeCount,
+  averageGrade,
+  publishedAt,
+  coordinatorId,
+  groupName
+}) => {
+  // ISSUE #255: Log report dispatch
+  console.log(
+    `[Issue #255] Dispatching final grade report to faculty for group ${groupId}`
+  );
+
+  try {
+    const response = await axios.post(
+      `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+      {
+        type: 'final_grade_report',  // ISSUE #255: New notification type for faculty
+        groupId,
+        recipients: 'faculty',  // Will be resolved by notification service
+        payload: {
+          gradeCount,
+          averageGrade: averageGrade.toFixed(2),
+          publishedAt: publishedAt.toISOString(),
+          coordinatorId,
+          groupName,
+          message: `Final grades published for ${groupName}: ${gradeCount} students, avg: ${averageGrade.toFixed(1)}%`
+        }
+      },
+      { timeout: 5000 }
+    );
+
+    // ISSUE #255: Return success with report ID
+    return {
+      success: true,
+      notificationId: response.data.notification_id || `notif_report_${Date.now()}`,
+      error: null
+    };
+
+  } catch (error) {
+    // ISSUE #255: Log failure for manual investigation
+    console.error(
+      `[Issue #255] Error dispatching faculty report: ${error.message}`
+    );
+    
+    return {
+      success: false,
+      notificationId: null,
+      error: {
+        message: error.message,
+        code: error.response?.status ? `HTTP_${error.response.status}` : 'NETWORK_ERROR',
+        transient: isTransientError(error)
+      }
+    };
+  }
+};
+
 module.exports = {
   dispatchInvitationNotification,
   dispatchMembershipDecisionNotification,
@@ -328,5 +489,8 @@ module.exports = {
   dispatchDisbandNotification,
   dispatchReviewAssignmentNotification,
   dispatchClarificationRequiredNotification,
+  // ISSUE #255: New dispatch functions for final grade publication
+  dispatchFinalGradeNotificationToStudent,
+  dispatchFinalGradeReportToFaculty,
   isTransientError,
 };
