@@ -23,6 +23,92 @@
  */
 
 const { approveGroupGrades, GradeApprovalError } = require('../services/approvalService');
+const { buildFinalGradesPreview } = require('../services/finalGradePreviewService');
+const {
+  FinalGradeRatioResolverError,
+} = require('../services/finalGradeContributionRatioService');
+const Group = require('../models/Group');
+
+const previewFinalGradesHandler = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const requestedBy = req.user?.userId;
+    const requesterRole = req.user?.role;
+    const {
+      includeDeliverableIds,
+      includeSprintIds,
+      useLatestRatios,
+    } = req.body || {};
+
+    if (!groupId || typeof groupId !== 'string' || groupId.trim() === '') {
+      return res.status(400).json({
+        error: 'Invalid group ID',
+        code: 'INVALID_GROUP_ID',
+      });
+    }
+
+    if (!requestedBy || typeof requestedBy !== 'string' || requestedBy.trim() === '') {
+      return res.status(422).json({
+        error: 'Authenticated requester identity is missing',
+        code: 'MISSING_AUTH_USER_ID',
+      });
+    }
+
+    const group = await Group.findOne({ groupId: groupId.trim() })
+      .select('groupId professorId advisorId')
+      .lean();
+
+    if (!group) {
+      return res.status(404).json({
+        error: `Group ${groupId} was not found.`,
+        code: 'GROUP_NOT_FOUND',
+      });
+    }
+
+    // Note: System treats assigned professors and designated advisors equally for preview authorization.
+    if (requesterRole !== 'coordinator') {
+      const isAssigned =
+        String(group.professorId || '') === String(requestedBy) ||
+        String(group.advisorId || '') === String(requestedBy);
+
+      if (!isAssigned) {
+        return res.status(403).json({
+          error: 'Access denied: You are not assigned as an advisor or professor for this group.',
+          code: 'FORBIDDEN_GROUP_ACCESS',
+        });
+      }
+    }
+
+    const preview = await buildFinalGradesPreview(groupId, {
+      requestedBy,
+      includeDeliverableIds,
+      includeSprintIds,
+      useLatestRatios,
+    });
+
+    return res.status(200).json({
+      groupId: preview.groupId,
+      baseGroupScore: preview.baseGroupScore,
+      students: preview.students,
+      createdAt: preview.createdAt,
+    });
+  } catch (error) {
+    if (error instanceof FinalGradeRatioResolverError) {
+      return res.status(error.status).json({
+        error: error.message,
+        code: error.code,
+        details: error.details,
+        timestamp: error.timestamp || new Date(),
+      });
+    }
+
+    return res.status(500).json({
+      error: 'Internal server error',
+      code: 'INTERNAL_ERROR',
+      timestamp: new Date(),
+    });
+  }
+};
 
 /**
  * ISSUE #253: POST /groups/:groupId/final-grades/approval
@@ -258,6 +344,7 @@ const getGroupApprovalSummaryHandler = async (req, res) => {
  */
 
 module.exports = {
+  previewFinalGradesHandler,
   approveGroupGradesHandler,
   getGroupApprovalSummaryHandler
 };

@@ -56,7 +56,15 @@ function getRecordTimestamp(record) {
 }
 
 function compareRecordsByRecency(a, b) {
-  return getRecordTimestamp(b).getTime() - getRecordTimestamp(a).getTime();
+  const timestampDelta = getRecordTimestamp(b).getTime() - getRecordTimestamp(a).getTime();
+  if (timestampDelta !== 0) {
+    return timestampDelta;
+  }
+
+  // Deterministic final tie-breaker: newer ObjectId/string _id wins.
+  const aId = a && a._id ? String(a._id) : '';
+  const bId = b && b._id ? String(b._id) : '';
+  return bId.localeCompare(aId);
 }
 
 function roundTo(value, precision = 4) {
@@ -295,7 +303,7 @@ async function resolveContributionRatiosForPreview(groupId, input = {}) {
 
   if (missingStudentIds.length > 0) {
     throw new FinalGradeRatioResolverError(
-      404,
+      422,
       'MISSING_CONTRIBUTION_RATIOS',
       'Required contribution ratios are missing for one or more enrolled students.',
       {

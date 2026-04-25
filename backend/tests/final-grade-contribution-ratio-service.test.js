@@ -221,7 +221,7 @@ describe('Final grade contribution ratio resolver - Process 8.2', () => {
     expect(result.students[0].selectedSprintIds).toEqual(['sprint_1']);
   });
 
-  test('throws a typed 404 when an enrolled student has no ratio in scope', async () => {
+  test('throws a typed 422 when an enrolled student has no ratio in scope', async () => {
     const groupId = 'grp_ratio_missing';
     await createGroup(groupId);
     await createUser('usr_alice');
@@ -237,7 +237,7 @@ describe('Final grade contribution ratio resolver - Process 8.2', () => {
     });
 
     await expect(resolveContributionRatiosForPreview(groupId, {})).rejects.toMatchObject({
-      status: 404,
+      status: 422,
       code: 'MISSING_CONTRIBUTION_RATIOS',
       details: {
         missingStudentIds: ['usr_bob'],

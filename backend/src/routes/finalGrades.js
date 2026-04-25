@@ -36,9 +36,17 @@ const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 
 // ISSUE #253: Import controller handlers
 const {
+  previewFinalGradesHandler,
   approveGroupGradesHandler,
   getGroupApprovalSummaryHandler
 } = require('../controllers/finalGradeController');
+
+router.post(
+  '/:groupId/final-grades/preview',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'professor', 'advisor']),
+  previewFinalGradesHandler
+);
 
 /**
  * ISSUE #253: POST /groups/:groupId/final-grades/approval
