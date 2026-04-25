@@ -186,6 +186,30 @@ describe('[ISSUE #262] Data Integrity & Atomic Publish Integration', () => {
     expect(currentDoc.publishedAt.toISOString()).toBe(firstPublishedDoc.publishedAt.toISOString());
   });
 
+  it('returns deterministic 422 when publish update affects zero rows and no published rows exist', async () => {
+    await seedApprovedGrades();
+    jest
+      .spyOn(notificationService, 'dispatchBulkFinalGradeNotifications')
+      .mockResolvedValue({ success: true });
+
+    const updateSpy = jest.spyOn(FinalGrade, 'updateMany');
+    updateSpy.mockResolvedValueOnce({ modifiedCount: 0 });
+
+    await expect(
+      publishFinalGrades(groupId, publishCycle, coordinatorId, {
+        email: true,
+        sms: false,
+        push: false,
+      })
+    ).rejects.toEqual(
+      expect.objectContaining({
+        name: 'FinalGradePublishError',
+        statusCode: 422,
+        errorCode: 'NO_APPROVED_GRADES',
+      })
+    );
+  });
+
   it('persists override fidelity and coordinator traceability in published D7 rows', async () => {
     await seedApprovedGrades({ withOverride: true });
     jest

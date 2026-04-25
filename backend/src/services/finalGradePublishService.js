@@ -94,7 +94,7 @@ const publishFinalGrades = async (
         groupId,
         publishCycle,
         status: FINAL_GRADE_STATUS.PUBLISHED
-      });
+      }).session(session);
 
       if (alreadyPublished) {
         throw new FinalGradePublishError(
