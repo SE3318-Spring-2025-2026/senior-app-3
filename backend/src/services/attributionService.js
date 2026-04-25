@@ -94,6 +94,168 @@ class AttributionServiceError extends Error {
   }
 }
 
+function evaluateAttributionRecords(validationRecords, usersByHandle, options = {}) {
+  const { approvedStudentIds = new Set(), assigneeFallbackEnabled = false } = options;
+  const records = Array.isArray(validationRecords) ? validationRecords : [];
+  const attributionMap = new Map();
+  const attributionDetails = [];
+  let totalStoryPoints = 0;
+  let unattributablePoints = 0;
+  let unattributableCount = 0;
+  const warnings = [];
+  const unattributableDetails = [];
+
+  const resolveHandle = (handle) => {
+    if (!handle) return null;
+
+    const resolved = usersByHandle.get(String(handle).toLowerCase());
+    if (!resolved) return null;
+
+    return {
+      studentId: resolved.studentId,
+      inGroup:
+        typeof resolved.inGroup === 'boolean'
+          ? resolved.inGroup
+          : approvedStudentIds.has(resolved.studentId),
+    };
+  };
+
+  const normalizeStoryPoints = (value) => {
+    const numericValue = Number(value);
+    return Number.isFinite(numericValue) ? numericValue : 0;
+  };
+
+  for (const record of records) {
+    const issueKey = record.issueKey || record.issue_key || null;
+    const prId = record.prId || record.pr_id || null;
+    const prUrl = record.prUrl || record.pr_url || null;
+    const prAuthor = record.prAuthor || record.pr_author || null;
+    const jiraAssignee = record.jiraAssignee || record.jira_assignee || null;
+    const mergeStatus = record.mergeStatus || record.merge_status || 'UNKNOWN';
+    const storyPoints = normalizeStoryPoints(
+      record.storyPoints !== undefined ? record.storyPoints : record.story_points
+    );
+    const prReviewers = Array.isArray(record.prReviewers || record.pr_reviewers)
+      ? record.prReviewers || record.pr_reviewers
+      : [];
+
+    if (mergeStatus !== 'MERGED') {
+      attributionDetails.push({
+        studentId: null,
+        issueKey,
+        completedPoints: 0,
+        githubHandle: prAuthor || null,
+        mergeStatus,
+        prIdentifier: prUrl || prId,
+        prReviewers,
+        decisionReason: 'NOT_MERGED_ZERO_CREDIT',
+        status: 'SKIPPED_NOT_MERGED',
+      });
+      continue;
+    }
+
+    let attributedStudentId = null;
+    let attributionReason = 'UNATTRIBUTABLE';
+    let githubHandle = null;
+    let status = 'UNATTRIBUTABLE';
+
+    if (prAuthor) {
+      const resolvedAuthor = resolveHandle(prAuthor);
+
+      if (!resolvedAuthor) {
+        attributionReason = 'GITHUB_USER_NOT_FOUND_IN_D1';
+        githubHandle = prAuthor;
+        status = 'UNMAPPED';
+      } else if (!resolvedAuthor.inGroup) {
+        attributionReason = 'STUDENT_NOT_IN_GROUP_D2';
+        githubHandle = prAuthor;
+        status = 'UNATTRIBUTABLE';
+      } else {
+        attributedStudentId = resolvedAuthor.studentId;
+        attributionReason = 'ATTRIBUTED_VIA_GITHUB_AUTHOR';
+        githubHandle = prAuthor;
+        status = 'ATTRIBUTED';
+      }
+    } else {
+      attributionReason = 'MISSING_PR_AUTHOR';
+      status = 'UNMAPPED';
+    }
+
+    if (!attributedStudentId && assigneeFallbackEnabled && jiraAssignee) {
+      const resolvedAssignee = resolveHandle(jiraAssignee);
+
+      if (!resolvedAssignee) {
+        attributionReason = 'JIRA_ASSIGNEE_NOT_FOUND_IN_D1';
+        status = 'UNMAPPED';
+      } else if (!resolvedAssignee.inGroup) {
+        attributionReason = 'JIRA_ASSIGNEE_NOT_IN_GROUP_D2';
+        status = 'UNATTRIBUTABLE';
+      } else {
+        attributedStudentId = resolvedAssignee.studentId;
+        attributionReason = 'ATTRIBUTED_VIA_JIRA_ASSIGNEE_FALLBACK';
+        githubHandle = jiraAssignee;
+        status = 'ATTRIBUTED';
+      }
+    }
+
+    if (attributedStudentId) {
+      const current = attributionMap.get(attributedStudentId) || 0;
+      attributionMap.set(attributedStudentId, current + storyPoints);
+      totalStoryPoints += storyPoints;
+
+      attributionDetails.push({
+        studentId: attributedStudentId,
+        issueKey,
+        completedPoints: storyPoints,
+        githubHandle,
+        mergeStatus,
+        prIdentifier: prUrl || prId,
+        prReviewers,
+        decisionReason: attributionReason,
+      });
+    } else {
+      unattributablePoints += storyPoints;
+      unattributableCount += 1;
+
+      attributionDetails.push({
+        studentId: null,
+        issueKey,
+        completedPoints: storyPoints,
+        githubHandle,
+        mergeStatus,
+        prIdentifier: prUrl || prId,
+        prReviewers,
+        decisionReason: attributionReason,
+        status,
+      });
+
+      unattributableDetails.push({
+        issueKey,
+        prIdentifier: prUrl || prId,
+        reason: attributionReason,
+        status,
+      });
+
+      warnings.push({
+        issueKey,
+        reason: attributionReason,
+        githubUsername: githubHandle,
+        status,
+      });
+    }
+  }
+
+  return {
+    attributionMap,
+    attributionDetails,
+    totalStoryPoints,
+    unattributablePoints,
+    unattributableCount,
+    warnings,
+    unattributableDetails,
+  };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // CORE ATTRIBUTION ENGINE
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -286,150 +448,20 @@ async function attributeStoryPoints(sprintId, groupId, options = {}) {
     //    - Try jira_assignee → same D1 + D2 lookup
     // 4. If no match found → mark unattributable (NO_MAPPING)
 
-    const attributionMap = new Map(); // studentId → accumulated story points
-    const attributionDetails = [];
-    let totalStoryPoints = 0;
-    let unattributablePoints = 0;
-    let unattributableCount = 0;
-    const warnings = [];
-
-    const unattributableDetails = [];
-
     console.log(`[attributeStoryPoints] PROCESSING ${validationRecords.length} validation records from GitHub sync`);
 
-    for (const record of validationRecords) {
-      const issueKey = record.issueKey || record.issue_key || null;
-      const prId = record.prId || record.pr_id || null;
-      const prUrl = record.prUrl || record.pr_url || null;
-      const prAuthor = record.prAuthor || record.pr_author || null;
-      const jiraAssignee = record.jiraAssignee || record.jira_assignee || null;
-      const mergeStatus = record.mergeStatus || record.merge_status || 'UNKNOWN';
-      const storyPoints = record.storyPoints || record.story_points || 0;
-      const prReviewers = Array.isArray(record.prReviewers || record.pr_reviewers)
-        ? record.prReviewers || record.pr_reviewers
-        : [];
-
-      // ISSUE #235 SAFETY: Only process merged issues
-      if (mergeStatus !== 'MERGED') {
-        console.log(`[attributeStoryPoints] SKIP: Issue ${issueKey} mergeStatus=${mergeStatus} (not merged)`);
-        continue;
-      }
-
-      let attributedStudentId = null;
-      let attributionReason = 'UNATTRIBUTABLE';
-      let githubHandle = null;
-      let status = 'UNATTRIBUTABLE';
-
-      // ───────────────────────────────────────────────────────────────────────────
-      // PRIMARY RULE: GitHub PR author
-      // ───────────────────────────────────────────────────────────────────────────
-      // ISSUE #235: "Primary: GitHub usernames on merged PRs mapped to studentId via D1"
-
-      if (prAuthor) {
-        const normalizedAuthor = prAuthor.toLowerCase();
-        const resolvedAuthor = usersByHandle.get(normalizedAuthor);
-
-        if (!resolvedAuthor) {
-          attributionReason = 'GITHUB_USER_NOT_FOUND_IN_D1';
-          githubHandle = prAuthor;
-          status = 'UNMAPPED';
-        } else if (!resolvedAuthor.inGroup) {
-          attributionReason = 'STUDENT_NOT_IN_GROUP_D2';
-          githubHandle = prAuthor;
-          status = 'UNATTRIBUTABLE';
-        } else {
-          attributedStudentId = resolvedAuthor.studentId;
-          attributionReason = 'ATTRIBUTED_VIA_GITHUB_AUTHOR';
-          githubHandle = prAuthor;
-          status = 'ATTRIBUTED';
-        }
-      } else {
-        attributionReason = 'MISSING_PR_AUTHOR';
-        status = 'UNMAPPED';
-      }
-
-      // ───────────────────────────────────────────────────────────────────────────
-      // FALLBACK RULE: JIRA assignee (if enabled)
-      // ───────────────────────────────────────────────────────────────────────────
-      // ISSUE #235: "Fallback: JIRA assignee if explicitly configured"
-      //
-      // Only used if:
-      //   1. Primary GitHub author attribution failed
-      //   2. Group has useJiraAssigneeForAttribution === true
-      //   3. JIRA assignee is present
-
-      if (!attributedStudentId && assigneeFallbackEnabled && jiraAssignee) {
-        const jiraAssigneeNormalized = jiraAssignee.toLowerCase();
-        const resolvedAssignee = usersByHandle.get(jiraAssigneeNormalized);
-
-        if (!resolvedAssignee) {
-          attributionReason = 'JIRA_ASSIGNEE_NOT_FOUND_IN_D1';
-          status = 'UNMAPPED';
-        } else if (!resolvedAssignee.inGroup) {
-          attributionReason = 'JIRA_ASSIGNEE_NOT_IN_GROUP_D2';
-          status = 'UNATTRIBUTABLE';
-        } else {
-          attributedStudentId = resolvedAssignee.studentId;
-          attributionReason = 'ATTRIBUTED_VIA_JIRA_ASSIGNEE_FALLBACK';
-          githubHandle = jiraAssignee;
-          status = 'ATTRIBUTED';
-        }
-      }
-
-      // ───────────────────────────────────────────────────────────────────────────
-      // ACCUMULATE STORY POINTS
-      // ───────────────────────────────────────────────────────────────────────────
-
-      if (attributedStudentId) {
-        // Success: add story points to student
-        const current = attributionMap.get(attributedStudentId) || 0;
-        attributionMap.set(attributedStudentId, current + storyPoints);
-        totalStoryPoints += storyPoints;
-
-        attributionDetails.push({
-          studentId: attributedStudentId,
-          issueKey,
-          completedPoints: storyPoints,
-          githubHandle,
-          mergeStatus,
-          prIdentifier: prUrl || prId,
-          prReviewers,
-          decisionReason: attributionReason,
-        });
-      } else {
-        // Failure: mark as unattributable
-        unattributablePoints += storyPoints;
-        unattributableCount += 1;
-
-        attributionDetails.push({
-          studentId: null,
-          issueKey,
-          completedPoints: storyPoints,
-          githubHandle,
-          mergeStatus,
-          prIdentifier: prUrl || prId,
-          prReviewers,
-          decisionReason: attributionReason,
-          status,
-        });
-
-        unattributableDetails.push({
-          issueKey,
-          prIdentifier: prUrl || prId,
-          reason: attributionReason,
-          status,
-        });
-
-        warnings.push({
-          issueKey,
-          reason: attributionReason,
-          githubUsername: githubHandle,
-          status,
-        });
-
-        console.log(`[attributeStoryPoints] UNATTRIBUTABLE: Issue ${issueKey} — reason: ${attributionReason}`);
-      }
-    }
+    const {
+      attributionMap,
+      attributionDetails,
+      totalStoryPoints,
+      unattributablePoints,
+      unattributableCount,
+      warnings,
+      unattributableDetails,
+    } = evaluateAttributionRecords(validationRecords, usersByHandle, {
+      approvedStudentIds,
+      assigneeFallbackEnabled,
+    });
 
     // ═════════════════════════════════════════════════════════════════════════════
     // STEP 5: PERSIST TO D6 (ContributionRecords)
@@ -655,6 +687,7 @@ async function getAttributionSummary(sprintId, groupId) {
 
 module.exports = {
   attributeStoryPoints,
+  evaluateAttributionRecords,
   mapGitHubToStudent,
   getAttributionSummary,
   AttributionServiceError,
