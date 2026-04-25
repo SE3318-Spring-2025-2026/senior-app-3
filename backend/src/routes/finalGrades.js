@@ -32,11 +32,19 @@ const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 
 // Import controller handlers
 const {
+  previewFinalGradesHandler,
   approveGroupGradesHandler,
   getGroupApprovalSummaryHandler,
   previewFinalGradesHandler,
   publishFinalGradesHandler
 } = require('../controllers/finalGradeController');
+
+router.post(
+  '/:groupId/final-grades/preview',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'professor', 'advisor']),
+  previewFinalGradesHandler
+);
 
 /**
  * Middleware for Process 8.5 Publication

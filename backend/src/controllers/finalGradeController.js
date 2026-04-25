@@ -1,11 +1,11 @@
 'use strict';
 
-const finalGradePreviewService = require('../services/finalGradePreviewService');
 const { approveGroupGrades, GradeApprovalError } = require('../services/approvalService');
 const Group = require('../models/Group');
 const AuditLog = require('../models/AuditLog');
 const { FinalGrade, FINAL_GRADE_STATUS } = require('../models/FinalGrade');
 const { publishFinalGrades } = require('../services/publishService');
+const { generatePreview } = require('../services/finalGradePreviewService');
 
 const PREVIEW_FORBIDDEN_MESSAGE =
   'Forbidden - only the Coordinator role or authorized Professor/Advisor roles may preview final grades';
@@ -61,8 +61,6 @@ const previewFinalGradesHandler = async (req, res) => {
         code: 'INVALID_GROUP_ID'
       });
     }
-
-    const { generatePreview, PreviewError } = require('../services/finalGradePreviewService');
 
     const previewOptions = {
       ...req.body,
@@ -331,8 +329,8 @@ const publishFinalGradesHandler = async (req, res) => {
 };
 
 module.exports = {
+  previewFinalGradesHandler,
   approveGroupGradesHandler,
   getGroupApprovalSummaryHandler,
-  previewFinalGradesHandler,
   publishFinalGradesHandler
 };
