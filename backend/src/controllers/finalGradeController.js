@@ -190,8 +190,69 @@ const getGroupApprovalSummaryHandler = async (req, res) => {
   }
 };
 
+/**
+ * POST /groups/:groupId/final-grades/preview
+ * 
+ * Computes a preview of individual final grades for all students in a group.
+ * Does not persist into D7 Final Grades.
+ */
+const previewFinalGradesHandler = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const { requestedBy } = req.body;
+
+    // RBAC Check for preview roles
+    const allowedRoles = ['coordinator', 'professor', 'advisor'];
+    if (!req.user || !allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({
+        error: 'Forbidden - only the Coordinator role or authorized Professor/Advisor roles may preview final grades'
+      });
+    }
+
+    // Validation
+    if (!groupId || typeof groupId !== 'string' || groupId.trim() === '') {
+      return res.status(400).json({
+        error: 'Invalid group ID'
+      });
+    }
+
+    if (!requestedBy || typeof requestedBy !== 'string') {
+      return res.status(400).json({
+        error: 'requestedBy is required'
+      });
+    }
+
+    const { generatePreview, PreviewError } = require('../services/finalGradePreviewService');
+
+    const previewOptions = {
+      ...req.body,
+      requestedBy: req.user.userId,
+      requestedByRole: req.user.role
+    };
+
+    const preview = await generatePreview(groupId, previewOptions);
+    return res.status(200).json(preview);
+
+  } catch (error) {
+    console.error('[Preview] Error:', error);
+    
+    if (error.name === 'PreviewError') {
+      return res.status(error.statusCode).json({ error: error.message });
+    }
+
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/**
+ * ================================================================================
+ * ISSUE #253: EXPORTS
+ * ================================================================================
+ */
+
 module.exports = {
   previewFinalGrades,
   approveGroupGradesHandler,
-  getGroupApprovalSummaryHandler
+  getGroupApprovalSummaryHandler,
+  previewFinalGradesHandler
 };

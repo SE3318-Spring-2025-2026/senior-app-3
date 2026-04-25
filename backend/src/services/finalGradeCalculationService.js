@@ -16,7 +16,6 @@
  * @property {number} baseGroupScore
  * @property {FinalGradePreviewEntry[]} students
  */
-
 const DEFAULT_RATIO = 1.0;
 const ROUNDING_SCALE = 100;
 let structuredLogger = null;
@@ -53,6 +52,17 @@ function hasNegativeWeightValues(value) {
 }
 
 function resolveRubricMultiplier(rubricWeights) {
+  if (Array.isArray(rubricWeights)) {
+    if (rubricWeights.length === 0) {
+      return 1.0;
+    }
+    let totalWeight = rubricWeights.reduce((acc, val) => acc + toFiniteNumber(val, 0), 0);
+    if (totalWeight > 1.0) {
+      totalWeight = totalWeight / 100.0;
+    }
+    return totalWeight > 1.0 ? 1.0 : totalWeight;
+  }
+
   if (hasNegativeWeightValues(rubricWeights)) {
     const warningContext = {
       event: 'final_grade_negative_rubric_weight_detected',
@@ -121,8 +131,50 @@ class FinalGradeCalculationService {
   }
 }
 
+function calculateFinalGrades(groupId, baseGroupScore, records = [], options = {}) {
+  const { weights = [], isAlreadyWeighted = false } = options;
+  const RATIO_SUM_EPSILON = 0.0001;
+  const service = new FinalGradeCalculationService();
+
+  const normalizedRatios = records.map((record) => {
+    const studentId = record?.studentId;
+    if (!studentId) {
+      throw new Error('Inconsistent Configuration: missing studentId in contribution records');
+    }
+    const rawRatio = toFiniteNumber(record?.contributionRatio, 0);
+    return {
+      studentId,
+      contributionRatio: roundToTwoDecimals(rawRatio),
+    };
+  });
+
+  const totalRatio = normalizedRatios.reduce((sum, entry) => sum + entry.contributionRatio, 0);
+  if (Math.abs(totalRatio) <= RATIO_SUM_EPSILON) {
+    throw new Error('Inconsistent Configuration: ratios sum to 0.0');
+  }
+  if (Math.abs(totalRatio - 1.0) > RATIO_SUM_EPSILON) {
+    throw new Error('Inconsistent Configuration: ratios do not sum to 1.0');
+  }
+
+  const rubricWeights = isAlreadyWeighted ? {} : weights;
+  const result = service.computeFinalGrades(baseGroupScore, normalizedRatios, rubricWeights, {
+    groupId,
+  });
+
+  return {
+    groupId,
+    baseGroupScore: result.baseGroupScore,
+    students: result.students.map((student) => ({
+      ...student,
+      deliverableScoreBreakdown: {},
+    })),
+    createdAt: new Date().toISOString(),
+  };
+}
+
 module.exports = {
   FinalGradeCalculationService,
+  calculateFinalGrades,
   roundToTwoDecimals,
   resolveRubricMultiplier,
 };

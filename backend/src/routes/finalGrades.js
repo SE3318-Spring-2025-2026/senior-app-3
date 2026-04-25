@@ -37,8 +37,21 @@ const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 // ISSUE #253: Import controller handlers
 const {
   approveGroupGradesHandler,
-  getGroupApprovalSummaryHandler
+  getGroupApprovalSummaryHandler,
+  previewFinalGradesHandler
 } = require('../controllers/finalGradeController');
+
+/**
+ * POST /groups/:groupId/final-grades/preview
+ * 
+ * Computes a preview of individual final grades for all students in a group.
+ * Does not persist into D7 Final Grades.
+ */
+router.post(
+  '/:groupId/final-grades/preview',
+  authMiddleware,
+  previewFinalGradesHandler
+);
 
 /**
  * ISSUE #253: POST /groups/:groupId/final-grades/approval

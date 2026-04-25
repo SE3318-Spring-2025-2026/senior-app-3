@@ -1,6 +1,5 @@
 'use strict';
 
-const mongoose = require('mongoose');
 const Deliverable = require('../models/Deliverable');
 const ContributionRecord = require('../models/ContributionRecord');
 const { FinalGradeCalculationService } = require('./finalGradeCalculationService');
@@ -127,4 +126,24 @@ class FinalGradePreviewService {
   }
 }
 
-module.exports = new FinalGradePreviewService();
+class PreviewError extends Error {
+  constructor(message, statusCode = 500) {
+    super(message);
+    this.name = 'PreviewError';
+    this.statusCode = statusCode;
+  }
+}
+
+const finalGradePreviewService = new FinalGradePreviewService();
+
+async function generatePreview(groupId) {
+  try {
+    return await finalGradePreviewService.previewGroupGrade(groupId);
+  } catch (error) {
+    throw new PreviewError(error.message, error.status || 500);
+  }
+}
+
+module.exports = finalGradePreviewService;
+module.exports.generatePreview = generatePreview;
+module.exports.PreviewError = PreviewError;
