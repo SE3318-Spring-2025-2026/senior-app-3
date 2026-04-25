@@ -2,7 +2,6 @@ const Group = require('../models/Group');
 const Deliverable = require('../models/Deliverable');
 const SprintRecord = require('../models/SprintRecord');
 const ContributionRecord = require('../models/ContributionRecord');
-const { FinalGrade } = require('../models/FinalGrade');
 
 class PreviewError extends Error {
   constructor(message, statusCode = 500) {
@@ -56,19 +55,27 @@ async function generatePreview(groupId, options) {
   // 5. Math Engine Orchestration
   let records;
   if (useLatestRatios) {
+    // NOTE: This mode is intentionally side-effect aware.
+    // It recalculates and persists D6 contribution ratios before preview generation.
     const { recalculateSprintRatios } = require('./contributionRatioService');
     for (const sprint of sprints) {
       try {
-        await recalculateSprintRatios(groupId, sprint.sprintId, requestedBy, {
+        await recalculateSprintRatios(groupId, sprint.sprintRecordId, requestedBy, {
           normalizationFactor: 1.0
         });
       } catch (err) {
-        console.warn(`[Preview] Failed to recalculate ratios for sprint ${sprint.sprintId}:`, err.message);
+        const statusCode = err && Number.isInteger(err.status) ? err.status : 500;
+        const mappedStatusCode = statusCode === 422 ? 422 : 500;
+        throw new PreviewError(
+          `Latest ratio recalculation failed for sprint ${sprint.sprintRecordId}: ${err.message}`,
+          mappedStatusCode
+        );
       }
     }
     // Re-fetch records after math engine recalculation
     records = await ContributionRecord.find(queryD6);
   } else {
+    // Strict read-only preview mode: use existing D6 contribution records as-is.
     records = await ContributionRecord.find(queryD6);
   }
 

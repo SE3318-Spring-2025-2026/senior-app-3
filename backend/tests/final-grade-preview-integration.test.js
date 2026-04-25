@@ -187,4 +187,34 @@ describe('POST /api/v1/groups/:groupId/final-grades/preview', () => {
     expect(response.status).toBe(409);
     expect(response.body.error).toBe('Conflict - preview cannot be generated due to inconsistent or locked configuration');
   });
+
+  it('should fail fast when useLatestRatios is true and latest ratio recalculation cannot complete', async () => {
+    await createPrerequisites();
+
+    const response = await request(app)
+      .post(`/api/v1/groups/${groupId}/final-grades/preview`)
+      .set('Authorization', `Bearer ${coordinatorToken}`)
+      .send({
+        requestedBy: coordinatorId,
+        useLatestRatios: true
+      });
+
+    expect(response.status).toBe(500);
+    expect(response.body.error).toContain('Latest ratio recalculation failed for sprint');
+  });
+
+  it('should return 409 when ratios sum to 0.98 (strict epsilon validation)', async () => {
+    await createPrerequisites('active', 0.98);
+
+    const response = await request(app)
+      .post(`/api/v1/groups/${groupId}/final-grades/preview`)
+      .set('Authorization', `Bearer ${coordinatorToken}`)
+      .send({
+        requestedBy: coordinatorId,
+        useLatestRatios: false
+      });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error).toBe('Conflict - preview cannot be generated due to inconsistent or locked configuration');
+  });
 });

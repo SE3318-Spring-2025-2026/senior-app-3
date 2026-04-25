@@ -41,6 +41,7 @@ function resolveRubricMultiplier(weights = [], isAlreadyWeighted = false) {
  */
 function calculateFinalGrades(groupId, baseGroupScore, records, options = {}) {
   const { weights = [], isAlreadyWeighted = false } = options;
+  const RATIO_SUM_EPSILON = 0.0001;
   
   const multiplier = resolveRubricMultiplier(weights, isAlreadyWeighted);
   const adjustedBaseScore = baseGroupScore * multiplier;
@@ -50,7 +51,11 @@ function calculateFinalGrades(groupId, baseGroupScore, records, options = {}) {
 
   for (const record of records) {
     const { studentId, contributionRatio } = record;
-    const rawRatio = contributionRatio || 0;
+    if (!studentId) {
+      throw new Error('Inconsistent Configuration: missing studentId in contribution records');
+    }
+
+    const rawRatio = Number.isFinite(Number(contributionRatio)) ? Number(contributionRatio) : 0;
     
     totalRatio += rawRatio;
     
@@ -69,7 +74,11 @@ function calculateFinalGrades(groupId, baseGroupScore, records, options = {}) {
   }
 
   // Ensure total ratio is valid
-  if (totalRatio > 0 && Math.abs(totalRatio - 1.0) > 0.01) {
+  if (Math.abs(totalRatio) <= RATIO_SUM_EPSILON) {
+    throw new Error('Inconsistent Configuration: ratios sum to 0.0');
+  }
+
+  if (Math.abs(totalRatio - 1.0) > RATIO_SUM_EPSILON) {
     throw new Error('Inconsistent Configuration: ratios do not sum to 1.0');
   }
 
