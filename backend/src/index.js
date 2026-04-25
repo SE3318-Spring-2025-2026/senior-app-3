@@ -2,8 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
-const swaggerUi = require('swagger-ui-express');
-const swaggerSpec = require('./swagger');
 
 const authRoutes = require('./routes/auth');
 const onboardingRoutes = require('./routes/onboarding');
@@ -15,7 +13,29 @@ const auditLogRoutes = require('./routes/auditLogs');
 const deliverableRoutes = require('./routes/deliverables');
 const reviewRoutes = require('./routes/reviews');
 const commentsRoutes = require('./routes/comments');
+// ISSUE #253: Import final grades approval routes (Process 8.4)
+const finalGradesRoutes = require('./routes/finalGrades');
 const { errorHandler } = require('./middleware/auth');
+const { correlationIdMiddleware } = require('./middleware/correlationId');
+const { logInfo, logError } = require('./utils/structuredLogger');
+const {
+  patchConsoleForRedaction,
+  requestLogMiddleware,
+} = require('./middleware/securityLogging');
+const { startJiraSyncScheduler } = require('./services/jiraSyncScheduler');
+
+let swaggerUi = null;
+let swaggerSpec = null;
+try {
+  swaggerUi = require('swagger-ui-express');
+} catch (error) {
+  console.warn('[index] swagger-ui-express is not installed; /api-docs will be disabled.');
+}
+try {
+  swaggerSpec = require('./swagger');
+} catch (error) {
+  console.warn('[index] swagger spec dependencies are not installed; /api-docs will be disabled.');
+}
 
 const app = express();
 const PORT = process.env.PORT || 5002;
@@ -23,11 +43,20 @@ const PORT = process.env.PORT || 5002;
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(correlationIdMiddleware());
 
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  logInfo('Incoming HTTP request', {
+    service_name: 'app_bootstrap',
+    correlationId: req.correlationId || null,
+    externalRequestId: req.externalRequestId || null,
+    method: req.method,
+    path: req.path
+  });
   next();
 });
+patchConsoleForRedaction();
+app.use(requestLogMiddleware);
 
 app.get('/health', (req, res) => {
   res.status(200).json({
@@ -43,19 +72,27 @@ const connectDB = async () => {
       useNewUrlParser: true,
       useUnifiedTopology: true,
     });
-    console.log('MongoDB connected successfully');
+    logInfo('MongoDB connected successfully', {
+      service_name: 'app_bootstrap'
+    });
   } catch (error) {
-    console.error('MongoDB connection error:', error);
+    logError('MongoDB connection error', {
+      service_name: 'app_bootstrap',
+      error: error.message
+    });
     process.exit(1);
   }
 };
 
 if (process.env.NODE_ENV !== 'test') {
   connectDB();
+  startJiraSyncScheduler();
 }
 
 // Swagger UI
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+if (swaggerUi && swaggerSpec) {
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+}
 
 // API Routes
 app.use('/api/v1/auth', authRoutes);
@@ -68,6 +105,9 @@ app.use('/api/v1/audit-logs', auditLogRoutes);
 app.use('/api/v1/deliverables', deliverableRoutes);
 app.use('/api/v1/reviews', reviewRoutes);
 app.use('/api/v1/comments', commentsRoutes);
+// ISSUE #253: Register final grades approval routes (Process 8.4)
+// Endpoint: POST /api/v1/groups/:groupId/final-grades/approval
+app.use('/api/v1/groups', finalGradesRoutes);
 
 // 404 Handler
 app.use((req, res) => {
@@ -82,8 +122,11 @@ app.use(errorHandler);
 
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    logInfo('Server started', {
+      service_name: 'app_bootstrap',
+      port: PORT,
+      environment: process.env.NODE_ENV || 'development'
+    });
   });
 }
 

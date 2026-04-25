@@ -209,6 +209,31 @@ describe('ProtectedRoute Component', () => {
       expect(screen.getByText('Protected Content')).toBeInTheDocument();
     });
 
+    it('allows advisor user when advisor is included in required roles', () => {
+      useAuthStore.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '123', role: 'advisor' },
+      });
+
+      render(
+        <MemoryRouter initialEntries={['/grade-review']}>
+          <Routes>
+            <Route
+              path="/grade-review"
+              element={
+                <ProtectedRoute
+                  component={MockProtectedComponent}
+                  requiredRoles={['professor', 'advisor']}
+                />
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      );
+
+      expect(screen.getByText('Protected Content')).toBeInTheDocument();
+    });
+
     it('denies access when user role is not in requiredRoles array', () => {
       useAuthStore.mockReturnValue({
         isAuthenticated: true,

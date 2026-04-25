@@ -224,7 +224,7 @@ const previewFinalGradesHandler = async (req, res) => {
       });
     }
 
-    const { generatePreview } = require('../services/finalGradePreviewService');
+    const { generatePreview, PreviewError } = require('../services/finalGradePreviewService');
 
     const previewOptions = {
       ...req.body,

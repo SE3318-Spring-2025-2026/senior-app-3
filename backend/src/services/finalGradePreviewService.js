@@ -11,18 +11,12 @@
  * - D4: Base group score (milestone scoring)
  * - D5: Student contributions (attendance, deliverable completion)
  * - D8: Feedback aggregates (peer, advisor, presentation scores)
- * 
- * Uses grading formula engine to compute final_score from components.
- * Output: Preview data for coordinator approval (Issue #253) and publication (Issue #255)
  */
 
-const Group = require('../models/Group');
-const FinalGrade = require('../models/FinalGrade');
-const { createAuditLog } = require('./auditService');
+const Deliverable = require('../models/Deliverable');
+const ContributionRecord = require('../models/ContributionRecord');
+const { FinalGradeCalculationService } = require('./finalGradeCalculationService');
 
-/**
- * Custom error class for preview operations
- */
 class PreviewError extends Error {
   constructor(message, statusCode = 500) {
     super(message);
@@ -31,230 +25,134 @@ class PreviewError extends Error {
   }
 }
 
-/**
- * ISSUE #253: Generate final grade preview for a group
- * 
- * This is the first step in Process 8 (Final Grades):
- * - Called by UI (Issue #252) when coordinator wants to review before approval
- * - Computes final_score using grading formula
- * - Returns preview without writing to database
- * 
- * Aggregation Sources:
- * 1. D4 Collection: baseGroupScore (milestone-based scoring)
- * 2. D5 Collection: attendance, deliverable completion percentages
- * 3. D8 Collection: peer feedback, advisor feedback, presentation scores
- * 4. Formula Engine: final_score = f(D4, D5, D8)
- * 
- * @param {String} groupId - MongoDB ObjectId of group
- * @param {Object} options - Preview options
- * @param {String} options.requestedBy - UserId requesting preview (for audit)
- * @param {String} options.requestedByRole - Role of requester (for audit)
- * @returns {Object} Preview data with computed grades for all students
- * @throws {PreviewError} 404 if group not found, 422 if data incomplete
- */
-const previewGroupGrade = async (groupId) => {
-  // ISSUE #253: Validate group exists
-  if (!groupId || typeof groupId !== 'string') {
-    throw new PreviewError('Invalid groupId', 400);
+class FinalGradePreviewService {
+  constructor() {
+    this.calculator = new FinalGradeCalculationService();
   }
 
-  const group = await Group.findById(groupId);
-  if (!group) {
-    throw new PreviewError('Group not found', 404);
-  }
+  /**
+   * Generates a preview of the final grades for a given group
+   * @param {string} groupId 
+   */
+  async previewGroupGrade(groupId) {
+    if (!groupId) {
+      const error = new PreviewError('groupId is required', 400);
+      throw error;
+    }
 
-  // ISSUE #253: Aggregate data from D4, D5, D8
-  // For now, return a basic preview structure
-  // In full implementation, this would:
-  // 1. Query D4 for baseGroupScore
-  // 2. Query D5 for attendance/deliverable data
-  // 3. Query D8 for feedback aggregates
-  // 4. Execute formula engine
-  // 5. Return computed final_score for each student
-  
-  const existingGrades = await FinalGrade.find({ groupId });
-
-  return {
-    groupId,
-    groupName: group.name,
-    createdAt: new Date(),
-    grades: existingGrades.map(g => ({
-      studentId: g.studentId,
-      baseScore: g.finalScore || 0,
-      computedScore: g.finalScore || 0,
-      status: g.status || 'pending'
-    }))
-  };
-};
-
-/**
- * ISSUE #253: Generate final grade preview with detailed computation
- * 
- * Extended version that returns computation breakdown for UI visualization.
- * Coordinator can see how final_score was calculated before approving.
- * 
- * @param {String} groupId - MongoDB ObjectId of group
- * @param {Object} options - Preview options with requestedBy for audit trail
- * @returns {Object} Detailed preview with component breakdown
- * @throws {PreviewError} Validation errors
- */
-const generatePreview = async (groupId, options = {}) => {
-  // ISSUE #253: Validate inputs
-  if (!groupId || typeof groupId !== 'string') {
-    throw new PreviewError('Invalid groupId parameter', 400);
-  }
-
-  const group = await Group.findById(groupId);
-  if (!group) {
-    throw new PreviewError(`Group ${groupId} not found`, 404);
-  }
-
-  // ISSUE #253: Verify group has completed evaluation workflow
-  if (group.status !== 'completed' && group.status !== 'finalized') {
-    throw new PreviewError(
-      'Cannot preview grades - group evaluation not yet complete',
-      422
-    );
-  }
-
-  // ISSUE #253: Fetch existing grade records
-  const grades = await FinalGrade.find({ groupId }).lean();
-  
-  if (!grades || grades.length === 0) {
-    throw new PreviewError(
-      'No grade records found for this group. Complete evaluation workflow first.',
-      422
-    );
-  }
-
-  // ISSUE #253: Create audit log entry for preview generation
-  // This tracks who requested the preview and when
-  try {
-    await createAuditLog({
-      action: 'FINAL_GRADE_PREVIEW_GENERATED',
-      userId: options.requestedBy,
-      userRole: options.requestedByRole,
-      resourceType: 'Group',
-      resourceId: groupId,
-      details: {
-        gradeCount: grades.length,
-        requestedAt: new Date(),
-        requestedByRole: options.requestedByRole
-      }
-    });
-  } catch (err) {
-    console.error('[Preview] Audit log error:', err.message);
-    // Don't throw - audit failure shouldn't block preview
-  }
-
-  // ISSUE #253: Return preview data structure
-  return {
-    success: true,
-    groupId,
-    groupName: group.name,
-    studentCount: grades.length,
-    previewAt: new Date(),
-    requestedBy: options.requestedBy,
-    requestedByRole: options.requestedByRole,
-    grades: grades.map(grade => ({
-      studentId: grade.studentId,
-      studentName: grade.studentName || 'Unknown',
-      
-      // Computation components from D4, D5, D8
-      components: {
-        baseGroupScore: grade.baseGroupScore || 0,        // D4
-        attendancePercentage: grade.attendancePercentage || 0,  // D5
-        deliverableCompletion: grade.deliverableCompletion || 0, // D5
-        peerFeedbackScore: grade.peerFeedbackScore || 0,   // D8
-        advisorFeedbackScore: grade.advisorFeedbackScore || 0, // D8
-        presentationScore: grade.presentationScore || 0     // D8
+    // 1. Fetch D4 (Deliverables) and join D5 (Evaluations) & D8 (SprintConfig)
+    // using a single Aggregation Pipeline to prevent N+1 query problem.
+    const deliverables = await Deliverable.aggregate([
+      { 
+        $match: { 
+          groupId, 
+          status: { $in: ['accepted', 'evaluated', 'under_review'] } 
+        } 
       },
-      
-      // Final computed value
-      computedFinalScore: grade.finalScore || 0,
-      
-      // Current status in workflow
-      status: grade.status || 'pending',
-      
-      // From Issue #253: if override was applied
-      override: grade.override ? {
-        applied: true,
-        value: grade.overrideValue,
-        appliedBy: grade.overrideAppliedBy,
-        reason: grade.overrideReason
-      } : {
-        applied: false
+      {
+        $lookup: {
+          from: 'evaluations', // D5
+          localField: 'deliverableId',
+          foreignField: 'deliverableId',
+          as: 'evaluations'
+        }
+      },
+      {
+        $lookup: {
+          from: 'sprint_configs', // D8
+          let: { type: '$deliverableType', sprint: '$sprintId' },
+          pipeline: [
+            { 
+              $match: { 
+                $expr: { 
+                  $and: [ 
+                    { $eq: ['$deliverableType', '$$type'] }, 
+                    { $eq: ['$sprintId', '$$sprint'] } 
+                  ] 
+                } 
+              } 
+            }
+          ],
+          as: 'config'
+        }
+      },
+      { $unwind: { path: '$config', preserveNullAndEmptyArrays: true } }
+    ]);
+
+    if (!deliverables || deliverables.length === 0) {
+      return { baseGroupScore: 0, students: [] };
+    }
+
+    let totalWeightedScore = 0;
+    let totalWeight = 0;
+    const rubricWeights = { deliverables: {} };
+
+    // 2. Validate completeness and compute average score per deliverable
+    for (const item of deliverables) {
+      const weight = item.config?.weight != null ? item.config.weight : 1.0;
+      rubricWeights.deliverables[item.deliverableId] = weight;
+
+      if (!item.evaluations || item.evaluations.length === 0) {
+        throw new PreviewError(`Missing Evaluation Data: Zorunlu deliverable (${item.deliverableId}) henüz puanlanmamış.`, 400);
       }
-    })),
+
+      // Check partial evaluations (if 2 out of 3 graded, etc.) and NULL vs 0.
+      const hasPending = item.evaluations.some(ev => ev.status === 'pending' || ev.score == null);
+      if (hasPending) {
+        throw new PreviewError(`Incomplete Evaluations: Deliverable (${item.deliverableId}) jüri değerlendirmeleri tamamlanmamış (Kısmi değerlendirme).`, 409);
+      }
+
+      // Compute simple average among the evaluators for this deliverable
+      const sum = item.evaluations.reduce((acc, ev) => acc + ev.score, 0);
+      const avgScore = sum / item.evaluations.length;
+
+      // Process 6.0 External Signal: Late Submission Penalty
+      let finalDeliverableScore = avgScore;
+      if (item.config?.deadline && new Date(item.submittedAt) > new Date(item.config.deadline)) {
+        // e.g., apply a 10% penalty
+        finalDeliverableScore = finalDeliverableScore * 0.9;
+      }
+
+      totalWeightedScore += (finalDeliverableScore * weight);
+      totalWeight += weight;
+    }
+
+    // 3. Compute baseGroupScore
+    const baseGroupScore = totalWeight > 0 ? (totalWeightedScore / totalWeight) : 0;
+
+    // 4. Fetch D6 (ContributionRecords) to get Student Ratios
+    const contributions = await ContributionRecord.find({ groupId });
+    const studentMap = {};
     
-    // Summary statistics for coordinator review
-    summary: {
-      averageScore: grades.reduce((sum, g) => sum + (g.finalScore || 0), 0) / grades.length,
-      minScore: Math.min(...grades.map(g => g.finalScore || 0)),
-      maxScore: Math.max(...grades.map(g => g.finalScore || 0)),
-      
-      // Status breakdown
-      statusCounts: {
-        pending: grades.filter(g => g.status === 'pending').length,
-        approved: grades.filter(g => g.status === 'approved').length,
-        rejected: grades.filter(g => g.status === 'rejected').length,
-        published: grades.filter(g => g.status === 'published').length
+    for (const c of contributions) {
+      if (!studentMap[c.studentId]) {
+        studentMap[c.studentId] = { studentId: c.studentId, ratioSum: 0, count: 0 };
       }
-    }
-  };
-};
-
-/**
- * ISSUE #253: Validate preview data is ready for approval
- * 
- * Checks that all grades have been computed and meet requirements
- * before allowing coordinator to proceed to approval (Issue #253).
- * 
- * @param {String} groupId - Group to validate
- * @returns {Object} Validation result { isValid, errors: [] }
- */
-const validatePreviewData = async (groupId) => {
-  const errors = [];
-
-  try {
-    const grades = await FinalGrade.find({ groupId }).lean();
-    
-    if (!grades || grades.length === 0) {
-      errors.push('No grades found for group');
-      return { isValid: false, errors };
+      studentMap[c.studentId].ratioSum += (c.contributionRatio != null ? c.contributionRatio : 1.0);
+      studentMap[c.studentId].count += 1;
     }
 
-    // Check each grade has required computation fields
-    for (const grade of grades) {
-      if (!grade.finalScore && grade.finalScore !== 0) {
-        errors.push(`Student ${grade.studentId}: missing finalScore`);
-      }
-      if (!grade.components || Object.keys(grade.components).length === 0) {
-        errors.push(`Student ${grade.studentId}: missing score components`);
-      }
-    }
+    const ratios = Object.values(studentMap).map(s => ({
+      studentId: s.studentId,
+      contributionRatio: s.ratioSum / s.count
+    }));
 
-    return {
-      isValid: errors.length === 0,
-      errors,
-      gradeCount: grades.length,
-      validCount: grades.filter(g => g.finalScore !== undefined).length
-    };
-  } catch (err) {
-    errors.push(`Validation error: ${err.message}`);
-    return { isValid: false, errors };
+    // 5. Delegate to Pure Calculation Engine
+    return this.calculator.computeFinalGrades(baseGroupScore, ratios, rubricWeights);
   }
-};
+}
 
-/**
- * Module exports
- * 
- * Used by finalGradeController.js (Process 8.1 preview endpoint)
- * and by Issue #253/255 handlers for data aggregation.
- */
-module.exports = {
-  previewGroupGrade,
-  generatePreview,
-  validatePreviewData,
-  PreviewError
-};
+const finalGradePreviewService = new FinalGradePreviewService();
+
+async function generatePreview(groupId) {
+  try {
+    return await finalGradePreviewService.previewGroupGrade(groupId);
+  } catch (error) {
+    if (error instanceof PreviewError) throw error;
+    throw new PreviewError(error.message, error.status || 500);
+  }
+}
+
+module.exports = finalGradePreviewService;
+module.exports.generatePreview = generatePreview;
+module.exports.PreviewError = PreviewError;

@@ -80,6 +80,15 @@ const JuryCommittees = () => {
                 <span className="info-label">Jury</span>
                 <span className="info-value">{committee.juryIds.join(', ')}</span>
               </div>
+              <div className="info-row">
+                <span className="info-label">Results</span>
+                <a
+                  className="info-value"
+                  href={`/committees/${committee.committeeId}/final-results`}
+                >
+                  Final Results
+                </a>
+              </div>
             </div>
           </div>
         ))}

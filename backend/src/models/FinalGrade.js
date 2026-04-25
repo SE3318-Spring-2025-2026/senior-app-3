@@ -659,7 +659,7 @@ finalGradeSchema.methods.getEffectiveGrade = function() {
  * @param {Date} publishedAt - Publication timestamp
  * @returns {Object} D7-ready grade object
  */
-finalGradeSchema.methods.toPubishFormat = function(publishedBy, publishedAt) {
+finalGradeSchema.methods.toPublishFormat = function(publishedBy, publishedAt) {
   // ISSUE #255: Compute final grade to publish (override if exists)
   const effectiveFinalGrade = this.getEffectiveGrade();
 

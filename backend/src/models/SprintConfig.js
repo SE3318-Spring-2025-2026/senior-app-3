@@ -16,6 +16,11 @@ const sprintConfigSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    groupId: {
+      type: String,
+      default: null,
+      index: true,
+    },
     deliverableType: {
       type: String,
       enum: ['proposal', 'statement_of_work', 'demo', 'interim_report', 'final_report'],
@@ -25,9 +30,32 @@ const sprintConfigSchema = new mongoose.Schema(
       type: Date,
       required: true,
     },
+    weight: {
+      type: Number,
+      default: 1,
+      min: 0,
+    },
     description: {
       type: String,
       default: null,
+    },
+    configurationStatus: {
+      type: String,
+      enum: ['draft', 'published'],
+      default: 'draft',
+      index: true,
+    },
+    publishedAt: {
+      type: Date,
+      default: null,
+    },
+    externalSprintKey: {
+      type: String,
+      default: null,
+    },
+    enableD4Reporting: {
+      type: Boolean,
+      default: true,
     },
   },
   {

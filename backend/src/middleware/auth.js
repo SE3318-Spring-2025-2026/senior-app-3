@@ -1,15 +1,45 @@
 const { verifyAccessToken } = require('../utils/jwt');
 const Group = require('../models/Group');
+const { createAuditLog } = require('../services/auditService');
+
+const isIntegrationRoute = (req) => {
+  const path = req?.path || '';
+  return path.includes('/github') || path.includes('/jira');
+};
+
+const trySecurityAuditOnDeny = async (req, statusCode, reason) => {
+  if (!isIntegrationRoute(req)) return;
+  try {
+    await createAuditLog({
+      action: 'SECURITY_AUDIT',
+      actorId: req?.user?.userId || 'anonymous',
+      groupId: req?.params?.groupId || null,
+      targetId: req?.params?.groupId || null,
+      payload: {
+        reason,
+        provider: req?.path?.includes('/github') ? 'github' : req?.path?.includes('/jira') ? 'jira' : 'integration',
+        statusCode,
+        path: req?.originalUrl || req?.path || null,
+        method: req?.method || null,
+      },
+      ipAddress: req?.ip || null,
+      userAgent: req?.headers?.['user-agent'] || null,
+    });
+  } catch (_err) {
+    // Non-fatal; auth rejection must still return immediately.
+  }
+};
 
 /**
  * Middleware to verify JWT access token in Authorization header
  * Adds user info to req.user
  */
-const authMiddleware = (req, res, next) => {
+const authMiddleware = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      await trySecurityAuditOnDeny(req, 401, 'missing_or_invalid_authorization_header');
       return res.status(401).json({
         code: 'UNAUTHORIZED',
         message: 'Missing or invalid authorization header',
@@ -23,6 +53,7 @@ const authMiddleware = (req, res, next) => {
       req.user = decoded;
       next();
     } catch (tokenError) {
+      await trySecurityAuditOnDeny(req, 401, 'invalid_or_expired_token');
       return res.status(401).json({
         code: 'INVALID_TOKEN',
         message: 'Invalid or expired token',
@@ -41,8 +72,9 @@ const authMiddleware = (req, res, next) => {
  * Usage: roleMiddleware(['admin', 'professor'])
  */
 const roleMiddleware = (allowedRoles) => {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     if (!req.user) {
+      await trySecurityAuditOnDeny(req, 401, 'user_not_authenticated');
       return res.status(401).json({
         code: 'UNAUTHORIZED',
         message: 'User not authenticated',
@@ -50,6 +82,7 @@ const roleMiddleware = (allowedRoles) => {
     }
 
     if (!allowedRoles.includes(req.user.role)) {
+      await trySecurityAuditOnDeny(req, 403, 'role_not_permitted');
       return res.status(403).json({
         code: 'FORBIDDEN',
         message: 'You do not have permission to access this resource',
@@ -247,6 +280,7 @@ const errorHandler = (err, req, res, next) => {
 const serviceOrBearerAuth = (req, res, next) => {
   const expected =
     process.env.SERVICE_AUTH_TOKEN ||
+    process.env.SYSTEM_SERVICE_TOKEN ||
     process.env.X_SERVICE_AUTH_SECRET ||
     process.env.INTERNAL_API_KEY;
   const headerVal = req.headers['x-service-auth'];

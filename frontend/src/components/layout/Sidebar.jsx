@@ -23,6 +23,13 @@ const Sidebar = () => {
     return user.role.charAt(0).toUpperCase() + user.role.slice(1).replace(/_/g, ' ');
   };
 
+  const reviewGroupId = [
+    user?.groupId,
+    user?.advisedGroupId,
+    user?.advisorGroupId,
+    user?.currentGroupId,
+  ].find((value) => typeof value === 'string' && value.trim() && !value.includes(':'));
+
   const navSections = [
     {
       title: 'Main',
@@ -45,7 +52,7 @@ const Sidebar = () => {
     },
     {
       title: 'Academic Center',
-      requiredRoles: ['professor', 'admin', 'committee_member', 'coordinator'],
+      requiredRoles: ['professor', 'advisor', 'admin', 'committee_member', 'coordinator'],
       items: [
         {
           label: 'Inbox', path: '/professor/inbox', icon: (
@@ -54,6 +61,13 @@ const Sidebar = () => {
             </svg>
           ), requiredRoles: ['professor']
         },
+        ...(reviewGroupId ? [{
+          label: 'Grade Review', path: `/groups/${reviewGroupId}/final-grades/review`, icon: (
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-6m4 6V7m4 10v-4M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            </svg>
+          ), requiredRoles: ['professor', 'advisor']
+        }] : []),
         {
           label: 'Jury Committees', path: '/jury/committees', icon: (
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -110,6 +124,13 @@ const Sidebar = () => {
           ), requiredRoles: ['student']
         },
         {
+          label: 'Final Grades', path: '/me/final-grades', icon: (
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414A1 1 0 0119 9.414V19a2 2 0 01-2 2z" />
+            </svg>
+          ), requiredRoles: ['student']
+        },
+        {
           label: 'Group Coordinator', path: `/groups/${user?.groupId || ':group_id'}/coordinator`, icon: (
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
@@ -128,6 +149,13 @@ const Sidebar = () => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
             </svg>
           )
+        },
+        {
+          label: 'Sprint Dashboard', path: '/coordinator/sprint-dashboard', icon: (
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-6m3 6V7m3 10v-4m5 6H4a1 1 0 01-1-1V4a1 1 0 011-1h16a1 1 0 011 1v14a1 1 0 01-1 1z" />
+            </svg>
+          ), requiredRoles: ['coordinator']
         },
         {
           label: 'New Committee', path: '/coordinator/committees/new', icon: (

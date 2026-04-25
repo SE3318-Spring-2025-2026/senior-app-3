@@ -128,16 +128,55 @@ const auditLogSchema = new mongoose.Schema(
         'GITHUB_SYNC_INITIATED',
         'GITHUB_SYNC_COMPLETED',
         'GITHUB_SYNC_FAILED',
-
         // --- Final Grades (Process 8 / Issues #253-#255) ---
-        'FINAL_GRADE_PREVIEW_GENERATED',        // Process 8.1-8.3: Grade computation
-        'FINAL_GRADE_APPROVED',                 // Issue #253: Coordinator approved grade
-        'FINAL_GRADE_REJECTED',                 // Issue #253: Coordinator rejected grade
-        'FINAL_GRADE_OVERRIDE_APPLIED',         // Issue #253: Manual override applied with reason
-        'FINAL_GRADE_APPROVAL_CONFLICT',        // Issue #253: Attempted duplicate approval (409)
-        'FINAL_GRADES_PUBLISHED',               // Issue #255: Grades published to D7
-        'FINAL_GRADE_NOTIFICATION_SENT',        // Issue #255: Student notification dispatched
-        'FINAL_GRADE_NOTIFICATION_FAILED',      // Issue #255: Notification failed after retries
+        'FINAL_GRADE_PREVIEW_GENERATED',
+        'FINAL_GRADE_APPROVED',
+        'FINAL_GRADE_REJECTED',
+        'FINAL_GRADE_OVERRIDDEN',
+        'FINAL_GRADE_APPROVAL_CONFLICT',
+        'FINAL_GRADE_PUBLISHED',
+        'FINAL_GRADE_NOTIFICATION_SENT',
+        'FINAL_GRADE_NOTIFICATION_FAILED',
+
+        'SECURITY_AUDIT',
+        'CREDENTIAL_ROTATED',
+
+        // ================================================================================
+        // ISSUE #241: Operational Hooks & Idempotency — Webhook & Attribution Tracking
+        // ================================================================================
+        'WEBHOOK_DELIVERY_INITIATED',
+        'WEBHOOK_DELIVERY_DISPATCHED',
+        'WEBHOOK_DELIVERY_SUCCEEDED',
+        'WEBHOOK_DELIVERY_FAILED',
+        'WEBHOOK_DELIVERY_RETRIED',
+        'WEBHOOK_DELIVERY_ERROR',
+
+        'ATTRIBUTION_RATIO_CHANGED',
+        'ATTRIBUTION_SYNC_INITIATED',
+        'ATTRIBUTION_SYNC_COMPLETED',
+        'ATTRIBUTION_MISMATCH_DETECTED',
+
+        'IDEMPOTENCY_KEY_VALIDATED',
+        'DUPLICATE_REQUEST_DETECTED',
+        'FINGERPRINT_COLLISION_DETECTED',
+
+        // --- Sprint Notifications (Issue #238 - Process 7.5) ---
+        'SPRINT_CONTRIBUTION_RECALCULATION_INITIATED',
+        'SPRINT_CONTRIBUTION_RECALCULATION_COMPLETED',
+        'SPRINT_CONTRIBUTION_RECALCULATION_ERROR',
+        'SPRINT_CONTRIBUTIONS_RECALCULATED',
+        'SPRINT_NOTIFICATION_DISPATCHED',
+        'SPRINT_NOTIFICATION_FAILED',
+        'SPRINT_NOTIFICATION_SKIPPED',
+        'SPRINT_NOTIFICATION_DISPATCHER_ERROR',
+        'SPRINT_GROUP_NOTIFICATION_CONFIGURED',
+        'SPRINT_NOTIFICATION_CONFIG_DELETED',
+
+        // --- JIRA Sync (Process 7.1) ---
+        'JIRA_SYNC_INITIATED',
+        'JIRA_SYNC_COMPLETED',
+        'JIRA_SYNC_FAILED',
+
       ],
     },
     actorId: {
@@ -173,6 +212,11 @@ const auditLogSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    correlationId: {
+      type: String,
+      default: null,
+      index: true,
+    },
     timestamp: {
       type: Date,
       default: Date.now,
@@ -189,6 +233,7 @@ auditLogSchema.index({ targetId: 1, createdAt: -1 });
 auditLogSchema.index({ actorId: 1, createdAt: -1 });
 auditLogSchema.index({ groupId: 1, action: 1, createdAt: -1 });
 auditLogSchema.index({ action: 1, createdAt: -1 });
+auditLogSchema.index({ correlationId: 1 });
 
 const AuditLog = mongoose.model('AuditLog', auditLogSchema);
 
