@@ -141,4 +141,110 @@ describe('Issue #247 - pure ratio calculations', () => {
       expect.objectContaining({ valid: true, actualSum: 1 })
     );
   });
+
+  test('is deterministic across repeated runs', () => {
+    const contributions = [
+      { studentId: 'student-1', storyPointsCompleted: 11 },
+      { studentId: 'student-2', storyPointsCompleted: 7 },
+      { studentId: 'student-3', storyPointsCompleted: 5 },
+    ];
+    const targetMap = new Map([
+      ['student-1', 10],
+      ['student-2', 10],
+      ['student-3', 10],
+    ]);
+
+    const baseline = normalizeGroupRatios(contributions, targetMap).map(item => item.ratio);
+    for (let i = 0; i < 100; i += 1) {
+      const current = normalizeGroupRatios(contributions, targetMap).map(item => item.ratio);
+      expect(current).toEqual(baseline);
+    }
+  });
+
+  test('normalizes non-finite and negative story points to zero contribution', () => {
+    const contributions = [
+      { studentId: 'student-1', storyPointsCompleted: 'abc' },
+      { studentId: 'student-2', storyPointsCompleted: Number.NaN },
+      { studentId: 'student-3', storyPointsCompleted: -15 },
+      { studentId: 'student-4', storyPointsCompleted: 9 },
+    ];
+    const targetMap = new Map([
+      ['student-1', 10],
+      ['student-2', 10],
+      ['student-3', 10],
+      ['student-4', 10],
+    ]);
+
+    const result = normalizeGroupRatios(contributions, targetMap);
+    expect(result.map(item => item.ratio)).toEqual([0, 0, 0, 1]);
+    expect(result.reduce((sum, item) => sum + item.ratio, 0).toFixed(4)).toBe('1.0000');
+  });
+
+  test('throws precise error when a student target is missing', () => {
+    expect(() =>
+      normalizeGroupRatios(
+        [
+          { studentId: 'student-1', storyPointsCompleted: 5 },
+          { studentId: 'student-2', storyPointsCompleted: 5 },
+        ],
+        new Map([['student-1', 10]])
+      )
+    ).toThrow(expect.objectContaining({ code: 'MISSING_STUDENT_TARGET' }));
+  });
+
+  test('triggers unitsToDistribute < 0 correction path while preserving sum', () => {
+    const contributions = [
+      { studentId: 'student-1', storyPointsCompleted: 8 },
+      { studentId: 'student-2', storyPointsCompleted: 3 },
+    ];
+    const targetMap = new Map([
+      ['student-1', 10],
+      ['student-2', 10],
+    ]);
+
+    const result = normalizeGroupRatios(contributions, targetMap, 0.9999);
+    expect(result.reduce((sum, item) => sum + item.ratio, 0).toFixed(4)).toBe('0.9999');
+    expect(result.every(item => item.ratio >= 0 && item.ratio <= 1)).toBe(true);
+  });
+
+  test('clamps overflowed normalized shares to valid ratio bounds', () => {
+    const contributions = [
+      { studentId: 'student-1', storyPointsCompleted: 1000 },
+      { studentId: 'student-2', storyPointsCompleted: 1 },
+      { studentId: 'student-3', storyPointsCompleted: 1 },
+      { studentId: 'student-4', storyPointsCompleted: 1 },
+    ];
+    const targetMap = new Map([
+      ['student-1', 1],
+      ['student-2', 1000],
+      ['student-3', 1000],
+      ['student-4', 1000],
+    ]);
+
+    const result = normalizeGroupRatios(contributions, targetMap, 1);
+    expect(result.every(item => item.ratio >= 0 && item.ratio <= 1)).toBe(true);
+    expect(result.reduce((sum, item) => sum + item.ratio, 0).toFixed(4)).toBe('1.0000');
+  });
+
+  test('throws NORMALIZATION_DRIFT when final sum integrity is compromised', () => {
+    const contributions = [{ studentId: 'student-1', storyPointsCompleted: 5 }];
+    const targetMap = new Map([['student-1', 10]]);
+
+    expect(() => normalizeGroupRatios(contributions, targetMap, 1, { forceNormalizationDrift: true })).toThrow(
+      expect.objectContaining({ code: 'NORMALIZATION_DRIFT' })
+    );
+  });
+
+  test('ignores forceNormalizationDrift outside test environment', () => {
+    const contributions = [{ studentId: 'student-1', storyPointsCompleted: 5 }];
+    const targetMap = new Map([['student-1', 10]]);
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+
+    try {
+      expect(() => normalizeGroupRatios(contributions, targetMap, 1, { forceNormalizationDrift: true })).not.toThrow();
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+  });
 });

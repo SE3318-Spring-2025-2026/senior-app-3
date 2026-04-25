@@ -202,7 +202,12 @@ async function loadTargetsFromD8(groupId, sprintId, memberIds, session) {
   return targetMap;
 }
 
-function normalizeGroupRatios(contributions, targetMap, normalizationFactor = DEFAULT_NORMALIZATION_FACTOR) {
+function normalizeGroupRatios(
+  contributions,
+  targetMap,
+  normalizationFactor = DEFAULT_NORMALIZATION_FACTOR,
+  options = {}
+) {
   if (!Number.isFinite(normalizationFactor) || normalizationFactor <= 0) {
     throw new RatioServiceError(422, 'INVALID_NORMALIZATION_FACTOR', 'Normalization factor must be greater than zero.');
   }
@@ -216,9 +221,22 @@ function normalizeGroupRatios(contributions, targetMap, normalizationFactor = DE
     );
   }
 
+  for (const item of contributions) {
+    const studentId = String(item.studentId);
+    if (!targetMap.has(studentId)) {
+      throw new RatioServiceError(
+        422,
+        'MISSING_STUDENT_TARGET',
+        `Target story points are missing for student ${studentId}.`
+      );
+    }
+  }
+
   const rawRatios = contributions.map(item => {
     const target = Number(targetMap.get(String(item.studentId)));
-    const raw = item.storyPointsCompleted / target;
+    const completed = Number(item.storyPointsCompleted);
+    const safeCompleted = Number.isFinite(completed) && completed > 0 ? completed : 0;
+    const raw = safeCompleted / target;
     return Number.isFinite(raw) && raw > 0 ? raw : 0;
   });
 
@@ -259,7 +277,10 @@ function normalizeGroupRatios(contributions, targetMap, normalizationFactor = DE
 
   const finalizedRatios = floors.map(value => roundTo(value / SCALE));
   const finalSum = roundTo(finalizedRatios.reduce((sum, value) => sum + value, 0));
-  const expected = roundTo(normalizationFactor);
+  const shouldForceDrift = process.env.NODE_ENV === 'test' && options.forceNormalizationDrift === true;
+  const expected = roundTo(
+    normalizationFactor + (shouldForceDrift ? 0.0001 : 0)
+  );
   // Mathematical fail-safe: prevents silent precision regressions in normalization.
   if (finalSum !== expected) {
     throw new RatioServiceError(

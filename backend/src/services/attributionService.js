@@ -96,6 +96,7 @@ class AttributionServiceError extends Error {
 
 function evaluateAttributionRecords(validationRecords, usersByHandle, options = {}) {
   const { approvedStudentIds = new Set(), assigneeFallbackEnabled = false } = options;
+  const records = Array.isArray(validationRecords) ? validationRecords : [];
   const attributionMap = new Map();
   const attributionDetails = [];
   let totalStoryPoints = 0;
@@ -119,19 +120,37 @@ function evaluateAttributionRecords(validationRecords, usersByHandle, options = 
     };
   };
 
-  for (const record of validationRecords) {
+  const normalizeStoryPoints = (value) => {
+    const numericValue = Number(value);
+    return Number.isFinite(numericValue) ? numericValue : 0;
+  };
+
+  for (const record of records) {
     const issueKey = record.issueKey || record.issue_key || null;
     const prId = record.prId || record.pr_id || null;
     const prUrl = record.prUrl || record.pr_url || null;
     const prAuthor = record.prAuthor || record.pr_author || null;
     const jiraAssignee = record.jiraAssignee || record.jira_assignee || null;
     const mergeStatus = record.mergeStatus || record.merge_status || 'UNKNOWN';
-    const storyPoints = record.storyPoints || record.story_points || 0;
+    const storyPoints = normalizeStoryPoints(
+      record.storyPoints !== undefined ? record.storyPoints : record.story_points
+    );
     const prReviewers = Array.isArray(record.prReviewers || record.pr_reviewers)
       ? record.prReviewers || record.pr_reviewers
       : [];
 
     if (mergeStatus !== 'MERGED') {
+      attributionDetails.push({
+        studentId: null,
+        issueKey,
+        completedPoints: 0,
+        githubHandle: prAuthor || null,
+        mergeStatus,
+        prIdentifier: prUrl || prId,
+        prReviewers,
+        decisionReason: 'NOT_MERGED_ZERO_CREDIT',
+        status: 'SKIPPED_NOT_MERGED',
+      });
       continue;
     }
 

@@ -26,14 +26,28 @@ describe('Issue #247 - pure attribution evaluation', () => {
     expect(result.totalStoryPoints).toBe(5);
     expect(result.unattributableCount).toBe(0);
     expect(result.attributionMap.get('student-1')).toBe(5);
-    expect(result.attributionDetails).toEqual([
-      expect.objectContaining({
-        issueKey: 'PROJ-1',
-        studentId: 'student-1',
-        completedPoints: 5,
-        decisionReason: 'ATTRIBUTED_VIA_GITHUB_AUTHOR',
-      }),
-    ]);
+    expect(result.attributionDetails).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issueKey: 'PROJ-1',
+          studentId: 'student-1',
+          completedPoints: 5,
+          decisionReason: 'ATTRIBUTED_VIA_GITHUB_AUTHOR',
+        }),
+        expect.objectContaining({
+          issueKey: 'PROJ-2',
+          completedPoints: 0,
+          decisionReason: 'NOT_MERGED_ZERO_CREDIT',
+          status: 'SKIPPED_NOT_MERGED',
+        }),
+        expect.objectContaining({
+          issueKey: 'PROJ-3',
+          completedPoints: 0,
+          decisionReason: 'NOT_MERGED_ZERO_CREDIT',
+          status: 'SKIPPED_NOT_MERGED',
+        }),
+      ])
+    );
   });
 
   test('marks unmapped GitHub users as unattributable with identifiers', () => {
@@ -140,9 +154,146 @@ describe('Issue #247 - pure attribution evaluation', () => {
     expect(first.totalStoryPoints).toBe(13);
     expect(first.unattributablePoints).toBe(5);
     expect(first.unattributableCount).toBe(2);
-    expect(first.attributionDetails.map(item => item.issueKey)).toEqual(['PROJ-10', 'PROJ-11', 'PROJ-12', 'PROJ-13']);
+    expect(first.attributionDetails.map(item => item.issueKey)).toEqual([
+      'PROJ-10',
+      'PROJ-11',
+      'PROJ-12',
+      'PROJ-13',
+      'PROJ-14',
+    ]);
     expect(Array.from(second.attributionMap.entries())).toEqual(Array.from(first.attributionMap.entries()));
     expect(second.attributionDetails).toEqual(first.attributionDetails);
     expect(second.warnings).toEqual(first.warnings);
+  });
+
+  test('matches exact golden fixture (5 merged + 3 merged + 8 unmerged => 8 total)', () => {
+    const result = evaluateAttributionRecords(
+      [
+        { issueKey: 'PROJ-G1', prId: '31', prAuthor: 'john-doe', mergeStatus: 'MERGED', storyPoints: 5 },
+        { issueKey: 'PROJ-G2', prId: '32', prAuthor: 'john-doe', mergeStatus: 'MERGED', storyPoints: 3 },
+        { issueKey: 'PROJ-G3', prId: '33', prAuthor: 'john-doe', mergeStatus: 'NOT_MERGED', storyPoints: 8 },
+      ],
+      buildUsersByHandle(),
+      { approvedStudentIds: new Set(['student-1', 'student-2', 'student-3']) }
+    );
+
+    expect(result.totalStoryPoints).toBe(8);
+    expect(result.unattributablePoints).toBe(0);
+    expect(result.unattributableCount).toBe(0);
+    expect(result.attributionMap.get('student-1')).toBe(8);
+    expect(result.attributionDetails).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issueKey: 'PROJ-G3',
+          completedPoints: 0,
+          decisionReason: 'NOT_MERGED_ZERO_CREDIT',
+          status: 'SKIPPED_NOT_MERGED',
+        }),
+      ])
+    );
+  });
+
+  test('marks missing PR author as unmapped', () => {
+    const result = evaluateAttributionRecords(
+      [{ issueKey: 'PROJ-MISS', prId: '41', mergeStatus: 'MERGED', storyPoints: 2 }],
+      buildUsersByHandle(),
+      { approvedStudentIds: new Set(['student-1', 'student-2', 'student-3']) }
+    );
+
+    expect(result.totalStoryPoints).toBe(0);
+    expect(result.unattributablePoints).toBe(2);
+    expect(result.attributionDetails[0]).toEqual(
+      expect.objectContaining({
+        issueKey: 'PROJ-MISS',
+        decisionReason: 'MISSING_PR_AUTHOR',
+        status: 'UNMAPPED',
+      })
+    );
+  });
+
+  test('when fallback is enabled, unmapped JIRA assignee remains unattributable', () => {
+    const result = evaluateAttributionRecords(
+      [
+        {
+          issueKey: 'PROJ-F1',
+          prId: '51',
+          prAuthor: 'missing-author',
+          jiraAssignee: 'missing-assignee',
+          mergeStatus: 'MERGED',
+          storyPoints: 4,
+        },
+      ],
+      buildUsersByHandle(),
+      {
+        approvedStudentIds: new Set(['student-1', 'student-2', 'student-3']),
+        assigneeFallbackEnabled: true,
+      }
+    );
+
+    expect(result.totalStoryPoints).toBe(0);
+    expect(result.unattributableCount).toBe(1);
+    expect(result.attributionDetails[0]).toEqual(
+      expect.objectContaining({
+        decisionReason: 'JIRA_ASSIGNEE_NOT_FOUND_IN_D1',
+        status: 'UNMAPPED',
+      })
+    );
+  });
+
+  test('when fallback is enabled, out-of-group JIRA assignee remains unattributable', () => {
+    const result = evaluateAttributionRecords(
+      [
+        {
+          issueKey: 'PROJ-F2',
+          prId: '52',
+          prAuthor: 'missing-author',
+          jiraAssignee: 'outsider',
+          mergeStatus: 'MERGED',
+          storyPoints: 9,
+        },
+      ],
+      buildUsersByHandle(),
+      {
+        approvedStudentIds: new Set(['student-1', 'student-2', 'student-3']),
+        assigneeFallbackEnabled: true,
+      }
+    );
+
+    expect(result.totalStoryPoints).toBe(0);
+    expect(result.unattributablePoints).toBe(9);
+    expect(result.attributionDetails[0]).toEqual(
+      expect.objectContaining({
+        decisionReason: 'JIRA_ASSIGNEE_NOT_IN_GROUP_D2',
+        status: 'UNATTRIBUTABLE',
+      })
+    );
+  });
+
+  test('returns safe empty result for empty validation records', () => {
+    const result = evaluateAttributionRecords([], buildUsersByHandle(), {
+      approvedStudentIds: new Set(['student-1', 'student-2', 'student-3']),
+    });
+
+    expect(result.totalStoryPoints).toBe(0);
+    expect(result.unattributablePoints).toBe(0);
+    expect(result.unattributableCount).toBe(0);
+    expect(Array.from(result.attributionMap.entries())).toEqual([]);
+    expect(result.attributionDetails).toEqual([]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  test('sanitizes non-finite story points and numeric strings safely', () => {
+    const result = evaluateAttributionRecords(
+      [
+        { issueKey: 'PROJ-N1', prId: '61', prAuthor: 'john-doe', mergeStatus: 'MERGED', storyPoints: '8' },
+        { issueKey: 'PROJ-N2', prId: '62', prAuthor: 'john-doe', mergeStatus: 'MERGED', storyPoints: Number.NaN },
+        { issueKey: 'PROJ-N3', prId: '63', prAuthor: 'john-doe', mergeStatus: 'MERGED', storyPoints: null },
+      ],
+      buildUsersByHandle(),
+      { approvedStudentIds: new Set(['student-1', 'student-2', 'student-3']) }
+    );
+
+    expect(result.totalStoryPoints).toBe(8);
+    expect(result.attributionMap.get('student-1')).toBe(8);
   });
 });
