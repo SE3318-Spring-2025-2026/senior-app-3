@@ -30,6 +30,11 @@ const sprintConfigSchema = new mongoose.Schema(
       type: Date,
       required: true,
     },
+    weight: {
+      type: Number,
+      default: 1,
+      min: 0,
+    },
     description: {
       type: String,
       default: null,
