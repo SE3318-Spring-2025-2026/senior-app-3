@@ -13,7 +13,7 @@ const CoordinatorFinalGradePublishPanel = () => {
 
   // Publish Modal State
   const [showModal, setShowModal] = useState(false);
-  const [publishCycle, setPublishCycle] = useState('Fall2026'); // Example default
+  const [publishCycle, setPublishCycle] = useState(null);
   const [notifyEmail, setNotifyEmail] = useState(true);
   const [notifySms, setNotifySms] = useState(false);
   const [notifyPush, setNotifyPush] = useState(false);
@@ -21,6 +21,7 @@ const CoordinatorFinalGradePublishPanel = () => {
   const [publishing, setPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState(null);
   const [publishError, setPublishError] = useState(null);
+  const [publishErrorType, setPublishErrorType] = useState('general');
 
   useEffect(() => {
     loadSummary();
@@ -33,6 +34,7 @@ const CoordinatorFinalGradePublishPanel = () => {
     try {
       const data = await getGroupApprovalSummary(groupId);
       setSummaryData(data.summary || []);
+      setPublishCycle(data.activePublishCycle || null);
     } catch (err) {
       setError(err?.response?.data?.error || 'Failed to load approval summary.');
     } finally {
@@ -44,11 +46,12 @@ const CoordinatorFinalGradePublishPanel = () => {
   const publishedCount = summaryData?.find((s) => s._id === 'published')?.count || 0;
   const pendingCount = summaryData?.find((s) => s._id === 'pending')?.count || 0;
 
-  const canPublish = approvedCount > 0 && publishedCount === 0;
+  const canPublish = approvedCount > 0 && publishedCount === 0 && Boolean(publishCycle);
 
   const handlePublish = async () => {
     setPublishing(true);
     setPublishError(null);
+    setPublishErrorType('general');
     try {
       const payload = {
         publishCycle,
@@ -64,8 +67,20 @@ const CoordinatorFinalGradePublishPanel = () => {
       await loadSummary();
     } catch (err) {
       if (err?.response?.status === 409) {
-        setPublishError('Bu notlar zaten yayınlanmış. (Already published)');
+        const errorCode = err?.response?.data?.code;
+        const errorMap = {
+          ALREADY_PUBLISHED: 'Bu notlar zaten yayınlanmış. (Already published)',
+          INCONSISTENT_CYCLE:
+            'Hata: Seçilen dönem onaylanan kayıtlarla eşleşmiyor. Lütfen sayfayı yenileyip tekrar deneyin. (Inconsistent Cycle)',
+          DEFAULT: 'Bir çakışma hatası oluştu. Lütfen verileri kontrol edin.'
+        };
+
+        if (errorCode === 'INCONSISTENT_CYCLE') {
+          setPublishErrorType('cycle');
+        }
+        setPublishError(errorMap[errorCode] || errorMap.DEFAULT);
       } else {
+        setPublishErrorType('general');
         setPublishError(err?.response?.data?.error || 'Failed to publish grades.');
       }
     } finally {
@@ -137,7 +152,7 @@ const CoordinatorFinalGradePublishPanel = () => {
             </button>
             {!canPublish && (
               <p className="action-hint">
-                A valid Approval Snapshot is required. Ensure there are approved grades and none are already published.
+                A valid approval snapshot and publish cycle are required. Ensure there are approved grades and none are already published.
               </p>
             )}
           </div>
@@ -152,12 +167,7 @@ const CoordinatorFinalGradePublishPanel = () => {
             
             <div className="form-group">
               <label>Publish Cycle</label>
-              <input 
-                type="text" 
-                value={publishCycle} 
-                onChange={(e) => setPublishCycle(e.target.value)}
-                placeholder="e.g. Fall2026"
-              />
+              <div className="readonly-value">{publishCycle || 'Not available'}</div>
             </div>
 
             <div className="notification-options">
@@ -175,7 +185,14 @@ const CoordinatorFinalGradePublishPanel = () => {
               </label>
             </div>
 
-            {publishError && <div className="error-message">{publishError}</div>}
+            {publishError && (
+              <div className={`error-message ${publishErrorType === 'cycle' ? 'error-message-warning' : ''}`}>
+                <span className="error-icon" aria-hidden="true">
+                  {publishErrorType === 'cycle' ? '⚠️' : '❌'}
+                </span>
+                <span>{publishError}</span>
+              </div>
+            )}
 
             <div className="modal-actions">
               <button className="btn-cancel" onClick={() => setShowModal(false)} disabled={publishing}>Cancel</button>

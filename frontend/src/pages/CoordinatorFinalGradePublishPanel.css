@@ -160,6 +160,17 @@
   box-sizing: border-box;
 }
 
+.readonly-value {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  background: #f9fafb;
+  color: #374151;
+  box-sizing: border-box;
+}
+
 .notification-options {
   background: #f9fafb;
   padding: 16px;
@@ -228,6 +239,19 @@
   margin-bottom: 16px;
   font-size: 14px;
   border: 1px solid #f87171;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.error-message-warning {
+  color: #9a3412;
+  background: #fff7ed;
+  border-color: #fdba74;
+}
+
+.error-icon {
+  line-height: 1.2;
 }
 
 /* Success State */

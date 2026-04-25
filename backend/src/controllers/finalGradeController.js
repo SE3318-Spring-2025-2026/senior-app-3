@@ -3,6 +3,7 @@
 const finalGradePreviewService = require('../services/finalGradePreviewService');
 const { approveGroupGrades, GradeApprovalError } = require('../services/approvalService');
 const { publishFinalGrades, FinalGradePublishError } = require('../services/finalGradePublishService');
+const { FinalGrade, FINAL_GRADE_STATUS } = require('../models/FinalGrade');
 
 /**
  * Controller for Process 8.1 - Final Grade Preview
@@ -171,10 +172,23 @@ const getGroupApprovalSummaryHandler = async (req, res) => {
 
     console.log(`[Issue #253] Summary retrieved for group: ${groupId}`);
 
+    const latestApproved = await FinalGrade.findOne({
+      groupId,
+      status: FINAL_GRADE_STATUS.APPROVED
+    }).sort({ approvedAt: -1, updatedAt: -1 });
+
+    const latestPublished = await FinalGrade.findOne({
+      groupId,
+      status: FINAL_GRADE_STATUS.PUBLISHED
+    }).sort({ publishedAt: -1, updatedAt: -1 });
+
+    const activePublishCycle = latestApproved?.publishCycle || latestPublished?.publishCycle || null;
+
     // ISSUE #253: Return summary
     return res.status(200).json({
       groupId,
       summary,
+      activePublishCycle,
       timestamp: new Date()
     });
   } catch (error) {

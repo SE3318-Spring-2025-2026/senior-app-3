@@ -8,6 +8,7 @@
 
 const { FinalGrade, FINAL_GRADE_STATUS } = require('../models/FinalGrade');
 const AuditLog = require('../models/AuditLog');
+const notificationService = require('./notificationService');
 
 class FinalGradePublishError extends Error {
   constructor(message, statusCode = 500, errorCode = null) {
@@ -20,18 +21,41 @@ class FinalGradePublishError extends Error {
 
 const publishFinalGrades = async (
   groupId,
-  publishCycle,
+  requestedPublishCycle,
   coordinatorId,
   notificationFlags = { email: true, sms: false, push: false }
 ) => {
   if (!groupId) {
     throw new FinalGradePublishError('Group ID is required', 400, 'MISSING_GROUP_ID');
   }
-  if (!publishCycle) {
+  if (!requestedPublishCycle) {
     throw new FinalGradePublishError('Publish cycle is required', 400, 'MISSING_PUBLISH_CYCLE');
   }
 
-  // Check if they are already published
+  const approvedSnapshot = await FinalGrade.find({
+    groupId,
+    status: FINAL_GRADE_STATUS.APPROVED
+  });
+
+  if (!approvedSnapshot || approvedSnapshot.length === 0) {
+    throw new FinalGradePublishError(
+      'No approved grades found for publication. An Approval Snapshot is required.',
+      422,
+      'NO_APPROVED_GRADES'
+    );
+  }
+
+  const approvedCycleSet = new Set(approvedSnapshot.map((grade) => grade.publishCycle).filter(Boolean));
+  if (approvedCycleSet.size !== 1 || !approvedCycleSet.has(requestedPublishCycle)) {
+    throw new FinalGradePublishError(
+      'Publish cycle does not match the approved snapshot cycle',
+      409,
+      'INCONSISTENT_CYCLE'
+    );
+  }
+
+  const publishCycle = approvedSnapshot[0].publishCycle;
+
   const hasPublished = await FinalGrade.exists({
     groupId,
     publishCycle,
@@ -42,57 +66,63 @@ const publishFinalGrades = async (
     throw new FinalGradePublishError('Bu notlar zaten yayınlanmış', 409, 'ALREADY_PUBLISHED');
   }
 
-  // Get approved grades
-  const approvedGrades = await FinalGrade.find({
-    groupId,
-    publishCycle,
-    status: FINAL_GRADE_STATUS.APPROVED
-  });
-
-  if (!approvedGrades || approvedGrades.length === 0) {
-    throw new FinalGradePublishError(
-      'No approved grades found for publication. An Approval Snapshot is required.',
-      422,
-      'NO_APPROVED_GRADES'
-    );
-  }
-
   // Transaction
   const session = await FinalGrade.startSession();
   session.startTransaction();
 
   try {
-    const auditLogs = [];
-    let publishedCount = 0;
-
-    for (const grade of approvedGrades) {
-      grade.status = FINAL_GRADE_STATUS.PUBLISHED;
-      grade.publishedAt = new Date();
-      grade.publishedBy = coordinatorId;
-      
-      await grade.save({ session });
-      publishedCount++;
-
-      auditLogs.push({
-        action: 'FINAL_GRADE_PUBLISHED',
-        actorId: coordinatorId,
-        targetId: grade.studentId,
+    const publishedAt = new Date();
+    const updateResult = await FinalGrade.updateMany(
+      {
         groupId,
-        payload: {
-          publishCycle,
-          publishedAt: grade.publishedAt,
-          effectiveGrade: grade.getEffectiveFinalGrade(),
-          notificationFlags
+        publishCycle,
+        status: FINAL_GRADE_STATUS.APPROVED
+      },
+      {
+        $set: {
+          status: FINAL_GRADE_STATUS.PUBLISHED,
+          publishedAt,
+          publishedBy: coordinatorId
         }
-      });
+      },
+      { session }
+    );
+
+    const publishedCount = updateResult.modifiedCount || 0;
+    if (publishedCount === 0) {
+      throw new FinalGradePublishError(
+        'No approved grades found for publication. An Approval Snapshot is required.',
+        422,
+        'NO_APPROVED_GRADES'
+      );
     }
 
-    await AuditLog.insertMany(auditLogs, { session });
+    await AuditLog.create(
+      [
+        {
+          action: 'FINAL_GRADE_PUBLISHED',
+          actorId: coordinatorId,
+          targetId: groupId,
+          groupId,
+          payload: {
+            publishCycle,
+            publishedAt,
+            affectedCount: publishedCount,
+            notificationFlags
+          }
+        }
+      ],
+      { session }
+    );
     await session.commitTransaction();
 
-    // Async notification logic would go here
+    // Fire-and-forget dispatch to keep publish response fast.
     setImmediate(() => {
-      console.log(`Notifications triggered with flags:`, notificationFlags);
+      notificationService
+        .dispatchBulkFinalGradeNotifications(groupId, publishCycle, notificationFlags)
+        .catch((notificationError) => {
+          console.error('[Publish Final Grades] Notification dispatch failed:', notificationError);
+        });
     });
 
     return {
@@ -100,7 +130,7 @@ const publishFinalGrades = async (
       groupId,
       publishCycle,
       publishedCount,
-      publishedAt: new Date(),
+      publishedAt,
       publishedBy: coordinatorId,
       notificationStatus: notificationFlags
     };
