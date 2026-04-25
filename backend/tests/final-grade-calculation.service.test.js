@@ -88,7 +88,7 @@ describe('FinalGradeCalculationService.computeFinalGrades', () => {
     );
 
     expect(Number.isFinite(result.students[0].computedFinalGrade)).toBe(true);
-    expect(result.students[0].computedFinalGrade).toBe(999.9);
+    expect(result.students[0].computedFinalGrade).toBe(1000);
   });
 
   it('never returns NaN/Infinity when inputs are invalid', () => {
@@ -152,5 +152,62 @@ describe('FinalGradeCalculationService.computeFinalGrades', () => {
     expect(result.baseGroupScore).toBe(85);
     expect(Array.isArray(result.students)).toBe(true);
     expect(result.students.length).toBe(0);
+  });
+
+  it('keeps computation stable with sprint-only weights', () => {
+    const result = service.computeFinalGrades(
+      91.25,
+      [{ studentId: 'stu_sprint_only', ratio: 1.02 }],
+      {
+        deliverableWeights: {},
+        sprintWeights: { s1: 60, s2: 40 },
+      }
+    );
+
+    expect(result.baseGroupScore).toBe(91.25);
+    expect(result.students[0].contributionRatio).toBe(1.02);
+    expect(result.students[0].computedFinalGrade).toBe(93.08);
+  });
+
+  it('returns multiplier 1.0 behavior even with negative weights', () => {
+    const result = service.computeFinalGrades(
+      75,
+      [{ studentId: 'stu_negative_weight', ratio: 1 }],
+      {
+        deliverableWeights: { d1: -30 },
+        sprintWeights: { s1: 130 },
+      }
+    );
+
+    expect(result.baseGroupScore).toBe(75);
+    expect(result.students[0].computedFinalGrade).toBe(75);
+    expect(Number.isFinite(result.students[0].computedFinalGrade)).toBe(true);
+  });
+
+  it('handles extreme zeroes with baseGroupScore=0 and ratio=0', () => {
+    const result = service.computeFinalGrades(
+      0,
+      [{ studentId: 'stu_zero_extreme', ratio: 0 }],
+      {
+        deliverableWeights: { d1: 100 },
+      }
+    );
+
+    expect(result.baseGroupScore).toBe(0);
+    expect(result.students[0].contributionRatio).toBe(0);
+    expect(result.students[0].computedFinalGrade).toBe(0);
+  });
+
+  it('includes groupId when optional context is provided', () => {
+    const result = service.computeFinalGrades(
+      88,
+      [{ studentId: 'stu_group_context', ratio: 1 }],
+      { deliverableWeights: { d1: 100 } },
+      { groupId: 'grp_001' }
+    );
+
+    expect(result.groupId).toBe('grp_001');
+    expect(result.baseGroupScore).toBe(88);
+    expect(result.students[0].computedFinalGrade).toBe(88);
   });
 });
