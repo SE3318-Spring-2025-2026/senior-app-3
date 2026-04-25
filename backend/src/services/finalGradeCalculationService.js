@@ -128,9 +128,11 @@ class FinalGradeCalculationService {
         entry?.ratio ?? entry?.contributionRatio,
         DEFAULT_RATIO
       );
-      const safeRatio = roundToTwoDecimals(rawRatio);
-      // Senkronizasyon: Yuvarlanmış değeri hem çıktı hem de hesaplama için ortak kullanıyoruz
-      const computedFinalGrade = roundToTwoDecimals(adjustedBaseScore * safeRatio);
+      // Regression Protection: Contribution ratios and final grades should never be negative.
+      // Clamping to 0 ensures stability in edge cases.
+      const safeRatio = Math.max(0, roundToTwoDecimals(rawRatio));
+      
+      const computedFinalGrade = Math.max(0, roundToTwoDecimals(adjustedBaseScore * safeRatio));
 
       return {
         studentId: entry?.studentId || '',
