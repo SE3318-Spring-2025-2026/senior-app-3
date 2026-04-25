@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
 import { getGroup } from '../api/groupService';
 import { getProfessors, submitAdvisorRequest, checkAdvisorWindow } from '../api/advisorService';
+import './PageShell.css';
 import './AdviseeRequestForm.css';
 
 /**
@@ -30,20 +31,17 @@ const AdviseeRequestForm = () => {
       setIsLoading(true);
       setError(null);
       try {
-        // 1. Security Check: Verify group membership and leader status
         const group = await getGroup(groupId);
         if (group.leaderId !== user.userId) {
-          // Redirect if not the leader
           navigate(`/groups/${groupId}`, { replace: true });
           return;
         }
 
-        // 2. Fetch required data in parallel
         const [profList, winStatus] = await Promise.all([
           getProfessors(),
           checkAdvisorWindow(),
         ]);
-        
+
         setProfessors(profList);
         setWindowInfo(winStatus);
 
@@ -72,16 +70,14 @@ const AdviseeRequestForm = () => {
       await submitAdvisorRequest({
         groupId,
         professorId: selectedProfessor,
-        message: message.trim() || undefined
+        message: message.trim() || undefined,
       });
-      
+
       setSuccess(true);
-      
-      // Redirect after success
+
       setTimeout(() => {
         navigate(`/groups/${groupId}`);
       }, 3000);
-      
     } catch (err) {
       console.error('Submission failed:', err);
 
@@ -103,19 +99,16 @@ const AdviseeRequestForm = () => {
 
   if (isLoading) {
     return (
-      <div className="advisee-request-page">
-        <div className="form-container loading">
-          <div className="spinner"></div>
-          <p>Loading advisor association details...</p>
-        </div>
+      <div className="student-page-shell narrow">
+        <div className="student-card student-loading">Loading advisor association details...</div>
       </div>
     );
   }
 
   if (success) {
     return (
-      <div className="advisee-request-page">
-        <div className="form-container success">
+      <div className="student-page-shell narrow">
+        <div className="student-card advisee-success-card">
           <div className="success-icon">✓</div>
           <h2>Request Submitted!</h2>
           <p>Your advisee request has been sent to the professor for review.</p>
@@ -126,35 +119,36 @@ const AdviseeRequestForm = () => {
   }
 
   return (
-    <div className="advisee-request-page">
-      <div className="form-container">
-        <header className="form-header">
+    <div className="student-page-shell narrow">
+      <header className="student-page-header">
+        <div>
+          <p className="student-page-kicker">Groups</p>
           <h1>Request Advisor</h1>
           <p>Select a professor to request as an advisor for your group.</p>
-        </header>
+        </div>
+      </header>
 
+      <div className="student-card">
         {!windowInfo.open && windowInfo.open !== null && (
-          <div className="warning-banner">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-            </svg>
-            <span>The association window is closed. Submissions are temporarily disabled.</span>
+          <div className="student-alert warning">
+            The association window is closed. Submissions are temporarily disabled.
           </div>
         )}
 
-        {error && <div className="error-banner">{error}</div>}
+        {error && <div className="student-alert error">{error}</div>}
 
-        <form onSubmit={handleSubmit} className="advisor-form">
-          <div className="form-group">
+        <form onSubmit={handleSubmit} className="student-form advisor-form">
+          <div className="student-form-group">
             <label htmlFor="professor">Select Professor</label>
             <select
               id="professor"
+              className="student-select"
               value={selectedProfessor}
               onChange={(e) => setSelectedProfessor(e.target.value)}
               required
               disabled={!windowInfo.open || isSubmitting || scheduleBoundaryLocked}
             >
-              <option value="">-- Choose a Professor --</option>
+              <option value="">Choose a professor</option>
               {professors.map((p) => (
                 <option key={p.userId} value={p.userId}>
                   {p.name}
@@ -163,22 +157,23 @@ const AdviseeRequestForm = () => {
             </select>
           </div>
 
-          <div className="form-group">
+          <div className="student-form-group">
             <label htmlFor="message">Message (Optional)</label>
             <textarea
               id="message"
+              className="student-textarea"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               placeholder="Explain your project goals or why you'd like this professor to advise you..."
               rows="4"
               disabled={!windowInfo.open || isSubmitting || scheduleBoundaryLocked}
-            ></textarea>
+            />
           </div>
 
-          <div className="form-actions">
+          <div className="student-actions">
             <button
               type="button"
-              className="cancel-btn"
+              className="student-btn secondary"
               onClick={() => navigate(`/groups/${groupId}`)}
               disabled={isSubmitting}
             >
@@ -186,7 +181,7 @@ const AdviseeRequestForm = () => {
             </button>
             <button
               type="submit"
-              className="submit-btn"
+              className="student-btn primary"
               disabled={!windowInfo.open || !selectedProfessor || isSubmitting || scheduleBoundaryLocked}
             >
               {isSubmitting ? 'Submitting...' : 'Submit Request'}

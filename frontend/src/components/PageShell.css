@@ -1,0 +1,368 @@
+.student-page-shell {
+  min-height: 100vh;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 32px 24px;
+  color: #1f2937;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.student-page-shell.narrow {
+  max-width: 760px;
+}
+
+.student-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 28px;
+  background: #ffffff;
+  padding: 24px 28px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.08);
+  border-left: 4px solid #667eea;
+}
+
+.student-page-header h1 {
+  margin: 0 0 4px;
+  font-size: 26px;
+  font-weight: 700;
+  color: #1a1a2e;
+}
+
+.student-page-header p,
+.student-page-subtitle {
+  margin: 0;
+  color: #6b7280;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.student-page-kicker {
+  color: #667eea;
+  font-size: 12px;
+  font-weight: 700;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+}
+
+.student-card {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 22px 24px;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.07);
+  border: 1px solid #f3f4f6;
+}
+
+.student-card + .student-card {
+  margin-top: 20px;
+}
+
+.deliverable-upload-stage {
+  margin-top: 20px;
+}
+
+.student-card-header {
+  margin: -22px -24px 20px;
+  padding: 18px 24px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.student-card-header h2,
+.student-card h2,
+.student-card h3 {
+  margin: 0;
+  color: #374151;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.student-card-header p,
+.student-card p {
+  color: #6b7280;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.student-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.student-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.student-form-group label {
+  color: #333333;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.student-form-group .required {
+  color: #e74c3c;
+}
+
+.student-form-group .optional {
+  color: #9ca3af;
+  font-weight: 500;
+  text-transform: none;
+}
+
+.field-error {
+  color: #e74c3c;
+  font-size: 12px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.field-meta-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #9ca3af;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.student-input,
+.student-select,
+.student-textarea {
+  width: 100%;
+  padding: 11px 14px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1f2937;
+  font: inherit;
+  font-size: 14px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.student-textarea {
+  resize: vertical;
+  min-height: 120px;
+}
+
+.student-input:focus,
+.student-select:focus,
+.student-textarea:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.12);
+}
+
+.student-input:disabled,
+.student-select:disabled,
+.student-textarea:disabled {
+  background: #f9fafb;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.student-input.error,
+.student-select.error,
+.student-textarea.error {
+  border-color: #e74c3c;
+}
+
+.student-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.student-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1.5px solid transparent;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.student-btn.primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #ffffff;
+}
+
+.student-btn.secondary {
+  background: #ffffff;
+  color: #667eea;
+  border-color: #667eea;
+}
+
+.student-btn.danger {
+  background: #ffffff;
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+
+.student-btn.neutral {
+  background: #f3f4f6;
+  color: #4b5563;
+  border-color: #f3f4f6;
+}
+
+.student-btn:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+.student-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.student-btn.full-width {
+  width: 100%;
+}
+
+.inline-reset-button {
+  margin-left: 12px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  text-decoration: underline;
+}
+
+.student-alert {
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.student-alert.error {
+  background: #fff1f2;
+  border: 1px solid #fca5a5;
+  color: #991b1b;
+}
+
+.student-alert.success {
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  color: #166534;
+}
+
+.student-alert.warning {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+}
+
+.student-loading,
+.student-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 260px;
+  color: #6b7280;
+  text-align: center;
+}
+
+.student-table-wrap {
+  overflow-x: auto;
+}
+
+.student-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.student-table thead {
+  background: #fafafa;
+}
+
+.student-table th {
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  color: #9ca3af;
+  text-transform: uppercase;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.student-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #f9fafb;
+  font-size: 14px;
+  color: #374151;
+}
+
+.student-table tbody tr:hover {
+  background: #fafbff;
+}
+
+.student-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.student-badge.success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.student-badge.warning {
+  background: #fef9c3;
+  color: #854d0e;
+}
+
+.student-badge.info {
+  background: #dbeafe;
+  color: #0c4a6e;
+}
+
+.student-badge.danger {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.student-badge.muted {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+@media (max-width: 640px) {
+  .student-page-shell {
+    padding: 16px;
+  }
+
+  .student-page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    border-left: none;
+    border-top: 4px solid #667eea;
+  }
+
+  .student-actions {
+    flex-direction: column;
+  }
+
+  .student-btn {
+    width: 100%;
+  }
+}

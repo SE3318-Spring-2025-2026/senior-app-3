@@ -8,7 +8,8 @@
 .advisor-association-container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 40px 24px;
+  padding: 32px 24px;
+  min-height: 100vh;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
@@ -24,23 +25,31 @@
 /* ═══════════════════════════════════════════ Header ═══════════════════════════════════════════ */
 
 .panel-header {
-  margin-bottom: 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 28px;
+  background: #ffffff;
+  padding: 24px 28px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.08);
+  border-left: 4px solid #667eea;
   text-align: left;
 }
 
 .panel-header h1 {
-  font-size: 32px;
+  font-size: 26px;
   font-weight: 700;
   color: #1a1a2e;
-  margin: 0 0 8px 0;
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  margin: 0 0 4px 0;
+  background: none;
+  -webkit-text-fill-color: currentColor;
 }
 
+.panel-header p,
 .panel-header .subtitle {
-  font-size: 16px;
+  font-size: 14px;
   color: #6b7280;
   margin: 0;
   font-weight: 400;
@@ -82,6 +91,12 @@
   color: #166534;
 }
 
+.alert-warning {
+  background-color: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+}
+
 .alert-icon {
   font-weight: 700;
   display: inline-flex;
@@ -94,11 +109,11 @@
 
 .section {
   background: white;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #f3f4f6;
   border-radius: 12px;
-  padding: 28px;
-  margin-bottom: 28px;
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.08);
+  padding: 22px 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.07);
 }
 
 .section-title {
@@ -121,6 +136,51 @@
   font-size: 16px;
 }
 
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.status-card,
+.request-form {
+  background: white;
+  border: 1px solid #f3f4f6;
+  border-radius: 12px;
+  padding: 22px 24px;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.07);
+}
+
+.status-card h3,
+.request-form h3,
+.sanitization-box h3 {
+  margin: 0 0 14px;
+  color: #374151;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.assigned-info p {
+  color: #1f2937;
+  font-weight: 600;
+}
+
+.btn-release {
+  padding: 8px 14px;
+  background: white;
+  color: #b91c1c;
+  border: 1.5px solid #fca5a5;
+  border-radius: 8px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.request-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 /* ═══════════════════════════════════════════ Groups Table ═══════════════════════════════════════════ */
 
 .groups-table-wrapper {
@@ -136,15 +196,17 @@
 }
 
 .groups-table thead {
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  color: white;
+  background: #fafafa;
+  color: #9ca3af;
 }
 
 .groups-table th {
-  padding: 16px 20px;
+  padding: 10px 14px;
   text-align: left;
-  font-weight: 600;
-  border-bottom: 2px solid #e5e7eb;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  border-bottom: 1px solid #f3f4f6;
 }
 
 .groups-table tbody tr {
@@ -157,7 +219,7 @@
 }
 
 .groups-table td {
-  padding: 16px 20px;
+  padding: 12px 14px;
   vertical-align: middle;
 }
 
@@ -188,7 +250,7 @@
   color: white;
   border: none;
   padding: 8px 16px;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   font-weight: 600;
   font-size: 13px;
@@ -270,9 +332,9 @@
 
 .form-control {
   width: 100%;
-  padding: 12px 16px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
+  padding: 11px 14px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
   font-size: 14px;
   font-family: inherit;
   transition: all 0.2s ease;
@@ -300,9 +362,9 @@
 /* ═══════════════════════════════════════════ Buttons ═══════════════════════════════════════════ */
 
 .btn {
-  padding: 12px 24px;
+  padding: 10px 18px;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   font-weight: 600;
   font-size: 14px;
   cursor: pointer;
@@ -342,11 +404,11 @@
 }
 
 .btn-sanitize {
-  background: linear-gradient(135deg, #ec4899, #d946ef);
+  background: linear-gradient(135deg, #667eea, #764ba2);
   color: white;
-  padding: 14px 28px;
+  padding: 12px 18px;
   font-size: 15px;
-  box-shadow: 0 2px 4px rgba(236, 72, 153, 0.2);
+  box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
   width: 100%;
 }
 
@@ -369,10 +431,12 @@
 
 .sanitization-box {
   background: white;
-  padding: 20px;
-  border-radius: 8px;
-  margin-top: 16px;
-  border-left: 4px solid #ec4899;
+  padding: 22px 24px;
+  border-radius: 12px;
+  margin-top: 20px;
+  border: 1px solid #f3f4f6;
+  border-left: 4px solid #667eea;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.07);
 }
 
 .warning-text {
@@ -407,7 +471,8 @@
 
 /* ═══════════════════════════════════════════ Loading ═══════════════════════════════════════════ */
 
-.loading-spinner {
+.loading-spinner,
+.loading-state {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -416,7 +481,8 @@
   font-size: 16px;
 }
 
-.loading-spinner::before {
+.loading-spinner::before,
+.loading-state::before {
   content: '';
   width: 40px;
   height: 40px;
@@ -437,7 +503,14 @@
 
 @media (max-width: 768px) {
   .advisor-association-container {
-    padding: 24px 16px;
+    padding: 16px;
+  }
+
+  .panel-header {
+    flex-direction: column;
+    align-items: flex-start;
+    border-left: none;
+    border-top: 4px solid #667eea;
   }
 
   .panel-header h1 {
@@ -459,6 +532,10 @@
 
   .form-actions {
     flex-direction: column;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
   }
 
   .form-actions .btn {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import {
   submitAdvisorRequest,
   releaseAdvisor,
@@ -9,6 +9,7 @@ import {
 } from '../api/advisorService';
 import { getGroup, getAllGroups, advisorSanitization } from '../api/groupService';
 import useAuthStore from '../store/authStore';
+import './PageShell.css';
 import './AdvisorAssociationPanel.css';
 
 /**
@@ -19,7 +20,6 @@ import './AdvisorAssociationPanel.css';
  */
 const AdvisorAssociationPanel = () => {
   const { group_id: groupId } = useParams();
-  const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
 
   // --- Shared State ---

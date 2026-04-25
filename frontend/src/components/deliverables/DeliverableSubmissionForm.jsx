@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import useAuthStore from '../../store/authStore';
 import { validateGroupForSubmission } from '../../api/deliverableService';
+import '../PageShell.css';
 
 /**
  * DeliverableSubmissionForm Component
@@ -8,8 +9,6 @@ import { validateGroupForSubmission } from '../../api/deliverableService';
 const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
   const user = useAuthStore((state) => state.user);
   const groupId = user?.groupId;
-
-  console.log(user)
 
   // Form inputs
   const [deliverableType, setDeliverableType] = useState('');
@@ -92,7 +91,7 @@ const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
 
   if (formState === 'token_received' && FileUploadWidget && validationToken) {
     return (
-      <div className="w-full">
+      <div className="deliverable-upload-stage">
         <FileUploadWidget
           validationToken={validationToken}
           groupId={groupId}
@@ -105,52 +104,40 @@ const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
   }
 
   return (
-    <div className="w-full max-w-xl mx-auto">
-      <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
-        <h2 className="text-2xl font-bold text-slate-800 mb-2">Initiate Submission</h2>
-        <p className="text-slate-500 mb-8 text-sm">Select the deliverable type and provide sprint details to proceed.</p>
+    <div className="student-card">
+      <div className="student-card-header">
+        <h2>Initiate Submission</h2>
+        <p>Select the deliverable type and provide sprint details to proceed.</p>
+      </div>
 
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-3">
-            <div className="text-red-500 mt-0.5">
-              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-bold text-red-800">{error}</p>
+          <div className="student-alert error">
+            <strong>{error}</strong>
               {errorCode === 'NETWORK_ERROR' && (
                 <button
+                  type="button"
                   onClick={handleRetry}
-                  className="mt-2 text-xs font-bold text-red-600 underline"
+                  className="inline-reset-button"
                 >
                   Try Again
                 </button>
               )}
-            </div>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-6 text-gray-800">
+        <form onSubmit={handleSubmit} className="student-form">
 
           {/* DELIVERABLE TYPE */}
-          <div className="gap-2 flex flex-col items-start">
-            <label
-              htmlFor="deliverable-type"
-              className="text-start mb-[6px] font-semibold text-[#333] text-sm"
-            >
-              DELIVERABLE TYPE <span className="text-red-500">*</span>
+          <div className="student-form-group">
+            <label htmlFor="deliverable-type">
+              DELIVERABLE TYPE <span className="required">*</span>
             </label>
 
             <select
               id="deliverable-type"
               value={deliverableType}
               onChange={(e) => setDeliverableType(e.target.value)}
-              className={`w-full px-[14px] py-[11px] border-2 rounded-md text-[0.95rem] font-medium transition-colors duration-200 focus:outline-none
-      ${fieldErrors.deliverableType
-                  ? "border-[#e74c3c] focus:ring-4 focus:ring-[rgba(231,76,60,0.1)]"
-                  : "border-[#e0e0e0] focus:border-[#667eea] focus:ring-4 focus:ring-[rgba(102,126,234,0.12)]"
-                }`}
+              className={`student-select ${fieldErrors.deliverableType ? 'error' : ''}`}
             >
               <option value="">Select a type...</option>
               <option value="proposal">Proposal</option>
@@ -161,19 +148,16 @@ const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
             </select>
 
             {fieldErrors.deliverableType && (
-              <p className="text-xs text-red-500 font-bold">
+              <p className="field-error">
                 {fieldErrors.deliverableType}
               </p>
             )}
           </div>
 
           {/* SPRINT ID */}
-          <div className="gap-2 flex flex-col items-start">
-            <label
-              htmlFor="sprint-id"
-              className="text-start mb-[6px] font-semibold text-[#333] text-sm"
-            >
-              SPRINT ID <span className="text-red-500">*</span>
+          <div className="student-form-group">
+            <label htmlFor="sprint-id">
+              SPRINT ID <span className="required">*</span>
             </label>
 
             <input
@@ -182,27 +166,20 @@ const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
               value={sprintId}
               onChange={(e) => setSprintId(e.target.value)}
               placeholder="e.g. Sprint-01"
-              className={`w-full px-[14px] py-[11px] border-2 rounded-md text-[0.95rem] font-medium transition-colors duration-200 focus:outline-none
-      ${fieldErrors.sprintId
-                  ? "border-[#e74c3c] focus:ring-4 focus:ring-[rgba(231,76,60,0.1)]"
-                  : "border-[#e0e0e0] focus:border-[#667eea] focus:ring-4 focus:ring-[rgba(102,126,234,0.12)]"
-                }`}
+              className={`student-input ${fieldErrors.sprintId ? 'error' : ''}`}
             />
 
             {fieldErrors.sprintId && (
-              <p className="text-xs text-red-500 font-bold">
+              <p className="field-error">
                 {fieldErrors.sprintId}
               </p>
             )}
           </div>
 
           {/* DESCRIPTION */}
-          <div className="gap-2 flex flex-col items-start">
-            <label
-              htmlFor="description"
-              className="text-start mb-[6px] font-semibold text-[#333] text-sm"
-            >
-              DESCRIPTION <span className="text-slate-300">(Optional)</span>
+          <div className="student-form-group">
+            <label htmlFor="description">
+              DESCRIPTION <span className="optional">(Optional)</span>
             </label>
 
             <textarea
@@ -210,22 +187,18 @@ const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="10-500 characters..."
-              className={`w-full px-[14px] py-[11px] border-2 rounded-md text-[0.95rem] transition-colors duration-200 focus:outline-none min-h-[120px]
-      ${fieldErrors.description
-                  ? "border-[#e74c3c] focus:ring-4 focus:ring-[rgba(231,76,60,0.1)]"
-                  : "border-[#e0e0e0] focus:border-[#667eea] focus:ring-4 focus:ring-[rgba(102,126,234,0.12)]"
-                }`}
+              className={`student-textarea ${fieldErrors.description ? 'error' : ''}`}
             />
 
-            <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider">
+            <div className="field-meta-row">
               {fieldErrors.description ? (
-                <span className="text-red-500">{fieldErrors.description}</span>
+                <span className="field-error">{fieldErrors.description}</span>
               ) : (
-                <span className="text-slate-400">Contextual notes</span>
+                <span>Contextual notes</span>
               )}
               <span
                 className={
-                  description.length > 500 ? "text-red-500" : "text-slate-400"
+                  description.length > 500 ? 'field-error' : ''
                 }
               >
                 {description.length}/500
@@ -237,7 +210,7 @@ const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
           <button
             type="submit"
             disabled={isSubmitDisabled}
-            className={`${isSubmitDisabled ? "opacity-50 cursor-not-allowed" : "opacity-100 cursor-pointer"} w-full p-[13px] bg-gradient-to-br from-[#667eea] to-[#764ba2] text-white rounded-md text-base font-semibold transition-opacity duration-200 mt-2`}
+            className="student-btn primary full-width"
           >
             {formState === "loading"
               ? "Validating..."
@@ -245,7 +218,6 @@ const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
           </button>
 
         </form>
-      </div>
     </div>
   );
 };

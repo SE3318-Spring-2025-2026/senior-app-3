@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { getMyFinalGrades } from '../api/finalGradeService';
+import '../components/PageShell.css';
 import './StudentFinalGradesPage.css';
 
 const formatNumber = (value, fractionDigits = 2) => {
