@@ -1,12 +1,12 @@
 'use strict';
 
-const finalGradePreviewService = require('../services/finalGradePreviewService');
 const { approveGroupGrades, GradeApprovalError } = require('../services/approvalService');
 const Group = require('../models/Group');
 const AuditLog = require('../models/AuditLog');
 const { FinalGrade, FINAL_GRADE_STATUS } = require('../models/FinalGrade');
 const { publishFinalGrades } = require('../services/publishService');
 const { v4: uuidv4 } = require('uuid');
+const { generatePreview } = require('../services/finalGradePreviewService');
 
 const PREVIEW_FORBIDDEN_MESSAGE =
   'Forbidden - only the Coordinator role or authorized Professor/Advisor roles may preview final grades';
@@ -157,8 +157,6 @@ const previewFinalGradesHandler = async (req, res) => {
       });
     }
 
-    const { generatePreview, PreviewError } = require('../services/finalGradePreviewService');
-
     const wantsApprovalSnapshot = req.body?.persistForApproval === true;
 
     if (wantsApprovalSnapshot && !isCoordinator(req)) {
@@ -167,7 +165,6 @@ const previewFinalGradesHandler = async (req, res) => {
         code: 'UNAUTHORIZED_ROLE'
       });
     }
-
     const previewOptions = {
       ...req.body,
       requestedBy: req.user.userId,
@@ -479,8 +476,8 @@ const publishFinalGradesHandler = async (req, res) => {
 };
 
 module.exports = {
+  previewFinalGradesHandler,
   approveGroupGradesHandler,
   getGroupApprovalSummaryHandler,
-  previewFinalGradesHandler,
   publishFinalGradesHandler
 };

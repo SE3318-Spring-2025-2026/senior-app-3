@@ -94,10 +94,10 @@ function extractIdempotencyKey(req) {
     }
   }
 
-  const generatedKey = generateDeterministicIdempotencyKey(req);
+  const generatedKey = crypto.randomUUID();
   return {
     idempotencyKey: generatedKey,
-    source: 'derived'
+    source: 'generated'
   };
 }
 
@@ -237,9 +237,6 @@ async function acquireIdempotencySignature(params, options = {}) {
         replayCount: 1,
         context: params.context || {},
         expiresAt
-      },
-      $set: {
-        'context.correlationId': params.context?.correlationId || null
       }
     },
     { upsert: true, new: true, includeResultMetadata: true, ...(session ? { session } : {}) }

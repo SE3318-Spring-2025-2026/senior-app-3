@@ -41,7 +41,8 @@ const { logError } = require('../utils/structuredLogger');
 // Constants
 // ---------------------------------------------------------------------------
 
-const MAX_RETRY_ATTEMPTS = 3;
+const MAX_RETRIES = 3;
+const MAX_RETRY_ATTEMPTS = MAX_RETRIES + 1;
 const RETRY_BASE_DELAY_MS = 200; // 200 → 400 → 800 ms
 
 // GitHub merge state → internal enum
@@ -64,6 +65,26 @@ const MERGE_STATE_MAP = {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function isTimeoutError(err) {
+  const status = err.response?.status;
+  return status === 504 || err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT';
+}
+
+function isUpstreamProviderError(err) {
+  const status = err.response?.status;
+  return status === 502 || status === 503 || (status >= 500 && status < 600);
+}
+
+function mapUpstreamError(err) {
+  if (isTimeoutError(err)) {
+    return { status: 504, code: 'GATEWAY_TIMEOUT' };
+  }
+  if (isUpstreamProviderError(err)) {
+    return { status: 502, code: 'UPSTREAM_PROVIDER_ERROR' };
+  }
+  return null;
+}
+
 /**
  * withRetry — calls fn up to maxAttempts times with exponential back-off + jitter.
  * 4xx client errors are NOT retried (they indicate a business-rule failure).
@@ -74,7 +95,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  */
 async function withRetry(fn, maxAttempts = MAX_RETRY_ATTEMPTS) {
   let lastError;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  for (let attempt = 0; attempt <= maxAttempts; attempt++) {
     try {
       return await fn();
     } catch (err) {
@@ -84,9 +105,10 @@ async function withRetry(fn, maxAttempts = MAX_RETRY_ATTEMPTS) {
       }
       lastError = err;
       if (attempt < maxAttempts) {
-        const exp = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
-        const jitter = Math.floor(Math.random() * 100);
-        await sleep(exp + jitter);
+        const backoffMs = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+        // Full jitter: random wait in [0, backoffMs]
+        const jitterMs = Math.floor(Math.random() * (backoffMs + 1));
+        await sleep(jitterMs);
       }
     }
   }
@@ -336,11 +358,15 @@ class GitHubSyncError extends Error {
  * @param {string} jobId  — GitHubSyncJob.jobId (also the lock key)
  */
 async function githubSyncWorker(groupId, sprintId, jobId, correlationId = null, externalRequestId = null) {
+  let acquiredLock = false;
   let job = await GitHubSyncJob.findOneAndUpdate(
     { jobId, status: 'PENDING' },
     { $set: { status: 'IN_PROGRESS', startedAt: new Date() } },
     { new: true }
   );
+  if (job) {
+    acquiredLock = true;
+  }
   if (!job) {
     job = await GitHubSyncJob.findOne({ jobId });
   }
@@ -355,11 +381,10 @@ async function githubSyncWorker(groupId, sprintId, jobId, correlationId = null, 
     });
     return;
   }
-  if (job.status === 'IN_PROGRESS' && job.startedAt) {
+  if (!acquiredLock && job.status === 'IN_PROGRESS' && job.startedAt) {
     // Already acquired by another worker.
     return;
   }
-
   try {
     // ── f31: Read D2 — GitHub config ────────────────────────────────────────
     const config = await getGitHubConfig(groupId);
@@ -369,8 +394,8 @@ async function githubSyncWorker(groupId, sprintId, jobId, correlationId = null, 
 
     // ── f33 + f34: Per-issue GitHub API call + D6 persistence ───────────────
     const validationRecords = [];
-    let upstreamErrorCount = 0;
-    let timeoutErrorCount = 0;
+    let upstreamFailureCount = 0;
+    let terminalError = null;
 
     for (const issue of issues) {
       let pr = null;
@@ -393,13 +418,13 @@ async function githubSyncWorker(groupId, sprintId, jobId, correlationId = null, 
           error: err.message
         });
         errorNote = err.message;
-
-        // Classify critical upstream errors
-        if (err.code === 'ECONNABORTED') {
-          timeoutErrorCount++;
-          upstreamErrorCount++;
-        } else if (err.response?.status >= 500) {
-          upstreamErrorCount++;
+        const mapped = mapUpstreamError(err);
+        if (mapped) {
+          upstreamFailureCount += 1;
+          terminalError = terminalError || mapped;
+          if (terminalError.code !== 'GATEWAY_TIMEOUT' && mapped.code === 'GATEWAY_TIMEOUT') {
+            terminalError = mapped;
+          }
         }
       }
 
@@ -416,37 +441,44 @@ async function githubSyncWorker(groupId, sprintId, jobId, correlationId = null, 
     // Persist all records
     job.validationRecords = validationRecords;
 
-    // ── Job Status Classification ──────────────────────────────────────────
-    // If more than 50% of issues failed due to 5xx/timeout, fail the whole job
-    if (issues.length > 0 && upstreamErrorCount / issues.length > 0.5) {
-      job.status = 'FAILED';
-      if (timeoutErrorCount > 0) {
-        job.errorCode = 'GATEWAY_TIMEOUT';
-        job.errorMessage = `GitHub API timed out for ${timeoutErrorCount} issue lookups.`;
-      } else {
-        job.errorCode = 'UPSTREAM_PROVIDER_ERROR';
-        job.errorMessage = `GitHub API returned consistent errors for ${upstreamErrorCount} issues. Check GitHub status.`;
-      }
-    } else {
-      job.status = 'COMPLETED';
+    // Terminal upstream outage: fail job when every issue lookup failed upstream.
+    if (issues.length > 0 && upstreamFailureCount === issues.length && terminalError) {
+      throw new GitHubSyncError(
+        terminalError.status,
+        terminalError.code,
+        `All GitHub PR lookups failed due to upstream errors for job ${jobId}`
+      );
     }
 
+    job.status = 'COMPLETED';
     job.completedAt = new Date();
 
     // ── f35: Release lock ────────────────────────────────────────────────────
     await job.save();
 
-    const correlationId = job.correlationId;
+    const finalCorrelationId = job.correlationId || correlationId;
 
-    // Trigger completion notification
-    dispatchSyncNotification({
-      groupId,
-      sprintId,
-      status: job.status,
-      issuesProcessed: validationRecords.length,
-      triggeredBy: job.triggeredBy || 'system',
-      correlationId,
-    });
+    // Trigger completion notification (non-fatal)
+    try {
+      dispatchSyncNotification({
+        groupId,
+        sprintId,
+        status: job.status,
+        issuesProcessed: validationRecords.length,
+        triggeredBy: job.triggeredBy || 'system',
+        correlationId: finalCorrelationId,
+      });
+    } catch (notificationErr) {
+      logError('GitHub sync notification dispatch failed', {
+        service_name: 'github_sync',
+        correlationId: finalCorrelationId,
+        externalRequestId: externalRequestId || job.externalRequestId || null,
+        jobId,
+        groupId,
+        sprintId,
+        error: notificationErr.message
+      });
+    }
 
     // Audit (non-fatal)
     try {
@@ -456,7 +488,7 @@ async function githubSyncWorker(groupId, sprintId, jobId, correlationId = null, 
         groupId,
         targetId: jobId,
         payload: {
-          correlationId: correlationId || job.correlationId,
+          correlationId: finalCorrelationId,
           externalRequestId: externalRequestId || job.externalRequestId || null,
           sprintId,
           jobId,
@@ -465,12 +497,12 @@ async function githubSyncWorker(groupId, sprintId, jobId, correlationId = null, 
           notMergedCount: validationRecords.filter((r) => r.mergeStatus === 'NOT_MERGED').length,
           unknownCount: validationRecords.filter((r) => r.mergeStatus === 'UNKNOWN').length,
         },
-        correlationId,
+        correlationId: finalCorrelationId,
       });
     } catch (auditErr) {
       logError('GitHub sync completion audit write failed', {
         service_name: 'github_sync',
-        correlationId: correlationId || job.correlationId,
+        correlationId: finalCorrelationId,
         externalRequestId: externalRequestId || job.externalRequestId || null,
         jobId,
         groupId,

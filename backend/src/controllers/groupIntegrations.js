@@ -17,7 +17,7 @@ const {
 } = require('../services/integrationSecurityService');
 
 const MAX_RETRY_ATTEMPTS = 3;
-const RETRY_BASE_DELAY_MS = 100;
+const RETRY_BASE_DELAY_MS = 200;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -56,7 +56,7 @@ function tryHandleKnownError(err, res) {
  */
 const withRetry = async (fn, maxAttempts = MAX_RETRY_ATTEMPTS) => {
   let lastError;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  for (let attempt = 0; attempt <= maxAttempts; attempt++) {
     try {
       return await fn();
     } catch (err) {
@@ -66,7 +66,10 @@ const withRetry = async (fn, maxAttempts = MAX_RETRY_ATTEMPTS) => {
       }
       lastError = err;
       if (attempt < maxAttempts) {
-        await sleep(RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1));
+        const backoffMs = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+        // Full jitter: random wait in [0, backoffMs]
+        const jitterMs = Math.floor(Math.random() * (backoffMs + 1));
+        await sleep(jitterMs);
       }
     }
   }
