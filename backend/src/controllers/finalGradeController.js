@@ -1,228 +1,142 @@
-/**
- * ================================================================================
- * ISSUE #253: Final Grade Approval Controller
- * ================================================================================
- *
- * Purpose:
- * HTTP request handler for coordinator approval endpoint.
- * Responsible for:
- * 1. Role-based access control (coordinator-only)
- * 2. Request validation (publishCycle, decision, overrides)
- * 3. Calling approval service
- * 4. Error handling and status codes
- * 5. Response formatting for frontend (Issue #252)
- *
- * Process Context:
- * - Input: POST request from Issue #252 (UI submission)
- * - Middleware: authMiddleware (verify JWT), roleMiddleware (coordinator only)
- * - Service call: approvalService.approveGroupGrades()
- * - Output: FinalGradeApproval JSON response
- * - Status codes: 200 (success), 403 (forbidden), 404 (not found), 409 (conflict), 422 (validation)
- *
- * ================================================================================
- */
+'use strict';
 
 const { approveGroupGrades, GradeApprovalError } = require('../services/approvalService');
-const { buildFinalGradesPreview } = require('../services/finalGradePreviewService');
-const {
-  FinalGradeRatioResolverError,
-} = require('../services/finalGradeContributionRatioService');
 const Group = require('../models/Group');
+const AuditLog = require('../models/AuditLog');
+const { FinalGrade, FINAL_GRADE_STATUS } = require('../models/FinalGrade');
+const { publishFinalGrades } = require('../services/publishService');
+const { generatePreview } = require('../services/finalGradePreviewService');
 
+const PREVIEW_FORBIDDEN_MESSAGE =
+  'Forbidden - only the Coordinator role or authorized Professor/Advisor roles may preview final grades';
+const APPROVAL_FORBIDDEN_MESSAGE =
+  'Forbidden - only the Coordinator role may approve final grades';
+const PUBLISH_FORBIDDEN_MESSAGE =
+  'Forbidden - only the Coordinator role or authorized system backend may publish final grades';
+const SYSTEM_ACTOR_ID = 'SYSTEM';
+
+const isCoordinator = (req) => req?.user?.role === 'coordinator';
+const hasValidSystemToken = (req) =>
+  typeof req?.headers?.['x-system-auth'] === 'string' &&
+  req.headers['x-system-auth'] === process.env.INTERNAL_SYSTEM_TOKEN;
+
+/**
+ * Controller for Process 8.1 - Final Grade Preview
+ * Computes a preview of individual final grades for all students in a group.
+ * Does not persist into D7 Final Grades.
+ */
 const previewFinalGradesHandler = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const requestedBy = req.user?.userId;
-    const requesterRole = req.user?.role;
-    const {
-      includeDeliverableIds,
-      includeSprintIds,
-      useLatestRatios,
-    } = req.body || {};
 
-    if (!groupId || typeof groupId !== 'string' || groupId.trim() === '') {
-      return res.status(400).json({
-        error: 'Invalid group ID',
-        code: 'INVALID_GROUP_ID',
+    // RBAC Check for preview roles
+    const allowedRoles = ['coordinator', 'professor', 'advisor'];
+    if (!req.user || !allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({
+        message: PREVIEW_FORBIDDEN_MESSAGE,
+        code: 'FORBIDDEN_PREVIEW_ACCESS'
       });
     }
 
-    if (!requestedBy || typeof requestedBy !== 'string' || requestedBy.trim() === '') {
-      return res.status(422).json({
-        error: 'Authenticated requester identity is missing',
-        code: 'MISSING_AUTH_USER_ID',
-      });
-    }
-
-    const group = await Group.findOne({ groupId: groupId.trim() })
-      .select('groupId professorId advisorId')
-      .lean();
-
-    if (!group) {
-      return res.status(404).json({
-        error: `Group ${groupId} was not found.`,
-        code: 'GROUP_NOT_FOUND',
-      });
-    }
-
-    // Note: System treats assigned professors and designated advisors equally for preview authorization.
-    if (requesterRole !== 'coordinator') {
+    // Ownership guard: professor/advisor can preview only if assigned to the group.
+    if (!isCoordinator(req)) {
+      const group = await Group.findOne({ groupId }).select('advisorId professorId').lean();
+      const requesterId = req.user.userId;
       const isAssigned =
-        String(group.professorId || '') === String(requestedBy) ||
-        String(group.advisorId || '') === String(requestedBy);
+        (req.user.role === 'advisor' && group?.advisorId === requesterId) ||
+        (req.user.role === 'professor' && group?.professorId === requesterId);
 
       if (!isAssigned) {
         return res.status(403).json({
-          error: 'Access denied: You are not assigned as an advisor or professor for this group.',
-          code: 'FORBIDDEN_GROUP_ACCESS',
+          message: PREVIEW_FORBIDDEN_MESSAGE,
+          code: 'FORBIDDEN_PREVIEW_ACCESS'
         });
       }
     }
 
-    const preview = await buildFinalGradesPreview(groupId, {
-      requestedBy,
-      includeDeliverableIds,
-      includeSprintIds,
-      useLatestRatios,
-    });
-
-    return res.status(200).json({
-      groupId: preview.groupId,
-      baseGroupScore: preview.baseGroupScore,
-      students: preview.students,
-      createdAt: preview.createdAt,
-    });
-  } catch (error) {
-    if (error instanceof FinalGradeRatioResolverError) {
-      return res.status(error.status).json({
-        error: error.message,
-        code: error.code,
-        details: error.details,
-        timestamp: error.timestamp || new Date(),
+    // Validation
+    if (!groupId || typeof groupId !== 'string' || groupId.trim() === '') {
+      return res.status(400).json({
+        message: 'Invalid group ID',
+        code: 'INVALID_GROUP_ID'
       });
     }
 
-    return res.status(500).json({
-      error: 'Internal server error',
-      code: 'INTERNAL_ERROR',
-      timestamp: new Date(),
+    const previewOptions = {
+      ...req.body,
+      requestedBy: req.user.userId,
+      requestedByRole: req.user.role
+    };
+
+    const preview = await generatePreview(groupId, previewOptions);
+    return res.status(200).json({
+      ...preview,
+      createdAt: new Date()
+    });
+
+  } catch (error) {
+    console.error('[Preview] Error:', error);
+    
+    if (error.name === 'PreviewError' || error.status === 400 || error.status === 409) {
+      return res.status(error.status || error.statusCode || 400).json({ 
+        message: error.message,
+        code: error.code || 'PREVIEW_ERROR'
+      });
+    }
+
+    return res.status(500).json({ 
+      message: 'Internal server error',
+      code: 'INTERNAL_ERROR'
     });
   }
 };
 
 /**
- * ISSUE #253: POST /groups/:groupId/final-grades/approval
- * 
- * Handler for coordinator grade approval endpoint.
- * Receives approval decision and optional overrides from UI (Issue #252),
- * persists approval state to D7, and returns confirmation for Issue #255 consumption.
- *
- * Request body (from Issue #252):
- * {
- *   publishCycle: String,            // Version/cycle identifier for approval dedupe
- *   decision: "approve" | "reject",  // Approval decision
- *   overrideEntries: [               // Optional per-student grade adjustments
- *     {
- *       studentId: String,
- *       originalFinalGrade: Number,
- *       overriddenFinalGrade: Number,
- *       comment?: String
- *     }
- *   ],
- *   reason?: String                  // Optional justification
- * }
- *
- * Response (for Issue #255 & UI feedback):
- * {
- *   success: Boolean,
- *   approvalId: String,
- *   timestamp: Date,
- *   groupId: String,
- *   // coordinatorId is derived from req.user.userId (token identity)
- *   decision: String,
- *   totalStudents: Number,
- *   approvedCount: Number,
- *   rejectedCount: Number,
- *   overridesApplied: Number,
- *   grades: [
- *     {
- *       studentId: String,
- *       computedFinalGrade: Number,
- *       effectiveFinalGrade: Number,
- *       overrideApplied: Boolean,
- *       overriddenGrade: Number | null,
- *       approvedAt: Date,
- *       approvedBy: String
- *     }
- *   ],
- *   message: String
- * }
- *
- * Error responses:
- * - 403: Forbidden (user is not coordinator)
- * - 404: Not found (group doesn't exist)
- * - 409: Conflict (grades already approved)
- * - 422: Unprocessable entity (validation error)
- * - 500: Internal server error
+ * ISSUE #253: POST /groups/:groupId/final-grades/approve
+ * Endpoint for coordinator to approve group's final grades.
  */
 const approveGroupGradesHandler = async (req, res) => {
   try {
-    // ========================================================================
-    // ISSUE #253: EXTRACT AND VALIDATE REQUEST
-    // ========================================================================
+    if (!isCoordinator(req)) {
+      return res.status(403).json({
+        message: APPROVAL_FORBIDDEN_MESSAGE,
+        code: 'UNAUTHORIZED_ROLE'
+      });
+    }
 
     const { groupId } = req.params;
     const { publishCycle, decision, overrideEntries, reason } = req.body;
     const coordinatorId = req.user.userId;
 
-    // ISSUE #253: Validate groupId parameter
     if (!groupId || typeof groupId !== 'string' || groupId.trim() === '') {
       return res.status(400).json({
-        error: 'Invalid group ID',
+        message: 'Invalid group ID',
         code: 'INVALID_GROUP_ID'
       });
     }
 
-    // ISSUE #253 HARDENING: coordinator identity comes from authenticated token
     if (!coordinatorId) {
       return res.status(422).json({
-        error: 'Authenticated coordinator identity is missing',
+        message: 'Authenticated coordinator identity is missing',
         code: 'MISSING_AUTH_USER_ID'
       });
     }
 
     if (!publishCycle || typeof publishCycle !== 'string' || publishCycle.trim() === '') {
       return res.status(422).json({
-        error: 'publishCycle is required',
+        message: 'publishCycle is required',
         code: 'MISSING_PUBLISH_CYCLE'
       });
     }
 
-    // ISSUE #253: Strict Authorization Check (Security Fix)
-    // Prevent Audit Log Forgery by ensuring the user is acting as themselves
-    if (coordinatorId !== req.user.userId) {
-      return res.status(403).json({
-        error: 'Forbidden: You can only approve grades using your own coordinator ID',
-        code: 'FORBIDDEN_ACTOR_MISMATCH'
-      });
-    }
-
-    // ISSUE #253: Validate decision field
     if (!decision || !['approve', 'reject'].includes(decision)) {
       return res.status(422).json({
-        error: 'decision must be "approve" or "reject"',
+        message: 'decision must be "approve" or "reject"',
         code: 'INVALID_DECISION'
       });
     }
 
-    // ISSUE #253: Log approval attempt for audit trail
-    console.log(
-      `[Issue #253] Approval attempt - Group: ${groupId}, Coordinator: ${coordinatorId}, Decision: ${decision}`
-    );
-
-    // ========================================================================
-    // ISSUE #253: CALL APPROVAL SERVICE (ATOMIC TRANSACTION)
-    // ========================================================================
+    console.log(`[Issue #253] Approval attempt - Group: ${groupId}, Coordinator: ${coordinatorId}, Decision: ${decision}`);
 
     let approvalResult;
     try {
@@ -235,42 +149,24 @@ const approveGroupGradesHandler = async (req, res) => {
         reason || null
       );
     } catch (error) {
-      // ISSUE #253: Handle GradeApprovalError with proper status codes
       if (error instanceof GradeApprovalError) {
         console.warn(`[Issue #253] Approval failed - ${error.message}`);
-
-        // ISSUE #253: Return appropriate status code based on error type
         return res.status(error.statusCode).json({
-          error: error.message,
+          message: error.message,
           code: error.errorCode,
           timestamp: new Date()
         });
       }
-
-      // ISSUE #253: Unexpected error
       throw error;
     }
 
-    // ========================================================================
-    // ISSUE #253: RETURN SUCCESS RESPONSE
-    // ========================================================================
-
-    console.log(
-      `[Issue #253] Approval successful - Group: ${groupId}, Decision: ${decision}`
-    );
-
-    // ISSUE #253: Return 200 with full approval response for Issue #255 & UI
+    console.log(`[Issue #253] Approval successful - Group: ${groupId}, Decision: ${decision}`);
     return res.status(200).json(approvalResult);
-  } catch (error) {
-    // ISSUE #253: Log unexpected errors
-    console.error(
-      '[Issue #253] Unexpected error in approveGroupGradesHandler',
-      error
-    );
 
-    // ISSUE #253: Return 500 for unexpected errors
+  } catch (error) {
+    console.error('[Issue #253] Unexpected error in approveGroupGradesHandler', error);
     return res.status(500).json({
-      error: 'Internal server error',
+      message: 'Internal server error',
       code: 'INTERNAL_ERROR',
       timestamp: new Date()
     });
@@ -279,58 +175,44 @@ const approveGroupGradesHandler = async (req, res) => {
 
 /**
  * ISSUE #253: GET /groups/:groupId/final-grades/summary
- * 
- * Optional: Get approval summary for coordinator dashboard
- * Shows counts of grades by status (pending, approved, rejected, published)
- *
- * Response:
- * [
- *   {
- *     _id: "pending",
- *     count: 5,
- *     avgGrade: 78.5
- *   },
- *   {
- *     _id: "approved",
- *     count: 3,
- *     avgGrade: 82.0
- *   }
- * ]
+ * Returns summary statistics of grades by status.
  */
 const getGroupApprovalSummaryHandler = async (req, res) => {
   try {
     const { groupId } = req.params;
 
-    // ISSUE #253: Validate groupId
     if (!groupId || typeof groupId !== 'string' || groupId.trim() === '') {
       return res.status(400).json({
-        error: 'Invalid group ID',
+        message: 'Invalid group ID',
         code: 'INVALID_GROUP_ID'
       });
     }
 
-    // ISSUE #253: Import service here to avoid circular dependency
     const { getGroupApprovalSummary } = require('../services/approvalService');
-
-    // ISSUE #253: Fetch summary
     const summary = await getGroupApprovalSummary(groupId);
 
-    console.log(`[Issue #253] Summary retrieved for group: ${groupId}`);
+    const latestApproved = await FinalGrade.findOne({
+      groupId,
+      status: FINAL_GRADE_STATUS.APPROVED
+    }).sort({ approvedAt: -1, updatedAt: -1 });
 
-    // ISSUE #253: Return summary
+    const latestPublished = await FinalGrade.findOne({
+      groupId,
+      status: FINAL_GRADE_STATUS.PUBLISHED
+    }).sort({ publishedAt: -1, updatedAt: -1 });
+
+    const activePublishCycle = latestApproved?.publishCycle || latestPublished?.publishCycle || null;
+
     return res.status(200).json({
       groupId,
       summary,
+      activePublishCycle,
       timestamp: new Date()
     });
   } catch (error) {
-    console.error(
-      '[Issue #253] Error in getGroupApprovalSummaryHandler',
-      error
-    );
-
+    console.error('[Issue #253] Error in getGroupApprovalSummaryHandler', error);
     return res.status(500).json({
-      error: 'Internal server error',
+      message: 'Internal server error',
       code: 'INTERNAL_ERROR',
       timestamp: new Date()
     });
@@ -338,13 +220,117 @@ const getGroupApprovalSummaryHandler = async (req, res) => {
 };
 
 /**
- * ================================================================================
- * ISSUE #253: EXPORTS
- * ================================================================================
+ * ISSUE #255: POST /groups/:groupId/final-grades/publish
+ * Handler for publishing coordinator-approved final grades to D7 collection.
  */
+const publishFinalGradesHandler = async (req, res) => {
+  try {
+    const systemAccess = req?.isSystemBackend === true || hasValidSystemToken(req);
+    const actorId = systemAccess ? SYSTEM_ACTOR_ID : (req?.user?.userId || null);
+
+    // RBAC Check
+    if (!isCoordinator(req) && !systemAccess) {
+      return res.status(403).json({
+        message: PUBLISH_FORBIDDEN_MESSAGE,
+        code: 'UNAUTHORIZED_ROLE'
+      });
+    }
+
+    const { groupId } = req.params;
+    const { notifyStudents, notifyFaculty } = req.body;
+
+    if (!groupId || typeof groupId !== 'string' || groupId.trim() === '') {
+      return res.status(400).json({
+        message: 'Invalid group ID',
+        code: 'INVALID_GROUP_ID'
+      });
+    }
+
+    // System access audit logging
+    if (systemAccess) {
+      try {
+        await AuditLog.create({
+          action: 'SYSTEM_ACCESS_AUDIT',
+          actorId,
+          groupId,
+          payload: {
+            endpoint: '/groups/:groupId/final-grades/publish',
+            method: req.method,
+            reason: 'publish_system_bypass',
+            viaHeader: 'x-system-auth'
+          },
+          ipAddress: req?.ip || null,
+          userAgent: req?.headers?.['user-agent'] || null
+        });
+      } catch (_auditError) {
+        console.error('System access audit logging failed', _auditError);
+      }
+    }
+
+    console.log(`[Issue #255] Publish attempt - Group: ${groupId}, Actor: ${actorId}, Notify: S=${notifyStudents} F=${notifyFaculty}`);
+
+    let publishResult;
+    try {
+      publishResult = await publishFinalGrades(
+        groupId,
+        actorId,
+        {
+          notifyStudents: notifyStudents !== false, // Default true
+          notifyFaculty: notifyFaculty || false     // Default false
+        }
+      );
+    } catch (error) {
+      if (error.statusCode) {
+        console.warn(`[Issue #255] Publish failed - ${error.message}`, {
+          groupId,
+          actorId,
+          errorCode: error.errorCode
+        });
+
+        return res.status(error.statusCode).json({
+          message: error.message,
+          code: error.errorCode,
+          timestamp: new Date()
+        });
+      }
+      throw error;
+    }
+
+    // FINAL_GRADE_PUBLISHED audit log (already logged in service, but adding controller-level if needed)
+    // Actually, let's keep the controller-level audit log as well for request tracking
+    try {
+      await AuditLog.create({
+        action: 'FINAL_GRADE_PUBLISHED',
+        actorId,
+        groupId,
+        payload: {
+          endpoint: '/groups/:groupId/final-grades/publish',
+          method: req.method,
+          accessMode: systemAccess ? 'system' : 'coordinator'
+        },
+        ipAddress: req?.ip || null,
+        userAgent: req?.headers?.['user-agent'] || null
+      });
+    } catch (_publishAuditError) {
+      // Non-fatal
+    }
+
+    console.log(`[Issue #255] Publish successful - Group: ${groupId}, Students: ${publishResult.studentCount}`);
+    return res.status(200).json(publishResult);
+
+  } catch (error) {
+    console.error('[Issue #255] Unexpected error in publishFinalGradesHandler', error);
+    return res.status(500).json({
+      message: 'Internal server error during publication',
+      code: 'PUBLISH_ERROR',
+      timestamp: new Date()
+    });
+  }
+};
 
 module.exports = {
   previewFinalGradesHandler,
   approveGroupGradesHandler,
-  getGroupApprovalSummaryHandler
+  getGroupApprovalSummaryHandler,
+  publishFinalGradesHandler
 };

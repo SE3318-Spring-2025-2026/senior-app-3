@@ -405,6 +405,7 @@ const CoordinatorPanel = () => {
                       <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Members</th>
                       <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>GitHub</th>
                       <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>JIRA</th>
+                      <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#24292e' }}>Grades</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -454,6 +455,23 @@ const CoordinatorPanel = () => {
                           }}>
                             {group.jiraConnected ? '✓' : '✗'}
                           </span>
+                        </td>
+                        <td style={{ padding: '12px' }}>
+                          <button
+                            onClick={() => navigate(`/groups/${group.groupId}/final-grades/publish`)}
+                            style={{
+                              padding: '4px 8px',
+                              backgroundColor: '#4f46e5',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '11px',
+                              fontWeight: '600'
+                            }}
+                          >
+                            Publish
+                          </button>
                         </td>
                       </tr>
                     ))}

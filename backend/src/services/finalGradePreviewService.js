@@ -1,4 +1,15 @@
 const { resolveContributionRatiosForPreview } = require('./finalGradeContributionRatioService');
+const { FinalGradeCalculationService } = require('./finalGradeCalculationService');
+
+class PreviewError extends Error {
+  constructor(message, statusCode = 500, code = 'PREVIEW_ERROR') {
+    super(message);
+    this.name = 'PreviewError';
+    this.statusCode = statusCode;
+    this.status = statusCode;
+    this.code = code;
+  }
+}
 
 function roundTo(value, precision = 2) {
   const factor = 10 ** precision;
@@ -67,6 +78,36 @@ async function buildFinalGradesPreview(groupId, input = {}) {
   };
 }
 
+async function generatePreview(groupId, input = {}) {
+  try {
+    if (!groupId || typeof groupId !== 'string' || groupId.trim() === '') {
+      throw new PreviewError('groupId is required', 400, 'INVALID_GROUP_ID');
+    }
+
+    const preview = await buildFinalGradesPreview(groupId, input);
+    return {
+      baseGroupScore: preview.baseGroupScore,
+      students: preview.students,
+      rubricWeights: input.rubricWeights || { deliverables: {} },
+      createdAt: preview.createdAt,
+      groupId: preview.groupId,
+    };
+  } catch (error) {
+    if (error instanceof PreviewError) {
+      throw error;
+    }
+    throw new PreviewError(error.message || 'Failed to generate preview', error.status || 500);
+  }
+}
+
+const finalGradePreviewService = {
+  calculator: new FinalGradeCalculationService(),
+  previewGroupGrade: generatePreview,
+};
+
 module.exports = {
+  ...finalGradePreviewService,
   buildFinalGradesPreview,
+  generatePreview,
+  PreviewError,
 };
