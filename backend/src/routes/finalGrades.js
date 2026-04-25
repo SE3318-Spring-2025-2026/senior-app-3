@@ -1,52 +1,104 @@
 /**
  * ================================================================================
- * ISSUE #253: Final Grades Routes
+ * Final Grades Routes
  * ================================================================================
  *
  * Purpose:
- * Express route handler for final grade approval endpoints.
+ * Express route handler for final grade preview, approval, and publication.
  *
  * Routes:
- * - POST /groups/:groupId/final-grades/approval
- *   Coordinator submits approval decision for a group's grades
- *   Middleware: authMiddleware, roleMiddleware(['coordinator'])
- *   Input: { coordinatorId, decision, overrideEntries, reason }
- *   Output: FinalGradeApproval response
- *   Status: 200, 403, 404, 409, 422, 500
+ * - POST /groups/:groupId/final-grades/preview
+ *   Preview individual final grades (Process 8.1-8.3)
  *
- * - GET /groups/:groupId/final-grades/summary (Optional)
+ * - POST /groups/:groupId/final-grades/approve (Alias: /approval)
+ *   Coordinator submits approval decision (Process 8.4)
+ *
+ * - GET /groups/:groupId/final-grades/summary
  *   Coordinator views approval progress dashboard
- *   Middleware: authMiddleware, roleMiddleware(['coordinator'])
- *   Output: Summary with counts by status
- *   Status: 200, 400, 500
  *
- * Process Context:
- * - Input: POST from Issue #252 UI submission
- * - Processing: Issue #253 (this) approval workflow
- * - Output: Consumed by Issue #255 (publish flow)
+ * - POST /groups/:groupId/final-grades/publish
+ *   Store & Publish Final Grades (Process 8.5)
+ *   Supports both Coordinator and System Backend via x-system-auth header.
  *
  * ================================================================================
  */
 
 const express = require('express');
 const router = express.Router({ mergeParams: true });
+const AuditLog = require('../models/AuditLog');
 
-// ISSUE #253: Import middleware for authentication & authorization
+// Import middleware for authentication & authorization
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 
-// ISSUE #253: Import controller handlers
+// Import controller handlers
 const {
+  previewFinalGradesHandler,
   approveGroupGradesHandler,
   getGroupApprovalSummaryHandler,
   previewFinalGradesHandler,
   publishFinalGradesHandler
 } = require('../controllers/finalGradeController');
 
+router.post(
+  '/:groupId/final-grades/preview',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'professor', 'advisor']),
+  previewFinalGradesHandler
+);
+
+/**
+ * Middleware for Process 8.5 Publication
+ * Allows both Coordinator (via JWT) and System Backend (via header token).
+ */
+const publishAuthOrSystemMiddleware = (req, res, next) => {
+  const providedSystemToken = req.headers['x-system-auth'];
+  const expectedSystemToken = process.env.INTERNAL_SYSTEM_TOKEN;
+
+  if (
+    typeof providedSystemToken === 'string' &&
+    typeof expectedSystemToken === 'string' &&
+    expectedSystemToken.length > 0 &&
+    providedSystemToken === expectedSystemToken
+  ) {
+    req.isSystemBackend = true;
+    req.user = {
+      userId: 'SYSTEM',
+      role: 'system',
+      isServiceAccount: true
+    };
+    return next();
+  }
+
+  return authMiddleware(req, res, next);
+};
+
+/**
+ * Legacy route warning for telemetry.
+ */
+const deprecatedApprovalRouteWarning = async (req, res, next) => {
+  console.warn('[DEPRECATED_ROUTE_USED] POST /final-grades/approval is deprecated; prefer /final-grades/approve');
+  try {
+    await AuditLog.create({
+      action: 'DEPRECATED_ROUTE_USED',
+      actorId: req?.user?.userId || null,
+      groupId: req?.params?.groupId || null,
+      payload: {
+        route: '/groups/:groupId/final-grades/approval',
+        preferredRoute: '/groups/:groupId/final-grades/approve',
+        method: req.method
+      },
+      ipAddress: req?.ip || null,
+      userAgent: req?.headers?.['user-agent'] || null
+    });
+  } catch (_error) {
+    // Non-fatal deprecation telemetry
+  }
+  next();
+};
+
 /**
  * POST /groups/:groupId/final-grades/preview
- * 
  * Computes a preview of individual final grades for all students in a group.
- * Does not persist into D7 Final Grades.
  */
 router.post(
   '/:groupId/final-grades/preview',
@@ -55,108 +107,46 @@ router.post(
 );
 
 /**
- * ISSUE #253: POST /groups/:groupId/final-grades/approval
- * 
- * Endpoint for coordinator to approve group's final grades.
- * This is the primary write endpoint for Issue #253.
- *
- * Middleware chain:
- * 1. authMiddleware - Verify JWT token is valid
- * 2. roleMiddleware(['coordinator']) - Verify user has coordinator role
- *
- * Handler: approveGroupGradesHandler
- * - Validates request body (decision, overrides)
- * - Calls approvalService.approveGroupGrades()
- * - Returns FinalGradeApproval response for frontend & Issue #255
- * - Handles errors with proper HTTP status codes
+ * POST /groups/:groupId/final-grades/approve
+ * Endpoint for coordinator to approve group's final grades (Process 8.4).
  */
 router.post(
-  '/:groupId/final-grades/approval',
-  // ISSUE #253: Verify user is authenticated
+  '/:groupId/final-grades/approve',
   authMiddleware,
-  // ISSUE #253: Verify user has coordinator role (Process 4.2 role)
   roleMiddleware(['coordinator']),
-  // ISSUE #253: Process approval request
   approveGroupGradesHandler
 );
 
 /**
- * ISSUE #253: GET /groups/:groupId/final-grades/summary
- * 
- * Optional endpoint for coordinator dashboard.
+ * POST /groups/:groupId/final-grades/approval (LEGACY)
+ */
+router.post(
+  '/:groupId/final-grades/approval',
+  authMiddleware,
+  roleMiddleware(['coordinator']),
+  deprecatedApprovalRouteWarning,
+  approveGroupGradesHandler
+);
+
+/**
+ * GET /groups/:groupId/final-grades/summary
  * Returns summary statistics of grades by status.
- *
- * Middleware chain:
- * 1. authMiddleware - Verify JWT token is valid
- * 2. roleMiddleware(['coordinator']) - Verify user has coordinator role
- *
- * Handler: getGroupApprovalSummaryHandler
- * - Fetches summary from FinalGrade model
- * - Returns aggregate counts by status
- * - Used for progress dashboard
  */
 router.get(
   '/:groupId/final-grades/summary',
-  // ISSUE #253: Verify user is authenticated
   authMiddleware,
-  // ISSUE #253: Verify user has coordinator role
   roleMiddleware(['coordinator']),
-  // ISSUE #253: Fetch summary statistics
   getGroupApprovalSummaryHandler
 );
 
 /**
  * POST /groups/:groupId/final-grades/publish
- * 
- * Endpoint for coordinator to publish group's final grades.
+ * Endpoint for coordinator or system backend to publish grades (Process 8.5).
  */
 router.post(
   '/:groupId/final-grades/publish',
-  authMiddleware,
-  roleMiddleware(['coordinator']),
+  publishAuthOrSystemMiddleware,
   publishFinalGradesHandler
 );
 
-/**
- * ================================================================================
- * ISSUE #255: PUBLISH FINAL GRADES ENDPOINT
- * ================================================================================
- */
-
-/**
- * ISSUE #255: POST /groups/:groupId/final-grades/publish
- * 
- * Endpoint for coordinator to publish approved final grades to D7.
- * This is the Process 8.5 publication endpoint that:
- * 1. Validates prior approval (from Issue #253)
- * 2. Atomically writes grades to D7 collection with status='published'
- * 3. Dispatches student & faculty notifications with retry
- * 4. Returns publication confirmation with timestamps
- *
- * Middleware chain (same as approval):
- * 1. authMiddleware - Verify JWT token is valid
- * 2. roleMiddleware(['coordinator']) - Only coordinators can publish
- *
- * Handler: publishFinalGradesHandler
- * - Calls publishService.publishFinalGrades()
- * - Returns FinalGradePublishResult for Issue #252 UI
- * - Handles errors: 404 (no grades), 409 (already published), 422 (incomplete approval), 500 (transaction)
- */
-router.post(
-  '/:groupId/final-grades/publish',
-  // ISSUE #255: Verify user is authenticated
-  authMiddleware,
-  // ISSUE #255: Verify user has coordinator role (Process 4.2)
-  roleMiddleware(['coordinator']),
-  // ISSUE #255: Process publish request with transaction
-  require('../controllers/finalGradeController').publishFinalGradesHandler
-);
-
-/**
- * ================================================================================
- * ISSUE #253 & #255: EXPORTS
- * ================================================================================
- */
-
 module.exports = router;
-

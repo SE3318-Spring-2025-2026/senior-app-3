@@ -64,6 +64,24 @@ export const getMyFinalGrades = async () => {
 };
 
 /**
+ * Generate a final grade preview for coordinator review.
+ * POST /groups/:groupId/final-grades/preview
+ */
+export const previewFinalGrades = async (groupId, payload = {}) => {
+  const response = await apiClient.post(`/groups/${groupId}/final-grades/preview`, payload);
+  return response.data;
+};
+
+/**
+ * Submit the coordinator approval/rejection decision for a final grade preview.
+ * POST /groups/:groupId/final-grades/approval
+ */
+export const approveFinalGrades = async (groupId, payload) => {
+  const response = await apiClient.post(`/groups/${groupId}/final-grades/approval`, payload);
+  return response.data;
+};
+
+/**
  * Get final grade approval summary for a group.
  * GET /groups/:groupId/final-grades/summary
  */
@@ -82,6 +100,8 @@ export const publishFinalGrades = async (groupId, payload) => {
 };
 
 const finalGradeService = {
+  previewFinalGrades,
+  approveFinalGrades,
   getCommitteeFinalResults,
   getMyFinalGrades,
   getGroupApprovalSummary,

@@ -1,158 +1,113 @@
-'use strict';
-
-/**
- * ================================================================================
- * FINAL GRADE PREVIEW SERVICE
- * ================================================================================
- * 
- * Process 8.1 - 8.3: Compute and preview final grades before approval/publication
- * 
- * This service generates grade previews by aggregating data from:
- * - D4: Base group score (milestone scoring)
- * - D5: Student contributions (attendance, deliverable completion)
- * - D8: Feedback aggregates (peer, advisor, presentation scores)
- */
-
-const Deliverable = require('../models/Deliverable');
-const ContributionRecord = require('../models/ContributionRecord');
+const { resolveContributionRatiosForPreview } = require('./finalGradeContributionRatioService');
 const { FinalGradeCalculationService } = require('./finalGradeCalculationService');
 
 class PreviewError extends Error {
-  constructor(message, statusCode = 500) {
+  constructor(message, statusCode = 500, code = 'PREVIEW_ERROR') {
     super(message);
     this.name = 'PreviewError';
     this.statusCode = statusCode;
+    this.status = statusCode;
+    this.code = code;
   }
 }
 
-class FinalGradePreviewService {
-  constructor() {
-    this.calculator = new FinalGradeCalculationService();
-  }
+function roundTo(value, precision = 2) {
+  const factor = 10 ** precision;
+  return Math.round(value * factor) / factor;
+}
 
-  /**
-   * Generates a preview of the final grades for a given group
-   * @param {string} groupId 
-   */
-  async previewGroupGrade(groupId) {
-    if (!groupId) {
-      const error = new PreviewError('groupId is required', 400);
+function normalizeWarningsByStudent(warnings = []) {
+  const warningsByStudent = new Map();
+  for (const warning of warnings) {
+    if (!warning || !warning.studentId) {
+      continue;
+    }
+
+    const studentId = String(warning.studentId);
+    if (!warningsByStudent.has(studentId)) {
+      warningsByStudent.set(studentId, []);
+    }
+
+    warningsByStudent.get(studentId).push({
+      code: warning.code,
+      severity: warning.severity,
+      message: warning.message,
+    });
+  }
+  return warningsByStudent;
+}
+
+async function buildFinalGradesPreview(groupId, input = {}) {
+  const {
+    includeSprintIds,
+    useLatestRatios,
+    includeDeliverableIds = [],
+    baseGroupScore: explicitBaseGroupScore,
+  } = input;
+
+  // Process 8.1 placeholder: until D4/D5 aggregation service is wired,
+  // default to a neutral base group score that keeps preview deterministic.
+  const baseGroupScore = Number.isFinite(Number(explicitBaseGroupScore))
+    ? Number(explicitBaseGroupScore)
+    : 100;
+
+  const ratioResolution = await resolveContributionRatiosForPreview(groupId, {
+    includeSprintIds,
+    useLatestRatios,
+  });
+  const warningsByStudent = normalizeWarningsByStudent(ratioResolution.warnings);
+
+  const students = ratioResolution.students.map((student) => ({
+    studentId: student.studentId,
+    contributionRatio: student.contributionRatio,
+    computedFinalGrade: roundTo(baseGroupScore * student.contributionRatio),
+    deliverableScoreBreakdown: {},
+    warnings: warningsByStudent.get(student.studentId) || [],
+  }));
+
+  return {
+    groupId: ratioResolution.groupId,
+    baseGroupScore,
+    students,
+    createdAt: new Date(),
+    // Keep rich resolver payload for internal observability and logging.
+    internal: {
+      includeDeliverableIds,
+      ratioResolution,
+    },
+  };
+}
+
+async function generatePreview(groupId, input = {}) {
+  try {
+    if (!groupId || typeof groupId !== 'string' || groupId.trim() === '') {
+      throw new PreviewError('groupId is required', 400, 'INVALID_GROUP_ID');
+    }
+
+    const preview = await buildFinalGradesPreview(groupId, input);
+    return {
+      baseGroupScore: preview.baseGroupScore,
+      students: preview.students,
+      rubricWeights: input.rubricWeights || { deliverables: {} },
+      createdAt: preview.createdAt,
+      groupId: preview.groupId,
+    };
+  } catch (error) {
+    if (error instanceof PreviewError) {
       throw error;
     }
-
-    // 1. Fetch D4 (Deliverables) and join D5 (Evaluations) & D8 (SprintConfig)
-    // using a single Aggregation Pipeline to prevent N+1 query problem.
-    const deliverables = await Deliverable.aggregate([
-      { 
-        $match: { 
-          groupId, 
-          status: { $in: ['accepted', 'evaluated', 'under_review'] } 
-        } 
-      },
-      {
-        $lookup: {
-          from: 'evaluations', // D5
-          localField: 'deliverableId',
-          foreignField: 'deliverableId',
-          as: 'evaluations'
-        }
-      },
-      {
-        $lookup: {
-          from: 'sprint_configs', // D8
-          let: { type: '$deliverableType', sprint: '$sprintId' },
-          pipeline: [
-            { 
-              $match: { 
-                $expr: { 
-                  $and: [ 
-                    { $eq: ['$deliverableType', '$$type'] }, 
-                    { $eq: ['$sprintId', '$$sprint'] } 
-                  ] 
-                } 
-              } 
-            }
-          ],
-          as: 'config'
-        }
-      },
-      { $unwind: { path: '$config', preserveNullAndEmptyArrays: true } }
-    ]);
-
-    if (!deliverables || deliverables.length === 0) {
-      return { baseGroupScore: 0, students: [] };
-    }
-
-    let totalWeightedScore = 0;
-    let totalWeight = 0;
-    const rubricWeights = { deliverables: {} };
-
-    // 2. Validate completeness and compute average score per deliverable
-    for (const item of deliverables) {
-      const weight = item.config?.weight != null ? item.config.weight : 1.0;
-      rubricWeights.deliverables[item.deliverableId] = weight;
-
-      if (!item.evaluations || item.evaluations.length === 0) {
-        throw new PreviewError(`Missing Evaluation Data: Zorunlu deliverable (${item.deliverableId}) henüz puanlanmamış.`, 400);
-      }
-
-      // Check partial evaluations (if 2 out of 3 graded, etc.) and NULL vs 0.
-      const hasPending = item.evaluations.some(ev => ev.status === 'pending' || ev.score == null);
-      if (hasPending) {
-        throw new PreviewError(`Incomplete Evaluations: Deliverable (${item.deliverableId}) jüri değerlendirmeleri tamamlanmamış (Kısmi değerlendirme).`, 409);
-      }
-
-      // Compute simple average among the evaluators for this deliverable
-      const sum = item.evaluations.reduce((acc, ev) => acc + ev.score, 0);
-      const avgScore = sum / item.evaluations.length;
-
-      // Process 6.0 External Signal: Late Submission Penalty
-      let finalDeliverableScore = avgScore;
-      if (item.config?.deadline && new Date(item.submittedAt) > new Date(item.config.deadline)) {
-        // e.g., apply a 10% penalty
-        finalDeliverableScore = finalDeliverableScore * 0.9;
-      }
-
-      totalWeightedScore += (finalDeliverableScore * weight);
-      totalWeight += weight;
-    }
-
-    // 3. Compute baseGroupScore
-    const baseGroupScore = totalWeight > 0 ? (totalWeightedScore / totalWeight) : 0;
-
-    // 4. Fetch D6 (ContributionRecords) to get Student Ratios
-    const contributions = await ContributionRecord.find({ groupId });
-    const studentMap = {};
-    
-    for (const c of contributions) {
-      if (!studentMap[c.studentId]) {
-        studentMap[c.studentId] = { studentId: c.studentId, ratioSum: 0, count: 0 };
-      }
-      studentMap[c.studentId].ratioSum += (c.contributionRatio != null ? c.contributionRatio : 1.0);
-      studentMap[c.studentId].count += 1;
-    }
-
-    const ratios = Object.values(studentMap).map(s => ({
-      studentId: s.studentId,
-      contributionRatio: s.ratioSum / s.count
-    }));
-
-    // 5. Delegate to Pure Calculation Engine
-    return this.calculator.computeFinalGrades(baseGroupScore, ratios, rubricWeights);
+    throw new PreviewError(error.message || 'Failed to generate preview', error.status || 500);
   }
 }
 
-const finalGradePreviewService = new FinalGradePreviewService();
+const finalGradePreviewService = {
+  calculator: new FinalGradeCalculationService(),
+  previewGroupGrade: generatePreview,
+};
 
-async function generatePreview(groupId) {
-  try {
-    return await finalGradePreviewService.previewGroupGrade(groupId);
-  } catch (error) {
-    if (error instanceof PreviewError) throw error;
-    throw new PreviewError(error.message, error.status || 500);
-  }
-}
-
-module.exports = finalGradePreviewService;
-module.exports.generatePreview = generatePreview;
-module.exports.PreviewError = PreviewError;
+module.exports = {
+  ...finalGradePreviewService,
+  buildFinalGradesPreview,
+  generatePreview,
+  PreviewError,
+};

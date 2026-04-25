@@ -165,11 +165,14 @@ const auditLogSchema = new mongoose.Schema(
         'SPRINT_CONTRIBUTION_RECALCULATION_COMPLETED',
         'SPRINT_CONTRIBUTION_RECALCULATION_ERROR',
         'SPRINT_CONTRIBUTIONS_RECALCULATED',
-        'SPRINT_NOTIFICATION_DISPATCHED',
-        'SPRINT_NOTIFICATION_FAILED',
-        'SPRINT_NOTIFICATION_SKIPPED',
-        'SPRINT_NOTIFICATION_DISPATCHER_ERROR',
-        'SPRINT_GROUP_NOTIFICATION_CONFIGURED',
+        'SYSTEM_ACCESS_AUDIT',
+        'DEPRECATED_ROUTE_USED',
+        // ISSUE #238: Notification dispatch events for sprint contribution updates
+        'SPRINT_NOTIFICATION_DISPATCHED',        // ISSUE #238: Successful notification sent (student or coordinator)
+        'SPRINT_NOTIFICATION_FAILED',             // ISSUE #238: Failed notification dispatch attempt (permanent after retries)
+        'SPRINT_NOTIFICATION_SKIPPED',            // ISSUE #238: Notification skipped (feature disabled for sprint)
+        'SPRINT_NOTIFICATION_DISPATCHER_ERROR',   // ISSUE #238: Critical error in orchestrator (unexpected failure)
+        'SPRINT_GROUP_NOTIFICATION_CONFIGURED',   // ISSUE #238: Notification configuration created/updated
         'SPRINT_NOTIFICATION_CONFIG_DELETED',
 
         // --- JIRA Sync (Process 7.1) ---
