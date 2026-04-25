@@ -131,4 +131,42 @@ describe('finalGradePublishService hardening', () => {
       expect(error.errorCode).toBe('NO_APPROVED_GRADES');
     }
   });
+
+  it('preserves semantic 422 error from transaction path', async () => {
+    FinalGrade.find.mockResolvedValue([{ publishCycle: 'Fall2026' }]);
+    FinalGrade.exists
+      .mockResolvedValueOnce(false) // initial precheck
+      .mockResolvedValueOnce(false); // post-update concurrency check
+    FinalGrade.updateMany.mockResolvedValue({ modifiedCount: 0 });
+
+    await expect(
+      publishFinalGrades('group-1', 'Fall2026', 'coord-1', { email: true, sms: false, push: false })
+    ).rejects.toEqual(
+      expect.objectContaining({
+        name: 'FinalGradePublishError',
+        statusCode: 422,
+        errorCode: 'NO_APPROVED_GRADES',
+      })
+    );
+    expect(session.abortTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns deterministic 409 when concurrent publish wins race', async () => {
+    FinalGrade.find.mockResolvedValue([{ publishCycle: 'Fall2026' }]);
+    FinalGrade.exists
+      .mockResolvedValueOnce(false) // initial precheck
+      .mockResolvedValueOnce(true); // post-update guard sees published row
+    FinalGrade.updateMany.mockResolvedValue({ modifiedCount: 0 });
+
+    await expect(
+      publishFinalGrades('group-1', 'Fall2026', 'coord-1', { email: true, sms: false, push: false })
+    ).rejects.toEqual(
+      expect.objectContaining({
+        name: 'FinalGradePublishError',
+        statusCode: 409,
+        errorCode: 'ALREADY_PUBLISHED',
+      })
+    );
+    expect(session.abortTransaction).toHaveBeenCalledTimes(1);
+  });
 });
