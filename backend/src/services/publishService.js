@@ -199,7 +199,7 @@ const publishGradesToD7WithTransaction = async (groupId, coordinatorId, grades) 
       // This ensures audit trail is consistent with D7 writes
       await createAuditLog(
         {
-          action: 'FINAL_GRADES_PUBLISHED',
+          action: 'FINAL_GRADE_PUBLISHED',
           actorId: coordinatorId,
           targetId: groupId,
           details: {

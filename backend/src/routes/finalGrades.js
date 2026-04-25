@@ -35,16 +35,9 @@ const {
   previewFinalGradesHandler,
   approveGroupGradesHandler,
   getGroupApprovalSummaryHandler,
-  previewFinalGradesHandler,
+  getPublishedGroupFinalGradesHandler,
   publishFinalGradesHandler
 } = require('../controllers/finalGradeController');
-
-router.post(
-  '/:groupId/final-grades/preview',
-  authMiddleware,
-  roleMiddleware(['coordinator', 'professor', 'advisor']),
-  previewFinalGradesHandler
-);
 
 /**
  * Middleware for Process 8.5 Publication
@@ -113,7 +106,6 @@ router.post(
 router.post(
   '/:groupId/final-grades/approve',
   authMiddleware,
-  roleMiddleware(['coordinator']),
   approveGroupGradesHandler
 );
 
@@ -123,7 +115,6 @@ router.post(
 router.post(
   '/:groupId/final-grades/approval',
   authMiddleware,
-  roleMiddleware(['coordinator']),
   deprecatedApprovalRouteWarning,
   approveGroupGradesHandler
 );
@@ -137,6 +128,18 @@ router.get(
   authMiddleware,
   roleMiddleware(['coordinator']),
   getGroupApprovalSummaryHandler
+);
+
+/**
+ * GET /groups/:groupId/final-grades?status=published
+ * Returns published final grades only. Coordinators receive the group set;
+ * students receive only their own row when they belong to the group.
+ */
+router.get(
+  '/:groupId/final-grades',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'professor', 'advisor', 'student']),
+  getPublishedGroupFinalGradesHandler
 );
 
 /**

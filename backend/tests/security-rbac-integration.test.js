@@ -77,7 +77,10 @@ describe('Process 8 Security Integration & RBAC Matrix Audit', () => {
       leaderId: 'leader_1',
       advisorId: users.advisorAssigned.userId,
       professorId: users.professorAssigned.userId,
-      status: 'active'
+      status: 'active',
+      members: [
+        { userId: users.student.userId, role: 'leader', status: 'accepted' }
+      ]
     });
 
     // Group Other: Assigned to someone else (Test for Cross-Owner Access)
@@ -131,6 +134,18 @@ describe('Process 8 Security Integration & RBAC Matrix Audit', () => {
   };
 
   const seedPendingGrades = async () => {
+    await Group.create({
+      groupId: GROUP_ID,
+      groupName: 'RBAC Pending Group',
+      leaderId: users.student.userId,
+      advisorId: users.advisorAssigned.userId,
+      professorId: users.professorAssigned.userId,
+      status: 'active',
+      members: [
+        { userId: users.student.userId, role: 'leader', status: 'accepted' }
+      ]
+    });
+
     await FinalGrade.create({
       finalGradeId: 'fg_1',
       groupId: GROUP_ID,
@@ -141,6 +156,20 @@ describe('Process 8 Security Integration & RBAC Matrix Audit', () => {
       computedFinalGrade: 88,
       status: FINAL_GRADE_STATUS.PENDING
     });
+  };
+
+  const seedApprovedGrades = async () => {
+    await seedPendingGrades();
+    await FinalGrade.updateMany(
+      { groupId: GROUP_ID },
+      {
+        $set: {
+          status: FINAL_GRADE_STATUS.APPROVED,
+          approvedBy: users.coordinator.userId,
+          approvedAt: new Date()
+        }
+      }
+    );
   };
 
   const getSystemToken = () => process.env.INTERNAL_SYSTEM_TOKEN || 'internal-system-token-test';
@@ -192,7 +221,11 @@ describe('Process 8 Security Integration & RBAC Matrix Audit', () => {
         const response = await request(app)
           .post(`/api/v1/groups/${GROUP_ID}/final-grades/preview`)
           .set('Authorization', `Bearer ${tokenFor(user)}`)
-          .send({ requestedBy: user.userId, useLatestRatios: false });
+          .send({
+            requestedBy: user.userId,
+            useLatestRatios: false,
+            includeSprintIds: ['sp_1']
+          });
         
         trackMatrix(label, 'POST /groups/{groupId}/final-grades/preview', 200, response.status);
         expect(response.status).toBe(200);
@@ -212,7 +245,11 @@ describe('Process 8 Security Integration & RBAC Matrix Audit', () => {
         const response = await request(app)
           .post(`/api/v1/groups/${GROUP_ID}/final-grades/preview`)
           .set('Authorization', `Bearer ${tokenFor(user)}`)
-          .send({ requestedBy: user.userId, useLatestRatios: false });
+          .send({
+            requestedBy: user.userId,
+            useLatestRatios: false,
+            includeSprintIds: ['sp_1']
+          });
         
         trackMatrix(label, 'POST /groups/{groupId}/final-grades/preview', 403, response.status);
         expectStable403(response, 'FORBIDDEN_PREVIEW_ACCESS');
@@ -229,7 +266,11 @@ describe('Process 8 Security Integration & RBAC Matrix Audit', () => {
       const response = await request(app)
         .post(`/api/v1/groups/${OTHER_GROUP_ID}/final-grades/preview`)
         .set('Authorization', `Bearer ${tokenFor(users.professorAssigned)}`)
-        .send({ requestedBy: users.professorAssigned.userId, useLatestRatios: false });
+        .send({
+          requestedBy: users.professorAssigned.userId,
+          useLatestRatios: false,
+          includeSprintIds: ['sp_1']
+        });
       
       trackMatrix('professor(assigned to A)', 'POST /groups/B/final-grades/preview', 403, response.status);
       expectStable403(response, 'FORBIDDEN_PREVIEW_ACCESS');
@@ -319,7 +360,7 @@ describe('Process 8 Security Integration & RBAC Matrix Audit', () => {
     });
 
     it('should allow system backend token with SYSTEM_ACCESS_AUDIT log', async () => {
-      await seedPendingGrades();
+      await seedApprovedGrades();
 
       const response = await request(app)
         .post(`/api/v1/groups/${GROUP_ID}/final-grades/publish`)
