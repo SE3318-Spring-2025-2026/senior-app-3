@@ -10,7 +10,7 @@ const PREVIEW_FORBIDDEN_MESSAGE =
 const APPROVAL_FORBIDDEN_MESSAGE =
   'Forbidden - only the Coordinator role may approve final grades';
 const PUBLISH_FORBIDDEN_MESSAGE =
-  'Forbidden - only the Coordinator role may publish final grades';
+  'Forbidden - only the Coordinator role or authorized system backend may publish final grades';
 const SYSTEM_ACTOR_ID = 'SYSTEM';
 
 const isCoordinator = (req) => req?.user?.role === 'coordinator';
@@ -54,7 +54,7 @@ const approveGroupGradesHandler = async (req, res) => {
   try {
     if (!isCoordinator(req)) {
       return res.status(403).json({
-        error: APPROVAL_FORBIDDEN_MESSAGE,
+        message: APPROVAL_FORBIDDEN_MESSAGE,
         code: 'UNAUTHORIZED_ROLE'
       });
     }
@@ -70,7 +70,7 @@ const approveGroupGradesHandler = async (req, res) => {
     // ISSUE #253: Validate groupId parameter
     if (!groupId || typeof groupId !== 'string' || groupId.trim() === '') {
       return res.status(400).json({
-        error: 'Invalid group ID',
+        message: 'Invalid group ID',
         code: 'INVALID_GROUP_ID'
       });
     }
@@ -78,14 +78,14 @@ const approveGroupGradesHandler = async (req, res) => {
     // ISSUE #253 HARDENING: coordinator identity comes from authenticated token
     if (!coordinatorId) {
       return res.status(422).json({
-        error: 'Authenticated coordinator identity is missing',
+        message: 'Authenticated coordinator identity is missing',
         code: 'MISSING_AUTH_USER_ID'
       });
     }
 
     if (!publishCycle || typeof publishCycle !== 'string' || publishCycle.trim() === '') {
       return res.status(422).json({
-        error: 'publishCycle is required',
+        message: 'publishCycle is required',
         code: 'MISSING_PUBLISH_CYCLE'
       });
     }
@@ -94,7 +94,7 @@ const approveGroupGradesHandler = async (req, res) => {
     // Prevent Audit Log Forgery by ensuring the user is acting as themselves
     if (coordinatorId !== req.user.userId) {
       return res.status(403).json({
-        error: 'Forbidden: You can only approve grades using your own coordinator ID',
+        message: 'Forbidden: You can only approve grades using your own coordinator ID',
         code: 'FORBIDDEN_ACTOR_MISMATCH'
       });
     }
@@ -133,7 +133,7 @@ const approveGroupGradesHandler = async (req, res) => {
 
         // ISSUE #253: Return appropriate status code based on error type
         return res.status(error.statusCode).json({
-          error: error.message,
+          message: error.message,
           code: error.errorCode,
           timestamp: new Date()
         });
@@ -179,7 +179,7 @@ const getGroupApprovalSummaryHandler = async (req, res) => {
     // ISSUE #253: Validate groupId
     if (!groupId || typeof groupId !== 'string' || groupId.trim() === '') {
       return res.status(400).json({
-        error: 'Invalid group ID',
+        message: 'Invalid group ID',
         code: 'INVALID_GROUP_ID'
       });
     }
@@ -205,7 +205,7 @@ const getGroupApprovalSummaryHandler = async (req, res) => {
     );
 
     return res.status(500).json({
-      error: 'Internal server error',
+      message: 'Internal server error',
       code: 'INTERNAL_ERROR',
       timestamp: new Date()
     });
@@ -227,7 +227,7 @@ const previewFinalGradesHandler = async (req, res) => {
     const allowedRoles = ['coordinator', 'professor', 'advisor'];
     if (!req.user || !allowedRoles.includes(req.user.role)) {
       return res.status(403).json({
-        error: PREVIEW_FORBIDDEN_MESSAGE,
+        message: PREVIEW_FORBIDDEN_MESSAGE,
         code: 'FORBIDDEN_PREVIEW_ACCESS'
       });
     }
@@ -242,7 +242,7 @@ const previewFinalGradesHandler = async (req, res) => {
 
       if (!isAssigned) {
         return res.status(403).json({
-          error: PREVIEW_FORBIDDEN_MESSAGE,
+          message: PREVIEW_FORBIDDEN_MESSAGE,
           code: 'FORBIDDEN_PREVIEW_ACCESS'
         });
       }
@@ -276,10 +276,10 @@ const previewFinalGradesHandler = async (req, res) => {
     console.error('[Preview] Error:', error);
     
     if (error.name === 'PreviewError') {
-      return res.status(error.statusCode).json({ error: error.message });
+      return res.status(error.statusCode).json({ message: error.message });
     }
 
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ message: 'Internal server error' });
   }
 };
 
@@ -294,7 +294,7 @@ const publishFinalGradesHandler = async (req, res) => {
   const actorId = systemAccess ? SYSTEM_ACTOR_ID : (req?.user?.userId || null);
   if (!isCoordinator(req) && !systemAccess) {
     return res.status(403).json({
-      error: PUBLISH_FORBIDDEN_MESSAGE,
+      message: PUBLISH_FORBIDDEN_MESSAGE,
       code: 'UNAUTHORIZED_ROLE'
     });
   }
@@ -316,7 +316,7 @@ const publishFinalGradesHandler = async (req, res) => {
       });
     } catch (_auditError) {
       return res.status(500).json({
-        error: 'System access audit logging failed',
+        message: 'System access audit logging failed',
         code: 'AUDIT_LOG_FAILURE'
       });
     }
@@ -337,7 +337,7 @@ const publishFinalGradesHandler = async (req, res) => {
     });
   } catch (_publishAuditError) {
     return res.status(500).json({
-      error: 'Final grade publish audit logging failed',
+      message: 'Final grade publish audit logging failed',
       code: 'AUDIT_LOG_FAILURE'
     });
   }
