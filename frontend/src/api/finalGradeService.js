@@ -63,9 +63,29 @@ export const getMyFinalGrades = async () => {
   return getFinalGradesFromResponse(response.data);
 };
 
+/**
+ * Get final grade approval summary for a group.
+ * GET /groups/:groupId/final-grades/summary
+ */
+export const getGroupApprovalSummary = async (groupId) => {
+  const response = await apiClient.get(`/groups/${groupId}/final-grades/summary`);
+  return response.data;
+};
+
+/**
+ * Publish final grades for a group.
+ * POST /groups/:groupId/final-grades/publish
+ */
+export const publishFinalGrades = async (groupId, payload) => {
+  const response = await apiClient.post(`/groups/${groupId}/final-grades/publish`, payload);
+  return response.data;
+};
+
 const finalGradeService = {
   getCommitteeFinalResults,
   getMyFinalGrades,
+  getGroupApprovalSummary,
+  publishFinalGrades
 };
 
 export default finalGradeService;

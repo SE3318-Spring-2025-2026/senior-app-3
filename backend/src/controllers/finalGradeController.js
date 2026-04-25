@@ -2,6 +2,7 @@
 
 const finalGradePreviewService = require('../services/finalGradePreviewService');
 const { approveGroupGrades, GradeApprovalError } = require('../services/approvalService');
+const { publishFinalGrades, FinalGradePublishError } = require('../services/finalGradePublishService');
 
 /**
  * Controller for Process 8.1 - Final Grade Preview
@@ -245,6 +246,31 @@ const previewFinalGradesHandler = async (req, res) => {
 };
 
 /**
+ * POST /groups/:groupId/final-grades/publish
+ * 
+ * Publishes approved final grades for a group.
+ */
+const publishFinalGradesHandler = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const { publishCycle, notificationFlags } = req.body;
+    const coordinatorId = req.user.userId;
+
+    const result = await publishFinalGrades(groupId, publishCycle, coordinatorId, notificationFlags);
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('[Publish Final Grades] Error:', error);
+    
+    if (error instanceof FinalGradePublishError) {
+      return res.status(error.statusCode).json({ error: error.message, code: error.errorCode });
+    }
+
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/**
  * ================================================================================
  * ISSUE #253: EXPORTS
  * ================================================================================
@@ -254,5 +280,6 @@ module.exports = {
   previewFinalGrades,
   approveGroupGradesHandler,
   getGroupApprovalSummaryHandler,
-  previewFinalGradesHandler
+  previewFinalGradesHandler,
+  publishFinalGradesHandler
 };
