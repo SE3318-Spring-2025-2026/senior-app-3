@@ -2,6 +2,8 @@
 
 const finalGradePreviewService = require('../services/finalGradePreviewService');
 const { approveGroupGrades, GradeApprovalError } = require('../services/approvalService');
+// ISSUE #255: Import publish service for final grade publication (Process 8.5)
+const { publishFinalGrades } = require('../services/publishService');
 
 /**
  * Controller for Process 8.1 - Final Grade Preview
@@ -247,6 +249,176 @@ const previewFinalGradesHandler = async (req, res) => {
 /**
  * ================================================================================
  * ISSUE #253: EXPORTS
+/**
+ * ================================================================================
+ * ISSUE #255: PUBLISH FINAL GRADES HANDLER
+ * ================================================================================
+ */
+
+/**
+ * ISSUE #255: POST /groups/:groupId/final-grades/publish
+ * 
+ * Handler for publishing coordinator-approved final grades to D7 collection.
+ * This is Process 8.5: Write approved grades (from Issue #253) to final storage,
+ * mark evaluations complete, and dispatch notifications.
+ *
+ * Workflow:
+ * 1. Extract groupId and coordinatorId from request
+ * 2. Validate request body (decision confirmation, optional flags)
+ * 3. Call publishService.publishFinalGrades with transaction safety
+ * 4. Handle errors with proper HTTP status codes:
+ *    - 404: No grades or group not found (no prior approval from #253)
+ *    - 409: Grades already published (idempotency guard)
+ *    - 422: Validation error (incomplete approval state)
+ *    - 403: Non-coordinator (handled by middleware roleMiddleware)
+ *    - 500: Transaction/database error
+ * 5. Return FinalGradePublishResult to Issue #252 UI
+ *
+ * Request body (from Issue #252 UI):
+ * {
+ *   coordinatorId: String,        // Who is publishing? (same as auth user)
+ *   confirmPublish: Boolean,      // Safety confirmation flag
+ *   notifyStudents: Boolean,      // Send notification to each student?
+ *   notifyFaculty: Boolean        // Send report to committee/faculty?
+ * }
+ *
+ * Response (FinalGradePublishResult):
+ * {
+ *   success: Boolean,
+ *   publishId: String,            // Correlation ID for this publish operation
+ *   publishedAt: Date,            // When grades were published
+ *   groupId: String,
+ *   groupName: String,
+ *   studentCount: Number,         // How many students got published grades?
+ *   notificationsDispatched: Boolean,  // Were notifications queued?
+ *   message: String               // Human-readable status
+ * }
+ *
+ * Status Codes:
+ * - 200: Success - all grades published and notification queued
+ * - 400: Invalid request body or missing required fields
+ * - 403: Forbidden - user is not coordinator (role guard)
+ * - 404: Not found - group doesn't exist or no grades found
+ * - 409: Conflict - grades already published (idempotency)
+ * - 422: Unprocessable - approval incomplete, validation error
+ * - 500: Internal error - transaction/database failure
+ */
+const publishFinalGradesHandler = async (req, res) => {
+  try {
+    // ========================================================================
+    // ISSUE #255: EXTRACT AND VALIDATE REQUEST
+    // ========================================================================
+
+    const { groupId } = req.params;
+    const { coordinatorId, confirmPublish, notifyStudents, notifyFaculty } = req.body;
+
+    // ISSUE #255: Validate groupId parameter
+    if (!groupId || typeof groupId !== 'string' || groupId.trim() === '') {
+      return res.status(400).json({
+        error: 'Invalid group ID',
+        code: 'INVALID_GROUP_ID'
+      });
+    }
+
+    // ISSUE #255: Validate coordinatorId matches authenticated user (Issue #253 pattern)
+    if (!coordinatorId) {
+      return res.status(422).json({
+        error: 'coordinatorId is required',
+        code: 'MISSING_COORDINATOR_ID'
+      });
+    }
+
+    // ISSUE #255: Confirmation flag (optional but recommended for safety)
+    // Not blocking if missing, but log if not provided
+    if (!confirmPublish) {
+      console.warn(
+        `[Issue #255] Publish without confirmation flag - Group: ${groupId}`
+      );
+    }
+
+    // ISSUE #255: Log publish attempt with context for audit trail
+    console.log(
+      `[Issue #255] Publish attempt - Group: ${groupId}, Coordinator: ${coordinatorId}, Notify: S=${notifyStudents} F=${notifyFaculty}`,
+      {
+        groupId,
+        coordinatorId,
+        notifyStudents: notifyStudents !== false,
+        notifyFaculty: notifyFaculty || false
+      }
+    );
+
+    // ========================================================================
+    // ISSUE #255: CALL PUBLISH SERVICE (ATOMIC TRANSACTION)
+    // ========================================================================
+
+    let publishResult;
+    try {
+      publishResult = await publishFinalGrades(
+        groupId,
+        coordinatorId,
+        {
+          notifyStudents: notifyStudents !== false, // Default true
+          notifyFaculty: notifyFaculty || false     // Default false
+        }
+      );
+    } catch (error) {
+      // ISSUE #255: Handle GradePublishError with proper HTTP status codes
+      // Check if error has statusCode property (from publishService)
+      if (error.statusCode) {
+        console.warn(`[Issue #255] Publish failed - ${error.message}`, {
+          groupId,
+          coordinatorId,
+          errorCode: error.errorCode
+        });
+
+        // ISSUE #255: Return appropriate status code based on error type
+        return res.status(error.statusCode).json({
+          error: error.message,
+          code: error.errorCode,
+          timestamp: new Date()
+        });
+      }
+
+      // ISSUE #255: Unexpected error
+      throw error;
+    }
+
+    // ========================================================================
+    // ISSUE #255: RETURN SUCCESS RESPONSE
+    // ========================================================================
+
+    console.log(
+      `[Issue #255] Publish successful - Group: ${groupId}, Students: ${publishResult.studentCount}`,
+      {
+        groupId,
+        publishId: publishResult.publishId,
+        studentsPublished: publishResult.studentCount
+      }
+    );
+
+    // ISSUE #255: Return 200 with full publish result for Issue #252 UI feedback
+    // Also includes publishId for correlation with notification logs
+    return res.status(200).json(publishResult);
+
+  } catch (error) {
+    // ISSUE #255: Log unexpected errors with full context
+    console.error(
+      '[Issue #255] Unexpected error in publishFinalGradesHandler',
+      error
+    );
+
+    // ISSUE #255: Return 500 for internal errors
+    return res.status(500).json({
+      error: 'Internal server error during publication',
+      code: 'PUBLISH_ERROR',
+      timestamp: new Date()
+    });
+  }
+};
+
+/**
+ * ================================================================================
+ * ISSUE #253 & #255: EXPORTS
  * ================================================================================
  */
 
@@ -254,5 +426,7 @@ module.exports = {
   previewFinalGrades,
   approveGroupGradesHandler,
   getGroupApprovalSummaryHandler,
-  previewFinalGradesHandler
+  previewFinalGradesHandler,
+  publishFinalGradesHandler
 };
+

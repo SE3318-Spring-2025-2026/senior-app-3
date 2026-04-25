@@ -128,60 +128,55 @@ const auditLogSchema = new mongoose.Schema(
         'GITHUB_SYNC_INITIATED',
         'GITHUB_SYNC_COMPLETED',
         'GITHUB_SYNC_FAILED',
+        // --- Final Grades (Process 8 / Issues #253-#255) ---
+        'FINAL_GRADE_PREVIEW_GENERATED',
+        'FINAL_GRADE_APPROVED',
+        'FINAL_GRADE_REJECTED',
+        'FINAL_GRADE_OVERRIDDEN',
+        'FINAL_GRADE_APPROVAL_CONFLICT',
+        'FINAL_GRADE_PUBLISHED',
+        'FINAL_GRADE_NOTIFICATION_SENT',
+        'FINAL_GRADE_NOTIFICATION_FAILED',
+
         'SECURITY_AUDIT',
         'CREDENTIAL_ROTATED',
 
         // ================================================================================
         // ISSUE #241: Operational Hooks & Idempotency — Webhook & Attribution Tracking
         // ================================================================================
-        // ISSUE #241: Webhook delivery lifecycle events
-        // Track every webhook delivery attempt, retry, success, and failure
-        'WEBHOOK_DELIVERY_INITIATED',      // New webhook job created
-        'WEBHOOK_DELIVERY_DISPATCHED',     // Webhook sent to external service
-        'WEBHOOK_DELIVERY_SUCCEEDED',      // External service accepted webhook
-        'WEBHOOK_DELIVERY_FAILED',         // Webhook failed after max retries
-        'WEBHOOK_DELIVERY_RETRIED',        // Webhook retry attempt scheduled
-        'WEBHOOK_DELIVERY_ERROR',          // Unexpected error during webhook processing
+        'WEBHOOK_DELIVERY_INITIATED',
+        'WEBHOOK_DELIVERY_DISPATCHED',
+        'WEBHOOK_DELIVERY_SUCCEEDED',
+        'WEBHOOK_DELIVERY_FAILED',
+        'WEBHOOK_DELIVERY_RETRIED',
+        'WEBHOOK_DELIVERY_ERROR',
 
-        // ISSUE #241: Attribution changes & audit tracking
-        // Track when student contribution ratios change due to sync operations
-        'ATTRIBUTION_RATIO_CHANGED',       // Student contribution ratio updated (includes old/new)
-        'ATTRIBUTION_SYNC_INITIATED',      // GitHub sync started for attribution
-        'ATTRIBUTION_SYNC_COMPLETED',      // Attribution sync finished
-        'ATTRIBUTION_MISMATCH_DETECTED',   // Old vs new ratio doesn't match (anomaly)
+        'ATTRIBUTION_RATIO_CHANGED',
+        'ATTRIBUTION_SYNC_INITIATED',
+        'ATTRIBUTION_SYNC_COMPLETED',
+        'ATTRIBUTION_MISMATCH_DETECTED',
 
-        // ISSUE #241: Idempotency & duplicate detection
-        // Track idempotency enforcement and duplicate request detection
-        'IDEMPOTENCY_KEY_VALIDATED',       // Idempotency key checked and validated
-        'DUPLICATE_REQUEST_DETECTED',      // Duplicate request found (replayed)
-        'FINGERPRINT_COLLISION_DETECTED',  // Rare: SHA256 collision detected
+        'IDEMPOTENCY_KEY_VALIDATED',
+        'DUPLICATE_REQUEST_DETECTED',
+        'FINGERPRINT_COLLISION_DETECTED',
 
         // --- Sprint Notifications (Issue #238 - Process 7.5) ---
         'SPRINT_CONTRIBUTION_RECALCULATION_INITIATED',
         'SPRINT_CONTRIBUTION_RECALCULATION_COMPLETED',
         'SPRINT_CONTRIBUTION_RECALCULATION_ERROR',
         'SPRINT_CONTRIBUTIONS_RECALCULATED',
-        // ISSUE #238: Notification dispatch events for sprint contribution updates
-        'SPRINT_NOTIFICATION_DISPATCHED',        // ISSUE #238: Successful notification sent (student or coordinator)
-        'SPRINT_NOTIFICATION_FAILED',             // ISSUE #238: Failed notification dispatch attempt (permanent after retries)
-        'SPRINT_NOTIFICATION_SKIPPED',            // ISSUE #238: Notification skipped (feature disabled for sprint)
-        'SPRINT_NOTIFICATION_DISPATCHER_ERROR',   // ISSUE #238: Critical error in orchestrator (unexpected failure)
-        'SPRINT_GROUP_NOTIFICATION_CONFIGURED',   // ISSUE #238: Notification configuration created/updated
+        'SPRINT_NOTIFICATION_DISPATCHED',
+        'SPRINT_NOTIFICATION_FAILED',
+        'SPRINT_NOTIFICATION_SKIPPED',
+        'SPRINT_NOTIFICATION_DISPATCHER_ERROR',
+        'SPRINT_GROUP_NOTIFICATION_CONFIGURED',
         'SPRINT_NOTIFICATION_CONFIG_DELETED',
+
         // --- JIRA Sync (Process 7.1) ---
         'JIRA_SYNC_INITIATED',
         'JIRA_SYNC_COMPLETED',
         'JIRA_SYNC_FAILED',
 
-        // --- ISSUE #253: Final Grade Approval (Process 8.4) ---
-        // Purpose: Persist coordinator approval decisions with audit trail
-        // Context: Coordinator approves computed grades and optionally applies per-student overrides
-        // These actions bridge grade computation (8.1-8.3) and publication (Issue #255)
-        'GRADE_APPROVED',                 // Coordinator approved grade(s) for a group
-        'GRADE_REJECTED',                 // Coordinator rejected grade(s) (terminal state)
-        'GRADE_OVERRIDDEN',               // Individual student grade was manually overridden
-        'FINAL_GRADE_APPROVAL_CONFLICT',  // Attempted duplicate approval (409 error)
-        'FINAL_GRADE_PUBLISHED',          // Grade published to D7 (Issue #255)
       ],
     },
     actorId: {

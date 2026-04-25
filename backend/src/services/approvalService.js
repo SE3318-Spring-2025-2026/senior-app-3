@@ -1,3 +1,5 @@
+'use strict';
+
 /**
  * ================================================================================
  * ISSUE #253: Final Grade Approval Service
@@ -24,6 +26,7 @@
 
 const { FinalGrade, FINAL_GRADE_STATUS } = require('../models/FinalGrade');
 const AuditLog = require('../models/AuditLog');
+const Group = require('../models/Group');
 const { v4: uuidv4 } = require('uuid');
 
 /**
@@ -167,6 +170,7 @@ const createOverrideMap = (overrideEntries = []) => {
  * - 409 Conflict detected before transaction starts
  *
  * @param {String} groupId - Group ID to approve grades for
+ * @param {String} publishCycle - Publish cycle identifier
  * @param {String} coordinatorId - Coordinator performing approval
  * @param {String} decision - 'approve' or 'reject'
  * @param {Array} overrideEntries - Optional per-student grade overrides
@@ -321,7 +325,7 @@ const approveGroupGrades = async (
 
         // ISSUE #253: Log successful approval
         auditLogs.push({
-          action: 'GRADE_APPROVED',
+          action: 'FINAL_GRADE_APPROVED',
           actorId: coordinatorId,
           targetId: studentId,
           groupId,
@@ -338,7 +342,7 @@ const approveGroupGrades = async (
         // ISSUE #253: Log override separately if applied
         if (studentOverride) {
           auditLogs.push({
-            action: 'GRADE_OVERRIDDEN',
+            action: 'FINAL_GRADE_OVERRIDDEN',
             actorId: coordinatorId,
             targetId: studentId,
             groupId,
@@ -360,7 +364,7 @@ const approveGroupGrades = async (
 
         // ISSUE #253: Log rejection
         auditLogs.push({
-          action: 'GRADE_REJECTED',
+          action: 'FINAL_GRADE_REJECTED',
           actorId: coordinatorId,
           targetId: studentId,
           groupId,
@@ -394,11 +398,6 @@ const approveGroupGrades = async (
     // If notifications fail, we don't want to rollback the approval
     setImmediate(async () => {
       try {
-        // ISSUE #253: Notification handlers (optional integrations)
-        // - Coordinator: Notification when approval completes
-        // - Students: Notification when grades are ready for view
-        // Implementation deferred to later phase if needed
-        // For now: Logging confirms async notification was triggered
         console.log(
           `[Issue #253] Async notifications queued for group ${groupId}`
         );
@@ -408,32 +407,18 @@ const approveGroupGrades = async (
     });
 
     // ISSUE #253: Build response object matching FinalGradeApproval schema
-    // Expected by Issue #255 publish flow
     return {
-      // Response metadata
       success: true,
       approvalId: `appr_${uuidv4().split('-')[0]}`,
       timestamp: new Date(),
-
-      // Approval context
       groupId,
       publishCycle,
       coordinatorId,
       decision,
       totalStudents: createdGrades.length,
-      approvedCount:
-        decision === 'approve'
-          ? createdGrades.length
-          : 0,
-      rejectedCount:
-        decision === 'reject'
-          ? createdGrades.length
-          : 0,
-
-      // Override statistics
+      approvedCount: decision === 'approve' ? createdGrades.length : 0,
+      rejectedCount: decision === 'reject' ? createdGrades.length : 0,
       overridesApplied: createdGrades.filter((g) => g.overrideApplied).length,
-
-      // Student-level details for UI and Issue #255
       grades: createdGrades.map((grade) => ({
         studentId: grade.studentId,
         computedFinalGrade: grade.computedFinalGrade,
@@ -444,8 +429,6 @@ const approveGroupGrades = async (
         approvedAt: grade.approvedAt,
         approvedBy: grade.approvedBy
       })),
-
-      // Message for coordinator UI
       message:
         decision === 'approve'
           ? `Successfully approved grades for ${createdGrades.length} students`
@@ -456,7 +439,6 @@ const approveGroupGrades = async (
     await session.abortTransaction();
     session.endSession();
 
-    // ISSUE #253: Re-throw known errors, wrap unknown ones
     if (error instanceof GradeApprovalError) {
       throw error;
     }
@@ -467,8 +449,54 @@ const approveGroupGrades = async (
       'TRANSACTION_FAILED'
     );
   } finally {
-    // ISSUE #253: Always end session
     session.endSession();
+  }
+};
+
+/**
+ * ISSUE #253: Check if grades are eligible for approval
+ * 
+ * Pre-flight validation called before coordinator submits approval.
+ * 
+ * @param {String} groupId - Group to check
+ * @returns {Object} Eligibility check { canApprove, reason, eligibleCount, totalCount, issues }
+ */
+const checkApprovalEligibility = async (groupId) => {
+  const issues = [];
+
+  try {
+    const grades = await FinalGrade.find({ groupId }).lean();
+    
+    if (!grades || grades.length === 0) {
+      return {
+        canApprove: false,
+        reason: 'No grades found',
+        eligibleCount: 0,
+        totalCount: 0,
+        issues: ['Complete preview workflow first (Process 8.1-8.3)']
+      };
+    }
+
+    const approvedCount = grades.filter(g => g.approvedAt).length;
+    if (approvedCount > 0) {
+      issues.push(`${approvedCount} grades already approved`);
+    }
+
+    return {
+      canApprove: issues.length === 0 && approvedCount === 0,
+      reason: issues.length === 0 ? 'All grades ready for approval' : issues[0],
+      eligibleCount: grades.length - approvedCount,
+      totalCount: grades.length,
+      issues
+    };
+  } catch (err) {
+    return {
+      canApprove: false,
+      reason: `Validation error: ${err.message}`,
+      eligibleCount: 0,
+      totalCount: 0,
+      issues: [err.message]
+    };
   }
 };
 
@@ -516,6 +544,7 @@ const isGroupApproved = async (groupId, publishCycle) => {
 
 module.exports = {
   approveGroupGrades,
+  checkApprovalEligibility,
   getApprovedGradesForGroup,
   getGroupApprovalSummary,
   isGroupApproved,
