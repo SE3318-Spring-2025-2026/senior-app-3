@@ -1,7 +1,130 @@
-const Group = require('../models/Group');
+'use strict';
+
 const Deliverable = require('../models/Deliverable');
-const SprintRecord = require('../models/SprintRecord');
 const ContributionRecord = require('../models/ContributionRecord');
+const { FinalGradeCalculationService } = require('./finalGradeCalculationService');
+
+class FinalGradePreviewService {
+  constructor() {
+    this.calculator = new FinalGradeCalculationService();
+  }
+
+  /**
+   * Generates a preview of the final grades for a given group
+   * @param {string} groupId 
+   */
+  async previewGroupGrade(groupId) {
+    if (!groupId) {
+      const error = new Error('groupId is required');
+      error.status = 400;
+      throw error;
+    }
+
+    // 1. Fetch D4 (Deliverables) and join D5 (Evaluations) & D8 (SprintConfig)
+    // using a single Aggregation Pipeline to prevent N+1 query problem.
+    const deliverables = await Deliverable.aggregate([
+      { 
+        $match: { 
+          groupId, 
+          status: { $in: ['accepted', 'evaluated', 'under_review'] } 
+        } 
+      },
+      {
+        $lookup: {
+          from: 'evaluations', // D5
+          localField: 'deliverableId',
+          foreignField: 'deliverableId',
+          as: 'evaluations'
+        }
+      },
+      {
+        $lookup: {
+          from: 'sprint_configs', // D8
+          let: { type: '$deliverableType', sprint: '$sprintId' },
+          pipeline: [
+            { 
+              $match: { 
+                $expr: { 
+                  $and: [ 
+                    { $eq: ['$deliverableType', '$$type'] }, 
+                    { $eq: ['$sprintId', '$$sprint'] } 
+                  ] 
+                } 
+              } 
+            }
+          ],
+          as: 'config'
+        }
+      },
+      { $unwind: { path: '$config', preserveNullAndEmptyArrays: true } }
+    ]);
+
+    if (!deliverables || deliverables.length === 0) {
+      return { baseGroupScore: 0, students: [] };
+    }
+
+    let totalWeightedScore = 0;
+    let totalWeight = 0;
+    const rubricWeights = { deliverables: {} };
+
+    // 2. Validate completeness and compute average score per deliverable
+    for (const item of deliverables) {
+      const weight = item.config?.weight != null ? item.config.weight : 1.0;
+      rubricWeights.deliverables[item.deliverableId] = weight;
+
+      if (!item.evaluations || item.evaluations.length === 0) {
+        const error = new Error(`Missing Evaluation Data: Zorunlu deliverable (${item.deliverableId}) henüz puanlanmamış.`);
+        error.status = 400;
+        throw error;
+      }
+
+      // Check partial evaluations (if 2 out of 3 graded, etc.) and NULL vs 0.
+      const hasPending = item.evaluations.some(ev => ev.status === 'pending' || ev.score == null);
+      if (hasPending) {
+        const error = new Error(`Incomplete Evaluations: Deliverable (${item.deliverableId}) jüri değerlendirmeleri tamamlanmamış (Kısmi değerlendirme).`);
+        error.status = 409;
+        throw error;
+      }
+
+      // Compute simple average among the evaluators for this deliverable
+      const sum = item.evaluations.reduce((acc, ev) => acc + ev.score, 0);
+      const avgScore = sum / item.evaluations.length;
+
+      // Process 6.0 External Signal: Late Submission Penalty
+      let finalDeliverableScore = avgScore;
+      if (item.config?.deadline && new Date(item.submittedAt) > new Date(item.config.deadline)) {
+        // e.g., apply a 10% penalty
+        finalDeliverableScore = finalDeliverableScore * 0.9;
+      }
+
+      totalWeightedScore += (finalDeliverableScore * weight);
+      totalWeight += weight;
+    }
+
+    // 3. Compute baseGroupScore
+    const baseGroupScore = totalWeight > 0 ? (totalWeightedScore / totalWeight) : 0;
+
+    // 4. Fetch D6 (ContributionRecords) to get Student Ratios
+    const contributions = await ContributionRecord.find({ groupId });
+    const studentMap = {};
+    
+    for (const c of contributions) {
+      if (!studentMap[c.studentId]) {
+        studentMap[c.studentId] = { studentId: c.studentId, ratioSum: 0, count: 0 };
+      }
+      studentMap[c.studentId].ratioSum += (c.contributionRatio != null ? c.contributionRatio : 1.0);
+      studentMap[c.studentId].count += 1;
+    }
+
+    const ratios = Object.values(studentMap).map(s => ({
+      studentId: s.studentId,
+      contributionRatio: s.ratioSum / s.count
+    }));
+
+    // 5. Delegate to Pure Calculation Engine
+    return this.calculator.computeFinalGrades(baseGroupScore, ratios, rubricWeights);
+  }
+}
 
 class PreviewError extends Error {
   constructor(message, statusCode = 500) {
@@ -11,101 +134,16 @@ class PreviewError extends Error {
   }
 }
 
-async function generatePreview(groupId, options) {
-  const { requestedBy, includeDeliverableIds, includeSprintIds, useLatestRatios = true } = options;
+const finalGradePreviewService = new FinalGradePreviewService();
 
-  // 1. Check if group exists
-  const group = await Group.findOne({ groupId });
-  if (!group) {
-    throw new PreviewError(`Group ${groupId} not found`, 404);
-  }
-
-  // 1.5 Ownership Check
-  if (options.requestedByRole !== 'coordinator' && options.requestedByRole !== 'admin') {
-    if (group.advisorId !== requestedBy && group.professorId !== requestedBy) {
-      throw new PreviewError('Forbidden - only the Coordinator role or authorized Professor/Advisor roles may preview final grades', 403);
-    }
-  }
-
-  // 409 Conflict check
-  if (group.status === 'archived' || group.status === 'rejected') {
-    throw new PreviewError('Conflict - preview cannot be generated due to inconsistent or locked configuration', 409);
-  }
-
-  // 2. Fetch Deliverables (D4)
-  const queryD4 = { groupId };
-  if (includeDeliverableIds && includeDeliverableIds.length > 0) {
-    queryD4.deliverableId = { $in: includeDeliverableIds };
-  }
-  const deliverables = await Deliverable.find(queryD4);
-  if (!deliverables || deliverables.length === 0) {
-    throw new PreviewError('Group or required deliverable/ratio data not found in D4/D5/D6', 404);
-  }
-
-  // 3. Fetch Sprints (D6)
-  const queryD6 = { groupId };
-  if (includeSprintIds && includeSprintIds.length > 0) {
-    queryD6.sprintId = { $in: includeSprintIds };
-  }
-  const sprints = await SprintRecord.find(queryD6);
-  if (!sprints || sprints.length === 0) {
-    throw new PreviewError('Group or required deliverable/ratio data not found in D4/D5/D6', 404);
-  }
-
-  // 5. Math Engine Orchestration
-  let records;
-  if (useLatestRatios) {
-    // NOTE: This mode is intentionally side-effect aware.
-    // It recalculates and persists D6 contribution ratios before preview generation.
-    const { recalculateSprintRatios } = require('./contributionRatioService');
-    for (const sprint of sprints) {
-      try {
-        await recalculateSprintRatios(groupId, sprint.sprintRecordId, requestedBy, {
-          normalizationFactor: 1.0
-        });
-      } catch (err) {
-        const statusCode = err && Number.isInteger(err.status) ? err.status : 500;
-        const mappedStatusCode = statusCode === 422 ? 422 : 500;
-        throw new PreviewError(
-          `Latest ratio recalculation failed for sprint ${sprint.sprintRecordId}: ${err.message}`,
-          mappedStatusCode
-        );
-      }
-    }
-    // Re-fetch records after math engine recalculation
-    records = await ContributionRecord.find(queryD6);
-  } else {
-    // Strict read-only preview mode: use existing D6 contribution records as-is.
-    records = await ContributionRecord.find(queryD6);
-  }
-
-  if (!records || records.length === 0) {
-    throw new PreviewError('Group or required deliverable/ratio data not found in D4/D5/D6', 404);
-  }
-
-  // Calculate baseGroupScore - Mocking for now since no real scores exist
-  // Calculate baseGroupScore - Mocking base score for now since no real scores exist
-  // In a real scenario, this would aggregate scores from D4 and D5.
-  const baseGroupScore = 100; 
-
-  const { calculateFinalGrades } = require('./finalGradeCalculationService');
-  
+async function generatePreview(groupId) {
   try {
-    const calculationResult = calculateFinalGrades(groupId, baseGroupScore, records, {
-      weights: [50, 50], // example dummy weights summing to 100
-      isAlreadyWeighted: false
-    });
-    
-    return calculationResult;
+    return await finalGradePreviewService.previewGroupGrade(groupId);
   } catch (error) {
-    if (error.message.includes('Inconsistent Configuration')) {
-      throw new PreviewError('Conflict - preview cannot be generated due to inconsistent or locked configuration', 409);
-    }
-    throw error;
+    throw new PreviewError(error.message, error.status || 500);
   }
 }
 
-module.exports = {
-  generatePreview,
-  PreviewError
-};
+module.exports = finalGradePreviewService;
+module.exports.generatePreview = generatePreview;
+module.exports.PreviewError = PreviewError;

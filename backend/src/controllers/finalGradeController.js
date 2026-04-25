@@ -1,83 +1,39 @@
+'use strict';
+
+const finalGradePreviewService = require('../services/finalGradePreviewService');
+const { approveGroupGrades, GradeApprovalError } = require('../services/approvalService');
+
+/**
+ * Controller for Process 8.1 - Final Grade Preview
+ */
+const previewFinalGrades = async (req, res, next) => {
+  try {
+    const { groupId } = req.params;
+
+    // Orchestrates D4, D5, D8 data to compute baseGroupScore and calls formula engine
+    const previewData = await finalGradePreviewService.previewGroupGrade(groupId);
+
+    // Return the response ensuring it conforms to the f8_ds_d4_p81 OpenAPI schema
+    return res.status(200).json({
+      ...previewData,
+      createdAt: new Date(),
+    });
+  } catch (error) {
+    if (error.status === 400 || error.status === 409) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    next(error);
+  }
+};
+
 /**
  * ================================================================================
  * ISSUE #253: Final Grade Approval Controller
  * ================================================================================
- *
- * Purpose:
- * HTTP request handler for coordinator approval endpoint.
- * Responsible for:
- * 1. Role-based access control (coordinator-only)
- * 2. Request validation (publishCycle, decision, overrides)
- * 3. Calling approval service
- * 4. Error handling and status codes
- * 5. Response formatting for frontend (Issue #252)
- *
- * Process Context:
- * - Input: POST request from Issue #252 (UI submission)
- * - Middleware: authMiddleware (verify JWT), roleMiddleware (coordinator only)
- * - Service call: approvalService.approveGroupGrades()
- * - Output: FinalGradeApproval JSON response
- * - Status codes: 200 (success), 403 (forbidden), 404 (not found), 409 (conflict), 422 (validation)
- *
- * ================================================================================
  */
-
-const { approveGroupGrades, GradeApprovalError } = require('../services/approvalService');
 
 /**
  * ISSUE #253: POST /groups/:groupId/final-grades/approval
- * 
- * Handler for coordinator grade approval endpoint.
- * Receives approval decision and optional overrides from UI (Issue #252),
- * persists approval state to D7, and returns confirmation for Issue #255 consumption.
- *
- * Request body (from Issue #252):
- * {
- *   publishCycle: String,            // Version/cycle identifier for approval dedupe
- *   decision: "approve" | "reject",  // Approval decision
- *   overrideEntries: [               // Optional per-student grade adjustments
- *     {
- *       studentId: String,
- *       originalFinalGrade: Number,
- *       overriddenFinalGrade: Number,
- *       comment?: String
- *     }
- *   ],
- *   reason?: String                  // Optional justification
- * }
- *
- * Response (for Issue #255 & UI feedback):
- * {
- *   success: Boolean,
- *   approvalId: String,
- *   timestamp: Date,
- *   groupId: String,
- *   // coordinatorId is derived from req.user.userId (token identity)
- *   decision: String,
- *   totalStudents: Number,
- *   approvedCount: Number,
- *   rejectedCount: Number,
- *   overridesApplied: Number,
- *   grades: [
- *     {
- *       studentId: String,
- *       computedFinalGrade: Number,
- *       effectiveFinalGrade: Number,
- *       overrideApplied: Boolean,
- *       overriddenGrade: Number | null,
- *       approvedAt: Date,
- *       approvedBy: String
- *     }
- *   ],
- *   message: String
- * }
- *
- * Error responses:
- * - 403: Forbidden (user is not coordinator)
- * - 404: Not found (group doesn't exist)
- * - 409: Conflict (grades already approved)
- * - 422: Unprocessable entity (validation error)
- * - 500: Internal server error
  */
 const approveGroupGradesHandler = async (req, res) => {
   try {
@@ -193,23 +149,6 @@ const approveGroupGradesHandler = async (req, res) => {
 
 /**
  * ISSUE #253: GET /groups/:groupId/final-grades/summary
- * 
- * Optional: Get approval summary for coordinator dashboard
- * Shows counts of grades by status (pending, approved, rejected, published)
- *
- * Response:
- * [
- *   {
- *     _id: "pending",
- *     count: 5,
- *     avgGrade: 78.5
- *   },
- *   {
- *     _id: "approved",
- *     count: 3,
- *     avgGrade: 82.0
- *   }
- * ]
  */
 const getGroupApprovalSummaryHandler = async (req, res) => {
   try {
@@ -312,6 +251,7 @@ const previewFinalGradesHandler = async (req, res) => {
  */
 
 module.exports = {
+  previewFinalGrades,
   approveGroupGradesHandler,
   getGroupApprovalSummaryHandler,
   previewFinalGradesHandler
