@@ -12,6 +12,7 @@
 
 const mongoose = require('mongoose');
 const axios = require('axios');
+const { decrypt } = require('../src/utils/cryptoUtils');
 
 jest.mock('axios');
 
@@ -22,6 +23,7 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
 
   let Group;
   let SyncErrorLog;
+  let AuditLog;
   let configureJira;
   let getJira;
 
@@ -30,7 +32,7 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
   const makeReq = (params = {}, body = {}, userOverrides = {}) => ({
     params,
     body,
-    user: { userId: 'usr_leader', role: 'student', ...userOverrides },
+    user: { userId: 'usr_leader', role: 'coordinator', ...userOverrides },
     ip: '127.0.0.1',
     headers: { 'user-agent': 'test-agent' },
   });
@@ -100,6 +102,7 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
 
     Group = require('../src/models/Group');
     SyncErrorLog = require('../src/models/SyncErrorLog');
+    AuditLog = require('../src/models/AuditLog');
     ({ configureJira, getJira } = require('../src/controllers/groupIntegrations'));
   });
 
@@ -109,7 +112,7 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
   });
 
   beforeEach(async () => {
-    await Promise.all([Group.deleteMany({}), SyncErrorLog.deleteMany({})]);
+    await Promise.all([Group.deleteMany({}), SyncErrorLog.deleteMany({}), AuditLog.deleteMany({})]);
     jest.clearAllMocks();
   });
 
@@ -133,7 +136,7 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
       expect(body.board_url).toBe('https://mycompany.atlassian.net/jira/software/projects/PROJ/boards');
     });
 
-    it('f25: stores jiraUrl, jiraUsername, jiraToken, projectKey in D2 group record', async () => {
+    it('f25: stores encrypted jiraToken and persists JIRA binding metadata', async () => {
       mockValidCredentials();
       mockValidProject();
 
@@ -144,10 +147,13 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
         makeRes()
       );
 
-      const updated = await Group.findOne({ groupId: group.groupId });
+      const updated = await Group.findOne({ groupId: group.groupId }).select('+jiraToken');
       expect(updated.jiraUrl).toBe('https://mycompany.atlassian.net');
       expect(updated.jiraUsername).toBe('user@example.com');
-      expect(updated.jiraToken).toBe('jira_token_abc');
+      expect(updated.jiraToken).toBeDefined();
+      expect(updated.jiraToken).not.toBe('jira_token_abc');
+      expect(updated.jiraToken).toMatch(/^v1:/);
+      expect(decrypt(updated.jiraToken)).toBe('jira_token_abc');
       expect(updated.projectKey).toBe('PROJ');
       expect(updated.jiraProject).toBe('My Project');
     });
@@ -255,14 +261,22 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
 
     // ── 403 / 404 ────────────────────────────────────────────────────────────────
 
-    it('returns 403 FORBIDDEN when caller is not the group leader', async () => {
+    it('returns 403 FORBIDDEN and writes SECURITY_AUDIT when caller is not coordinator', async () => {
       const group = await makeGroup({ leaderId: 'usr_other' });
       const res = makeRes();
 
-      await configureJira(makeReq({ groupId: group.groupId }, validJiraBody()), res);
+      await configureJira(makeReq({ groupId: group.groupId }, validJiraBody(), { role: 'leader' }), res);
 
       expect(res.status).toHaveBeenCalledWith(403);
       expect(res.json.mock.calls[0][0].code).toBe('FORBIDDEN');
+      const audit = await AuditLog.findOne({ action: 'SECURITY_AUDIT', groupId: group.groupId }).sort({ createdAt: -1 });
+      expect(audit).not.toBeNull();
+      expect(audit.actorId).toBe('usr_leader');
+      expect(audit.payload).toMatchObject({
+        provider: 'jira',
+        reason: 'role_not_permitted',
+        statusCode: 403,
+      });
     });
 
     it('returns 404 GROUP_NOT_FOUND when group does not exist', async () => {
@@ -395,6 +409,8 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
     it('does not expose jiraToken in the response', async () => {
       const group = await makeGroup({
         jiraUrl: 'https://mycompany.atlassian.net',
+        projectKey: 'PROJ',
+        jiraBoardUrl: 'https://mycompany.atlassian.net/jira/software/projects/PROJ/boards',
         jiraToken: 'tok_secret',
       });
 
@@ -403,6 +419,7 @@ describe('groupIntegrations — JIRA (f13-f15, f25)', () => {
 
       const body = res.json.mock.calls[0][0];
       expect(body.jiraToken).toBeUndefined();
+      expect(body.token_masked).toBe('****');
     });
 
     it('returns connected: false when no JIRA config is set', async () => {

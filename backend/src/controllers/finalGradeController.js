@@ -1,0 +1,197 @@
+'use strict';
+
+const finalGradePreviewService = require('../services/finalGradePreviewService');
+const { approveGroupGrades, GradeApprovalError } = require('../services/approvalService');
+
+/**
+ * Controller for Process 8.1 - Final Grade Preview
+ */
+const previewFinalGrades = async (req, res, next) => {
+  try {
+    const { groupId } = req.params;
+
+    // Orchestrates D4, D5, D8 data to compute baseGroupScore and calls formula engine
+    const previewData = await finalGradePreviewService.previewGroupGrade(groupId);
+
+    // Return the response ensuring it conforms to the f8_ds_d4_p81 OpenAPI schema
+    return res.status(200).json({
+      ...previewData,
+      createdAt: new Date(),
+    });
+  } catch (error) {
+    if (error.status === 400 || error.status === 409) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    next(error);
+  }
+};
+
+/**
+ * ================================================================================
+ * ISSUE #253: Final Grade Approval Controller
+ * ================================================================================
+ */
+
+/**
+ * ISSUE #253: POST /groups/:groupId/final-grades/approval
+ */
+const approveGroupGradesHandler = async (req, res) => {
+  try {
+    // ========================================================================
+    // ISSUE #253: EXTRACT AND VALIDATE REQUEST
+    // ========================================================================
+
+    const { groupId } = req.params;
+    const { publishCycle, decision, overrideEntries, reason } = req.body;
+    const coordinatorId = req.user.userId;
+
+    // ISSUE #253: Validate groupId parameter
+    if (!groupId || typeof groupId !== 'string' || groupId.trim() === '') {
+      return res.status(400).json({
+        error: 'Invalid group ID',
+        code: 'INVALID_GROUP_ID'
+      });
+    }
+
+    // ISSUE #253 HARDENING: coordinator identity comes from authenticated token
+    if (!coordinatorId) {
+      return res.status(422).json({
+        error: 'Authenticated coordinator identity is missing',
+        code: 'MISSING_AUTH_USER_ID'
+      });
+    }
+
+    if (!publishCycle || typeof publishCycle !== 'string' || publishCycle.trim() === '') {
+      return res.status(422).json({
+        error: 'publishCycle is required',
+        code: 'MISSING_PUBLISH_CYCLE'
+      });
+    }
+
+    // ISSUE #253: Strict Authorization Check (Security Fix)
+    // Prevent Audit Log Forgery by ensuring the user is acting as themselves
+    if (coordinatorId !== req.user.userId) {
+      return res.status(403).json({
+        error: 'Forbidden: You can only approve grades using your own coordinator ID',
+        code: 'FORBIDDEN_ACTOR_MISMATCH'
+      });
+    }
+
+    // ISSUE #253: Validate decision field
+    if (!decision || !['approve', 'reject'].includes(decision)) {
+      return res.status(422).json({
+        error: 'decision must be "approve" or "reject"',
+        code: 'INVALID_DECISION'
+      });
+    }
+
+    // ISSUE #253: Log approval attempt for audit trail
+    console.log(
+      `[Issue #253] Approval attempt - Group: ${groupId}, Coordinator: ${coordinatorId}, Decision: ${decision}`
+    );
+
+    // ========================================================================
+    // ISSUE #253: CALL APPROVAL SERVICE (ATOMIC TRANSACTION)
+    // ========================================================================
+
+    let approvalResult;
+    try {
+      approvalResult = await approveGroupGrades(
+        groupId,
+        publishCycle,
+        coordinatorId,
+        decision,
+        overrideEntries || [],
+        reason || null
+      );
+    } catch (error) {
+      // ISSUE #253: Handle GradeApprovalError with proper status codes
+      if (error instanceof GradeApprovalError) {
+        console.warn(`[Issue #253] Approval failed - ${error.message}`);
+
+        // ISSUE #253: Return appropriate status code based on error type
+        return res.status(error.statusCode).json({
+          error: error.message,
+          code: error.errorCode,
+          timestamp: new Date()
+        });
+      }
+
+      // ISSUE #253: Unexpected error
+      throw error;
+    }
+
+    // ========================================================================
+    // ISSUE #253: RETURN SUCCESS RESPONSE
+    // ========================================================================
+
+    console.log(
+      `[Issue #253] Approval successful - Group: ${groupId}, Decision: ${decision}`
+    );
+
+    // ISSUE #253: Return 200 with full approval response for Issue #255 & UI
+    return res.status(200).json(approvalResult);
+  } catch (error) {
+    // ISSUE #253: Log unexpected errors
+    console.error(
+      '[Issue #253] Unexpected error in approveGroupGradesHandler',
+      error
+    );
+
+    // ISSUE #253: Return 500 for unexpected errors
+    return res.status(500).json({
+      error: 'Internal server error',
+      code: 'INTERNAL_ERROR',
+      timestamp: new Date()
+    });
+  }
+};
+
+/**
+ * ISSUE #253: GET /groups/:groupId/final-grades/summary
+ */
+const getGroupApprovalSummaryHandler = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+
+    // ISSUE #253: Validate groupId
+    if (!groupId || typeof groupId !== 'string' || groupId.trim() === '') {
+      return res.status(400).json({
+        error: 'Invalid group ID',
+        code: 'INVALID_GROUP_ID'
+      });
+    }
+
+    // ISSUE #253: Import service here to avoid circular dependency
+    const { getGroupApprovalSummary } = require('../services/approvalService');
+
+    // ISSUE #253: Fetch summary
+    const summary = await getGroupApprovalSummary(groupId);
+
+    console.log(`[Issue #253] Summary retrieved for group: ${groupId}`);
+
+    // ISSUE #253: Return summary
+    return res.status(200).json({
+      groupId,
+      summary,
+      timestamp: new Date()
+    });
+  } catch (error) {
+    console.error(
+      '[Issue #253] Error in getGroupApprovalSummaryHandler',
+      error
+    );
+
+    return res.status(500).json({
+      error: 'Internal server error',
+      code: 'INTERNAL_ERROR',
+      timestamp: new Date()
+    });
+  }
+};
+
+module.exports = {
+  previewFinalGrades,
+  approveGroupGradesHandler,
+  getGroupApprovalSummaryHandler
+};

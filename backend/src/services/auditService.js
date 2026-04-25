@@ -26,6 +26,7 @@ const createAuditLog = async (
     details = null,
     ipAddress = null,
     userAgent = null,
+    correlationId = null,
   },
   session = null
 ) => {
@@ -39,6 +40,7 @@ const createAuditLog = async (
     details,
     ipAddress,
     userAgent,
+    correlationId,
   });
   await log.save(session ? { session } : undefined);
   return log;
