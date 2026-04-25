@@ -33,6 +33,7 @@ const options = {
       { name: 'Reviews', description: 'Process 6 — Review assignment & status' },
       { name: 'Schedule Windows', description: 'Operation schedule management' },
       { name: 'Audit Logs', description: 'Audit trail & logging' },
+      { name: 'Final Grade Calculation', description: 'Final grade computation, approval, and publication operations' },
     ],
     paths: {
       // ── AUTH ──────────────────────────────────────────────────────────────
@@ -1415,6 +1416,71 @@ const options = {
               },
             },
             401: { description: 'Unauthorized' },
+          },
+        },
+      },
+
+      // ── FINAL GRADE CALCULATION ──────────────────────────────────────────
+      '/groups/{groupId}/final-grades/preview': {
+        post: {
+          tags: ['Final Grade Calculation'],
+          summary: 'Preview Final Grades (Process 8.1 + 8.2 + 8.3)',
+          parameters: [{ name: 'groupId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['requestedBy'],
+                  properties: {
+                    requestedBy: { type: 'string' },
+                    useLatestRatios: { type: 'boolean', default: true },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: { description: 'Preview generated' },
+            403: { description: 'Forbidden - only the Coordinator role or authorized Professor/Advisor roles may preview final grades' },
+          },
+        },
+      },
+      '/groups/{groupId}/final-grades/approve': {
+        post: {
+          tags: ['Final Grade Calculation'],
+          summary: 'Validate & Approve Final Grades (Process 8.4)',
+          parameters: [{ name: 'groupId', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['publishCycle', 'decision'],
+                  properties: {
+                    publishCycle: { type: 'string' },
+                    decision: { type: 'string', enum: ['approve', 'reject'] },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: { description: 'Grades approved' },
+            403: { description: 'Forbidden - only the Coordinator role may approve final grades' },
+          },
+        },
+      },
+      '/groups/{groupId}/final-grades/publish': {
+        post: {
+          tags: ['Final Grade Calculation'],
+          summary: 'Store & Publish Final Grades (Process 8.5)',
+          parameters: [{ name: 'groupId', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Grades published' },
+            403: { description: 'Forbidden - only the Coordinator role or authorized system backend may publish final grades' },
           },
         },
       },
