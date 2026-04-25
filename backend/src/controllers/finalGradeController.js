@@ -6,6 +6,7 @@ const Group = require('../models/Group');
 const AuditLog = require('../models/AuditLog');
 const { FinalGrade, FINAL_GRADE_STATUS } = require('../models/FinalGrade');
 const { publishFinalGrades } = require('../services/publishService');
+const { v4: uuidv4 } = require('uuid');
 
 const PREVIEW_FORBIDDEN_MESSAGE =
   'Forbidden - only the Coordinator role or authorized Professor/Advisor roles may preview final grades';
@@ -19,6 +20,82 @@ const isCoordinator = (req) => req?.user?.role === 'coordinator';
 const hasValidSystemToken = (req) =>
   typeof req?.headers?.['x-system-auth'] === 'string' &&
   req.headers['x-system-auth'] === process.env.INTERNAL_SYSTEM_TOKEN;
+
+const buildPublishCycle = (groupId) =>
+  `cycle_${String(groupId).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32)}_${uuidv4().split('-')[0]}`;
+
+const persistPreviewForApproval = async ({
+  groupId,
+  preview,
+  publishCycle,
+  coordinatorId
+}) => {
+  const students = Array.isArray(preview?.students) ? preview.students : [];
+
+  if (students.length === 0) {
+    const error = new Error('Preview does not contain student grade entries to approve');
+    error.statusCode = 404;
+    error.code = 'NO_PREVIEW_STUDENTS';
+    throw error;
+  }
+
+  const hasTerminalGrades = await FinalGrade.hasTerminalGrades(groupId, publishCycle);
+  if (hasTerminalGrades) {
+    const error = new Error('Grades for this group and cycle are already approved, rejected, or published');
+    error.statusCode = 409;
+    error.code = 'CYCLE_ALREADY_TERMINAL';
+    throw error;
+  }
+
+  const now = new Date();
+
+  for (const student of students) {
+    await FinalGrade.findOneAndUpdate(
+      {
+        groupId,
+        publishCycle,
+        studentId: student.studentId,
+        status: FINAL_GRADE_STATUS.PENDING
+      },
+      {
+        $set: {
+          groupId,
+          publishCycle,
+          studentId: student.studentId,
+          baseGroupScore: preview.baseGroupScore,
+          individualRatio: student.contributionRatio,
+          computedFinalGrade: student.computedFinalGrade,
+          status: FINAL_GRADE_STATUS.PENDING,
+          updatedAt: now
+        },
+        $setOnInsert: {
+          finalGradeId: `fg_${uuidv4().split('-')[0]}`,
+          createdAt: now
+        }
+      },
+      {
+        upsert: true,
+        new: true,
+        runValidators: true
+      }
+    );
+  }
+
+  try {
+    await AuditLog.create({
+      action: 'FINAL_GRADE_PREVIEW_PERSISTED',
+      actorId: coordinatorId,
+      groupId,
+      payload: {
+        publishCycle,
+        studentCount: students.length,
+        persistedAt: now
+      }
+    });
+  } catch (_error) {
+    // Non-fatal audit telemetry
+  }
+};
 
 /**
  * Controller for Process 8.1 - Final Grade Preview
@@ -64,6 +141,15 @@ const previewFinalGradesHandler = async (req, res) => {
 
     const { generatePreview, PreviewError } = require('../services/finalGradePreviewService');
 
+    const wantsApprovalSnapshot = req.body?.persistForApproval === true;
+
+    if (wantsApprovalSnapshot && !isCoordinator(req)) {
+      return res.status(403).json({
+        message: APPROVAL_FORBIDDEN_MESSAGE,
+        code: 'UNAUTHORIZED_ROLE'
+      });
+    }
+
     const previewOptions = {
       ...req.body,
       requestedBy: req.user.userId,
@@ -71,9 +157,42 @@ const previewFinalGradesHandler = async (req, res) => {
     };
 
     const preview = await generatePreview(groupId, previewOptions);
-    return res.status(200).json({
+    const createdAt = new Date();
+    const responsePayload = {
       ...preview,
-      createdAt: new Date()
+      groupId: preview.groupId || groupId,
+      createdAt
+    };
+
+    if (wantsApprovalSnapshot) {
+      const publishCycle =
+        typeof req.body?.publishCycle === 'string' && req.body.publishCycle.trim() !== ''
+          ? req.body.publishCycle.trim()
+          : buildPublishCycle(groupId);
+
+      try {
+        await persistPreviewForApproval({
+          groupId,
+          preview: responsePayload,
+          publishCycle,
+          coordinatorId: req.user.userId
+        });
+      } catch (error) {
+        if (error.statusCode) {
+          return res.status(error.statusCode).json({
+            message: error.message,
+            code: error.code || 'PREVIEW_PERSIST_FAILED'
+          });
+        }
+        throw error;
+      }
+
+      responsePayload.publishCycle = publishCycle;
+      responsePayload.persistedForApproval = true;
+    }
+
+    return res.status(200).json({
+      ...responsePayload
     });
 
   } catch (error) {
@@ -107,7 +226,7 @@ const approveGroupGradesHandler = async (req, res) => {
     }
 
     const { groupId } = req.params;
-    const { publishCycle, decision, overrideEntries, reason } = req.body;
+    let { publishCycle, decision, overrideEntries, reason } = req.body;
     const coordinatorId = req.user.userId;
 
     if (!groupId || typeof groupId !== 'string' || groupId.trim() === '') {
@@ -125,10 +244,19 @@ const approveGroupGradesHandler = async (req, res) => {
     }
 
     if (!publishCycle || typeof publishCycle !== 'string' || publishCycle.trim() === '') {
-      return res.status(422).json({
-        message: 'publishCycle is required',
-        code: 'MISSING_PUBLISH_CYCLE'
-      });
+      const latestPending = await FinalGrade.findOne({
+        groupId,
+        status: FINAL_GRADE_STATUS.PENDING
+      }).sort({ updatedAt: -1, createdAt: -1 }).lean();
+
+      publishCycle = latestPending?.publishCycle || null;
+
+      if (!publishCycle) {
+        return res.status(422).json({
+          message: 'publishCycle is required',
+          code: 'MISSING_PUBLISH_CYCLE'
+        });
+      }
     }
 
     if (!decision || !['approve', 'reject'].includes(decision)) {

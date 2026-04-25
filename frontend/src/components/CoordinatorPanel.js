@@ -458,6 +458,22 @@ const CoordinatorPanel = () => {
                         </td>
                         <td style={{ padding: '12px' }}>
                           <button
+                            onClick={() => navigate(`/groups/${group.groupId}/final-grades/approval`)}
+                            style={{
+                              padding: '4px 8px',
+                              backgroundColor: '#0366d6',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '11px',
+                              fontWeight: '600',
+                              marginRight: '6px'
+                            }}
+                          >
+                            Review
+                          </button>
+                          <button
                             onClick={() => navigate(`/groups/${group.groupId}/final-grades/publish`)}
                             style={{
                               padding: '4px 8px',

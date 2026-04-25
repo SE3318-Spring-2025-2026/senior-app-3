@@ -29,6 +29,11 @@ const AuditLog = require('../models/AuditLog');
 const Group = require('../models/Group');
 const { v4: uuidv4 } = require('uuid');
 
+const supportsMongoTransactions = () => {
+  const topologyType = FinalGrade.db?.client?.topology?.description?.type;
+  return ['ReplicaSetWithPrimary', 'Sharded'].includes(topologyType);
+};
+
 /**
  * ISSUE #253: Error class for grade approval specific errors
  * Used to distinguish approval errors from general application errors
@@ -262,8 +267,12 @@ const approveGroupGrades = async (
   // =========================================================================
   // ISSUE #253: START ATOMIC TRANSACTION
   // =========================================================================
-  const session = await FinalGrade.startSession();
-  session.startTransaction();
+  const shouldUseTransaction = supportsMongoTransactions();
+  const session = shouldUseTransaction ? await FinalGrade.startSession() : null;
+
+  if (session) {
+    session.startTransaction();
+  }
 
   try {
     const createdGrades = [];
@@ -295,7 +304,11 @@ const approveGroupGrades = async (
           computedFinalGrade,
           finalGradeId: uuidv4().split('-')[0]
         },
-        { upsert: true, new: true, session }
+        {
+          upsert: true,
+          new: true,
+          ...(session ? { session } : {})
+        }
       );
 
       // ISSUE #253: Apply approval decision
@@ -379,16 +392,18 @@ const approveGroupGrades = async (
       }
 
       // ISSUE #253: Save within transaction
-      await finalGrade.save({ session });
+      await finalGrade.save(session ? { session } : undefined);
       createdGrades.push(finalGrade);
     }
 
     // ISSUE #253: Create all audit logs within transaction
     // Ensures consistency: if we update grades, we must log it
-    await AuditLog.insertMany(auditLogs, { session });
+    await AuditLog.insertMany(auditLogs, session ? { session } : undefined);
 
     // ISSUE #253: Commit transaction
-    await session.commitTransaction();
+    if (session) {
+      await session.commitTransaction();
+    }
 
     // =========================================================================
     // ISSUE #253: END ATOMIC TRANSACTION
@@ -436,8 +451,9 @@ const approveGroupGrades = async (
     };
   } catch (error) {
     // ISSUE #253: Abort transaction on any error
-    await session.abortTransaction();
-    session.endSession();
+    if (session) {
+      await session.abortTransaction();
+    }
 
     if (error instanceof GradeApprovalError) {
       throw error;
@@ -449,7 +465,9 @@ const approveGroupGrades = async (
       'TRANSACTION_FAILED'
     );
   } finally {
-    session.endSession();
+    if (session) {
+      session.endSession();
+    }
   }
 };
 
