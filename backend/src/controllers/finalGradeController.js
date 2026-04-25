@@ -6,6 +6,11 @@ const AuditLog = require('../models/AuditLog');
 const { FinalGrade, FINAL_GRADE_STATUS } = require('../models/FinalGrade');
 const { publishFinalGrades } = require('../services/publishService');
 const { generatePreview } = require('../services/finalGradePreviewService');
+const {
+  FinalGradeReadError,
+  getPublishedGradesForGroup,
+  getPublishedGradesForStudent
+} = require('../services/finalGradeReadService');
 
 const PREVIEW_FORBIDDEN_MESSAGE =
   'Forbidden - only the Coordinator role or authorized Professor/Advisor roles may preview final grades';
@@ -19,6 +24,23 @@ const isCoordinator = (req) => req?.user?.role === 'coordinator';
 const hasValidSystemToken = (req) =>
   typeof req?.headers?.['x-system-auth'] === 'string' &&
   req.headers['x-system-auth'] === process.env.INTERNAL_SYSTEM_TOKEN;
+
+const handleFinalGradeReadError = (res, error) => {
+  if (error instanceof FinalGradeReadError) {
+    return res.status(error.statusCode).json({
+      message: error.message,
+      code: error.errorCode,
+      timestamp: new Date()
+    });
+  }
+
+  console.error('[Published Final Grades] Unexpected read error', error);
+  return res.status(500).json({
+    message: 'Internal server error',
+    code: 'INTERNAL_ERROR',
+    timestamp: new Date()
+  });
+};
 
 /**
  * Controller for Process 8.1 - Final Grade Preview
@@ -220,6 +242,43 @@ const getGroupApprovalSummaryHandler = async (req, res) => {
 };
 
 /**
+ * ISSUE #258 / Script #255: GET /groups/:groupId/final-grades?status=published
+ * Reads only published final grades from D7 with strict group/student RBAC.
+ */
+const getPublishedGroupFinalGradesHandler = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const grades = await getPublishedGradesForGroup(groupId, req.user);
+
+    return res.status(200).json({
+      groupId,
+      status: FINAL_GRADE_STATUS.PUBLISHED,
+      grades
+    });
+  } catch (error) {
+    return handleFinalGradeReadError(res, error);
+  }
+};
+
+/**
+ * ISSUE #258 / Script #255: GET /me/final-grades
+ * Student self-view for published final grades only.
+ */
+const getMyPublishedFinalGradesHandler = async (req, res) => {
+  try {
+    const grades = await getPublishedGradesForStudent(req.user);
+
+    return res.status(200).json({
+      studentId: req.user.userId,
+      status: FINAL_GRADE_STATUS.PUBLISHED,
+      grades
+    });
+  } catch (error) {
+    return handleFinalGradeReadError(res, error);
+  }
+};
+
+/**
  * ISSUE #255: POST /groups/:groupId/final-grades/publish
  * Handler for publishing coordinator-approved final grades to D7 collection.
  */
@@ -332,5 +391,7 @@ module.exports = {
   previewFinalGradesHandler,
   approveGroupGradesHandler,
   getGroupApprovalSummaryHandler,
+  getPublishedGroupFinalGradesHandler,
+  getMyPublishedFinalGradesHandler,
   publishFinalGradesHandler
 };
