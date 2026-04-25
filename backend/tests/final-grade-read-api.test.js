@@ -15,6 +15,7 @@ describe('Issue #258 / Script #255 published final grade read APIs', () => {
   const publishCycle = '2026-Spring';
   const coordinator = { userId: 'coord_read_api', role: 'coordinator' };
   const professor = { userId: 'prof_read_api', role: 'professor' };
+  const advisor = { userId: 'adv_read_api', role: 'advisor' };
   const studentOne = { userId: 'stu_read_one', role: 'student' };
   const studentTwo = { userId: 'stu_read_two', role: 'student' };
 
@@ -48,6 +49,8 @@ describe('Issue #258 / Script #255 published final grade read APIs', () => {
       groupId,
       groupName: 'Read API Group',
       leaderId: studentOne.userId,
+      professorId: professor.userId,
+      advisorId: advisor.userId,
       status: 'active',
       members: [
         { userId: studentOne.userId, role: 'leader', status: 'accepted' },
@@ -137,21 +140,35 @@ describe('Issue #258 / Script #255 published final grade read APIs', () => {
     expect(response.body.grades.find((grade) => grade.studentId === studentTwo.userId).finalGrade).toBe(85);
   });
 
-  it('allows students to read only their own row from the group endpoint', async () => {
+  it('forbids students from reading the group endpoint and enforces /me/final-grades', async () => {
     await seedGroupAndGrades();
 
     const response = await request(app)
       .get(`/api/v1/groups/${groupId}/final-grades?status=published`)
       .set('Authorization', `Bearer ${tokenFor(studentOne)}`);
 
-    expect(response.status).toBe(200);
-    expect(response.body.grades).toHaveLength(1);
-    expect(response.body.grades[0]).toMatchObject({
-      groupId,
-      studentId: studentOne.userId,
-      status: 'published',
-      finalGrade: 90
+    expect(response.status).toBe(403);
+    expect(response.body).toMatchObject({
+      code: 'FORBIDDEN_PUBLISHED_GRADE_READ'
     });
+    expect(response.body.message).toContain('/api/v1/me/final-grades');
+  });
+
+  it('allows assigned professor/advisor to read published rows in their group', async () => {
+    await seedGroupAndGrades();
+
+    const professorResponse = await request(app)
+      .get(`/api/v1/groups/${groupId}/final-grades?status=published`)
+      .set('Authorization', `Bearer ${tokenFor(professor)}`);
+
+    const advisorResponse = await request(app)
+      .get(`/api/v1/groups/${groupId}/final-grades?status=published`)
+      .set('Authorization', `Bearer ${tokenFor(advisor)}`);
+
+    expect(professorResponse.status).toBe(200);
+    expect(advisorResponse.status).toBe(200);
+    expect(professorResponse.body.grades).toHaveLength(2);
+    expect(advisorResponse.body.grades).toHaveLength(2);
   });
 
   it('allows students to read only their own published rows from /me/final-grades', async () => {
@@ -199,14 +216,14 @@ describe('Issue #258 / Script #255 published final grade read APIs', () => {
     expect(response.body).toMatchObject({
       code: 'FORBIDDEN_PUBLISHED_GRADE_READ'
     });
-    expect(response.body.message).toContain('Students may read only their own rows');
+    expect(response.body.message).toContain('/api/v1/me/final-grades');
   });
 
   it('forbids non-coordinator broad group reads', async () => {
     await seedGroupAndGrades();
 
     const response = await request(app)
-      .get(`/api/v1/groups/${groupId}/final-grades?status=published`)
+      .get(`/api/v1/groups/${otherGroupId}/final-grades?status=published`)
       .set('Authorization', `Bearer ${tokenFor(professor)}`);
 
     expect(response.status).toBe(403);
@@ -214,5 +231,18 @@ describe('Issue #258 / Script #255 published final grade read APIs', () => {
       code: 'FORBIDDEN_PUBLISHED_GRADE_READ'
     });
     expect(response.body.message).toContain('only Coordinators');
+  });
+
+  it('returns 400 for invalid status query parameter', async () => {
+    await seedGroupAndGrades();
+
+    const response = await request(app)
+      .get(`/api/v1/groups/${groupId}/final-grades?status=INVALID`)
+      .set('Authorization', `Bearer ${tokenFor(coordinator)}`);
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      code: 'INVALID_STATUS_FILTER'
+    });
   });
 });

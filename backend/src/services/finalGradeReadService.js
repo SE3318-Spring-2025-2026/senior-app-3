@@ -17,20 +17,6 @@ class FinalGradeReadError extends Error {
   }
 }
 
-const isAcceptedGroupMember = async (groupId, studentId) => {
-  const group = await Group.findOne({
-    groupId,
-    members: {
-      $elemMatch: {
-        userId: studentId,
-        status: 'accepted'
-      }
-    }
-  }).select('groupId').lean();
-
-  return Boolean(group);
-};
-
 const serializeFinalGrade = (grade) => {
   const source = typeof grade?.toObject === 'function' ? grade.toObject() : grade;
   const finalGrade =
@@ -82,17 +68,31 @@ const getPublishedGradesForGroup = async (groupId, requester) => {
     return grades.map(serializeFinalGrade);
   }
 
-  if (requester.role === 'student') {
-    const canReadOwnGroupRows = await isAcceptedGroupMember(groupId, requester.userId);
-    if (!canReadOwnGroupRows) {
+  if (requester.role === 'professor' || requester.role === 'advisor') {
+    const group = await Group.findOne({ groupId }).select('advisorId professorId').lean();
+    if (!group) {
+      throw new FinalGradeReadError('Group not found', 404, 'GROUP_NOT_FOUND');
+    }
+
+    const requesterId = requester.userId;
+    const isAssigned =
+      (requester.role === 'advisor' && group.advisorId === requesterId) ||
+      (requester.role === 'professor' && group.professorId === requesterId);
+
+    if (!isAssigned) {
       throw new FinalGradeReadError(PUBLISHED_READ_FORBIDDEN_MESSAGE, 403, 'FORBIDDEN_PUBLISHED_GRADE_READ');
     }
 
-    const grades = await FinalGrade.find({
-      ...query,
-      studentId: requester.userId
-    }).sort({ publishedAt: -1 }).lean();
+    const grades = await FinalGrade.find(query).sort({ studentId: 1, publishedAt: -1 }).lean();
     return grades.map(serializeFinalGrade);
+  }
+
+  if (requester.role === 'student') {
+    throw new FinalGradeReadError(
+      'Forbidden - Students must use /api/v1/me/final-grades for published final grade reads',
+      403,
+      'FORBIDDEN_PUBLISHED_GRADE_READ'
+    );
   }
 
   throw new FinalGradeReadError(PUBLISHED_READ_FORBIDDEN_MESSAGE, 403, 'FORBIDDEN_PUBLISHED_GRADE_READ');

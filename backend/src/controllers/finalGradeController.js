@@ -248,6 +248,16 @@ const getGroupApprovalSummaryHandler = async (req, res) => {
 const getPublishedGroupFinalGradesHandler = async (req, res) => {
   try {
     const { groupId } = req.params;
+    const statusFilter = typeof req.query.status === 'string' ? req.query.status.trim().toLowerCase() : null;
+
+    if (statusFilter && statusFilter !== FINAL_GRADE_STATUS.PUBLISHED) {
+      return res.status(400).json({
+        message: 'Invalid status filter. Only "published" is supported.',
+        code: 'INVALID_STATUS_FILTER',
+        timestamp: new Date()
+      });
+    }
+
     const grades = await getPublishedGradesForGroup(groupId, req.user);
 
     return res.status(200).json({

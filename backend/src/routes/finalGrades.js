@@ -138,6 +138,7 @@ router.get(
 router.get(
   '/:groupId/final-grades',
   authMiddleware,
+  roleMiddleware(['coordinator', 'professor', 'advisor', 'student']),
   getPublishedGroupFinalGradesHandler
 );
 
