@@ -35,6 +35,7 @@ import SprintContributionDashboard from './pages/SprintContributionDashboard.jsx
 import CommitteeFinalResults from './pages/CommitteeFinalResults.jsx';
 import StudentFinalGradesPage from './pages/StudentFinalGradesPage.jsx';
 import FinalGradeReviewPanel from './pages/FinalGradeReviewPanel.jsx';
+import CoordinatorFinalGradeApprovalPanel from './pages/CoordinatorFinalGradeApprovalPanel.jsx';
 import CoordinatorFinalGradePublishPanel from './pages/CoordinatorFinalGradePublishPanel.jsx';
 
 
@@ -147,6 +148,10 @@ function App() {
             <Route
               path="/groups/:groupId/final-grades/review"
               element={<ProtectedRoute component={FinalGradeReviewPanel} requiredRoles={['professor', 'advisor']} />}
+            />
+            <Route
+              path="/groups/:groupId/final-grades/approval"
+              element={<ProtectedRoute component={CoordinatorFinalGradeApprovalPanel} requiredRoles={['coordinator', 'admin']} />}
             />
             <Route
               path="/groups/:groupId/final-grades/publish"
