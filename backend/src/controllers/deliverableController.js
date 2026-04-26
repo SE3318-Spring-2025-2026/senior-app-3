@@ -358,7 +358,11 @@ const validateDeadlineHandler = async (req, res) => {
     });
   }
 
-  const { status, body } = await runDeadlineValidation(stagingId, sprintId, actorId);
+  const { status, body } = await runDeadlineValidation(
+    stagingId,
+    sprintId,
+    actorId
+  );
   return res.status(status).json(body);
 };
 

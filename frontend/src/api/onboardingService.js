@@ -1,10 +1,7 @@
 import apiClient from './apiClient';
-import axios from 'axios';
-
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5002/api/v1';
 
 export const validateStudentId = async (studentId, email) => {
-  const response = await axios.post(`${API_BASE_URL}/onboarding/validate-student-id`, {
+  const response = await apiClient.post('/onboarding/validate-student-id', {
     studentId,
     email,
   });
@@ -17,7 +14,7 @@ export const sendVerificationEmail = async (userId) => {
 };
 
 export const verifyEmail = async (token) => {
-  const response = await axios.post(`${API_BASE_URL}/onboarding/verify-email`, { token });
+  const response = await apiClient.post('/onboarding/verify-email', { token });
   return response.data;
 };
 

@@ -25,6 +25,11 @@ const ScheduleWindow = require('../src/models/ScheduleWindow');
 const Group = require('../src/models/Group');
 const Committee = require('../src/models/Committee');
 const User = require('../src/models/User');
+const SprintRecord = require('../src/models/SprintRecord');
+const SprintConfig = require('../src/models/SprintConfig');
+const DeliverableStaging = require('../src/models/DeliverableStaging');
+
+const DELIVERABLE_TYPES = ['proposal', 'statement_of_work', 'demo', 'interim_report', 'final_report'];
 
 const MONGO_URI =
   process.env.MONGODB_URI || 'mongodb://localhost:27017/senior-app';
@@ -157,12 +162,64 @@ async function ensureCommitteeAssignments() {
   );
 }
 
+async function ensureSprintConfigs() {
+  // Build the union of sprintIds from BOTH SprintRecord (sprints created via
+  // bootstrap or sync) AND SprintConfig (sprints that already have a partial
+  // config from seed scripts but never got a SprintRecord, e.g. `sprint_1`
+  // from seed-test-student). Also include a hard-coded fallback list for
+  // common demo sprint ids so brand-new installs work even when neither
+  // collection mentions them yet.
+  const [recordIds, configIds, stagingSprintIds] = await Promise.all([
+    SprintRecord.distinct('sprintId'),
+    SprintConfig.distinct('sprintId'),
+    DeliverableStaging.distinct('sprintId'),
+  ]);
+  const fallbackDemoIds = ['sprint_1', 'demo-sprint-1'];
+  const allIds = Array.from(
+    new Set(
+      [...recordIds, ...configIds, ...stagingSprintIds, ...fallbackDemoIds].filter(Boolean)
+    )
+  );
+
+  if (allIds.length === 0) {
+    console.log('No sprintIds discovered; skipping sprint-config backfill.');
+    return;
+  }
+
+  const farFutureDeadline = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000);
+  let upserted = 0;
+  for (const sprintId of allIds) {
+    const ops = DELIVERABLE_TYPES.map((deliverableType) => ({
+      updateOne: {
+        filter: { sprintId, deliverableType },
+        update: {
+          $setOnInsert: {
+            sprintId,
+            deliverableType,
+            deadline: farFutureDeadline,
+            configurationStatus: 'published',
+            publishedAt: new Date(),
+            weight: 1,
+          },
+        },
+        upsert: true,
+      },
+    }));
+    const result = await SprintConfig.bulkWrite(ops, { ordered: false });
+    upserted += result.upsertedCount || 0;
+  }
+  console.log(
+    `Sprint configs backfilled: upserted=${upserted} across ${allIds.length} sprint(s) [${allIds.join(', ')}].`
+  );
+}
+
 async function main() {
   console.log(`Connecting to ${MONGO_URI} ...`);
   await mongoose.connect(MONGO_URI);
   try {
     await ensureWindows();
     await ensureCommitteeAssignments();
+    await ensureSprintConfigs();
     console.log('Done.');
   } finally {
     await mongoose.connection.close();

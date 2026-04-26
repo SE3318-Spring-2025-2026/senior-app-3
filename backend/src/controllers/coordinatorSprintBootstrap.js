@@ -18,7 +18,10 @@
 const SprintRecord = require('../models/SprintRecord');
 const Group = require('../models/Group');
 const ContributionRecord = require('../models/ContributionRecord');
+const SprintConfig = require('../models/SprintConfig');
 const { createAuditLog } = require('../services/auditService');
+
+const DELIVERABLE_TYPES = ['proposal', 'statement_of_work', 'demo', 'interim_report', 'final_report'];
 
 const VALID_STATUSES = ['pending', 'in_progress', 'submitted', 'reviewed', 'completed'];
 const SPRINT_ID_RE = /^[A-Za-z0-9._-]+$/;
@@ -113,6 +116,35 @@ const bootstrapSprint = async (req, res) => {
     // recalculate (which expects at least one row) doesn't bail with 422
     // EMPTY_CONTRIBUTION_LIST. Use upsert in case rows already exist for
     // this (sprintId, groupId, studentId) triple from a prior partial run.
+    // Seed a default SprintConfig per deliverable type so Process 5.4
+    // (deadline validation) doesn't bail with DEADLINE_NOT_CONFIGURED on a
+    // freshly bootstrapped sprint. Idempotent via upsert on (sprintId,
+    // deliverableType). Deadline is set far in the future for demo flows.
+    const farFutureDeadline = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000);
+    let sprintConfigsSeeded = 0;
+    try {
+      const cfgOps = DELIVERABLE_TYPES.map((deliverableType) => ({
+        updateOne: {
+          filter: { sprintId, deliverableType },
+          update: {
+            $setOnInsert: {
+              sprintId,
+              deliverableType,
+              deadline: farFutureDeadline,
+              configurationStatus: 'published',
+              publishedAt: new Date(),
+              weight: 1,
+            },
+          },
+          upsert: true,
+        },
+      }));
+      const cfgResult = await SprintConfig.bulkWrite(cfgOps, { ordered: false });
+      sprintConfigsSeeded = cfgResult.upsertedCount || 0;
+    } catch (err) {
+      console.error('bootstrapSprint sprint-config seed error:', err.message);
+    }
+
     let contributionsSeeded = 0;
     if (acceptedMemberIds.length > 0) {
       const ops = acceptedMemberIds.map((studentId) => ({
@@ -168,6 +200,7 @@ const bootstrapSprint = async (req, res) => {
       createdAt: created.createdAt,
       acceptedMemberCount: acceptedMemberIds.length,
       contributionsSeeded,
+      sprintConfigsSeeded,
     });
   } catch (err) {
     if (err && err.code === 11000) {

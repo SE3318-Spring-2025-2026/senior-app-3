@@ -222,8 +222,14 @@ const FileUploadWidget = ({
   };
 
   const handleViewSubmission = () => {
-    if (successData?.deliverableId) {
-      navigate(`/dashboard/deliverables/${successData.deliverableId}`);
+    // Route the student back to their group dashboard (the canonical place
+    // that lists submissions). The standalone "/dashboard/deliverables/:id"
+    // page does not exist in the router, so navigating there 404s.
+    const targetGroupId = successData?.groupId || groupId;
+    if (targetGroupId) {
+      navigate(`/groups/${targetGroupId}`);
+    } else {
+      navigate('/dashboard');
     }
   };
 
