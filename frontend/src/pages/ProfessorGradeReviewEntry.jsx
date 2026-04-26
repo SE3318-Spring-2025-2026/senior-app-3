@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
 import { normalizeGroupId } from '../utils/groupId';
+import './ProfessorGradeReviewEntry.css';
 
 /**
  * Professors/advisors often lack `groupId` on the JWT; the sidebar "Grade Review"
@@ -31,51 +32,47 @@ const ProfessorGradeReviewEntry = () => {
   };
 
   return (
-    <div className="page p-8 max-w-xl mx-auto">
-      <h1 className="text-2xl font-semibold text-slate-800 mb-2">Final grade review</h1>
-      <p className="text-slate-600 text-sm mb-6">
-        Open the read-only snapshot for a group after the coordinator has generated a preview.
-        URL pattern:{' '}
-        <code className="text-xs bg-slate-100 px-1 py-0.5 rounded">/groups/&lt;groupId&gt;/final-grades/review</code>
-      </p>
+    <div className="grade-review-entry-page">
+      <div className="grade-review-entry-card">
+        <header className="grade-review-entry-header">
+          <h1>Final grade review</h1>
+          <p>
+            Open the read-only snapshot for a group after the coordinator has generated a preview.
+          </p>
+          <code>/groups/&lt;groupId&gt;/final-grades/review</code>
+        </header>
 
-      {hintedGroupId && (
-        <div className="mb-6 p-4 rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-900 text-sm">
-          <p className="font-medium mb-2">Linked group on your account</p>
-          <Link
-            className="text-emerald-800 underline font-mono text-sm"
-            to={`/groups/${hintedGroupId}/final-grades/review`}
+        {hintedGroupId && (
+          <div className="grade-review-linked-group">
+            <p>Linked group on your account</p>
+            <Link to={`/groups/${hintedGroupId}/final-grades/review`}>
+              {hintedGroupId}
+            </Link>
+          </div>
+        )}
+
+        <label htmlFor="grade-review-group">Group ID</label>
+        <div className="grade-review-entry-actions">
+          <input
+            id="grade-review-group"
+            type="text"
+            placeholder="e.g. grp_9d7ee1f4"
+            value={rawId}
+            onChange={(e) => setRawId(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && go()}
+          />
+          <button
+            type="button"
+            disabled={!normalized}
+            onClick={go}
           >
-            {hintedGroupId}
-          </Link>
+            Open review
+          </button>
         </div>
-      )}
-
-      <label htmlFor="grade-review-group" className="block text-sm font-medium text-slate-700 mb-1">
-        Group ID
-      </label>
-      <div className="flex gap-2 flex-wrap">
-        <input
-          id="grade-review-group"
-          type="text"
-          className="flex-1 min-w-[200px] border border-slate-300 rounded-md px-3 py-2 text-sm font-mono"
-          placeholder="e.g. grp_9d7ee1f4"
-          value={rawId}
-          onChange={(e) => setRawId(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && go()}
-        />
-        <button
-          type="button"
-          className="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium disabled:opacity-50"
-          disabled={!normalized}
-          onClick={go}
-        >
-          Open review
-        </button>
+        {!normalized && rawId.trim() && (
+          <p className="grade-review-entry-warning">Enter a valid group id (grp_...).</p>
+        )}
       </div>
-      {!normalized && rawId.trim() && (
-        <p className="text-amber-700 text-xs mt-2">Enter a valid group id (grp_…).</p>
-      )}
     </div>
   );
 };

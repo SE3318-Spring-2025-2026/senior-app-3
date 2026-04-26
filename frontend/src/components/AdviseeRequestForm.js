@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
 import { getGroup } from '../api/groupService';
@@ -10,6 +10,86 @@ import {
 } from '../api/advisorService';
 import { normalizeGroupId } from '../utils/groupId';
 import './AdviseeRequestForm.css';
+
+const ProfessorDropdown = ({ value, professors, onChange, disabled }) => {
+  const [open, setOpen] = useState(false);
+  const dropdownRef = useRef(null);
+  const selectedProfessor = professors.find((professor) => professor.userId === value);
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) {
+      setOpen(false);
+    }
+  }, [disabled]);
+
+  const handleSelect = (professorId) => {
+    onChange(professorId);
+    setOpen(false);
+  };
+
+  return (
+    <div className="advisor-dropdown" ref={dropdownRef}>
+      <button
+        id="professor"
+        type="button"
+        className="advisor-dropdown-trigger"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            setOpen(false);
+          }
+        }}
+      >
+        <span>{selectedProfessor?.name || 'Choose a Professor'}</span>
+        <span className="advisor-dropdown-arrow" aria-hidden="true">⌄</span>
+      </button>
+
+      {open && (
+        <div className="advisor-dropdown-menu" role="listbox" aria-labelledby="professor">
+          <button
+            type="button"
+            role="option"
+            aria-selected={!value}
+            className={`advisor-dropdown-option ${!value ? 'selected' : ''}`}
+            onClick={() => handleSelect('')}
+          >
+            Choose a Professor
+          </button>
+          {professors.map((professor) => (
+            <button
+              key={professor.userId}
+              type="button"
+              role="option"
+              aria-selected={professor.userId === value}
+              className={`advisor-dropdown-option ${
+                professor.userId === value ? 'selected' : ''
+              }`}
+              onClick={() => handleSelect(professor.userId)}
+            >
+              {professor.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 /**
  * Team leader submits a request for a faculty advisor
@@ -271,20 +351,12 @@ const AdviseeRequestForm = () => {
         <form onSubmit={handleSubmit} className="advisor-form">
           <div className="form-group">
             <label htmlFor="professor">Select Professor</label>
-            <select
-              id="professor"
+            <ProfessorDropdown
               value={selectedProfessor}
-              onChange={(e) => setSelectedProfessor(e.target.value)}
-              required
+              professors={professors}
+              onChange={setSelectedProfessor}
               disabled={(!windowInfo.open || scheduleBoundaryLocked) && !devBypass ? true : isSubmitting}
-            >
-              <option value="">-- Choose a Professor --</option>
-              {professors.map((p) => (
-                <option key={p.userId} value={p.userId}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+            />
           </div>
 
           <div className="form-group">

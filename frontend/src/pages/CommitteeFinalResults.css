@@ -6,16 +6,21 @@
 }
 
 .committee-results-header {
-  align-items: flex-start;
+  align-items: center;
+  background: #ffffff;
+  border-left: 4px solid #667eea;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.08);
   display: flex;
   gap: 20px;
   justify-content: space-between;
   margin: 0 auto 22px;
   max-width: 1180px;
+  padding: 24px 28px;
 }
 
 .committee-results-kicker {
-  color: #2563eb;
+  color: #667eea;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0;
@@ -37,9 +42,9 @@
 }
 
 .committee-results-button {
-  background: #2563eb;
-  border: 1px solid #2563eb;
-  border-radius: 6px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: 1px solid transparent;
+  border-radius: 8px;
   color: #ffffff;
   cursor: pointer;
   font-size: 14px;
@@ -99,8 +104,9 @@
 .committee-results-metrics > div {
   background: #ffffff;
   border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 16px;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.07);
 }
 
 .metric-label {
@@ -122,7 +128,8 @@
 .committee-results-panel {
   background: #ffffff;
   border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.07);
   overflow: hidden;
 }
 
@@ -167,9 +174,10 @@
 
 .committee-results-table th {
   background: #f8fafc;
-  color: #475569;
-  font-size: 12px;
+  color: #9ca3af;
+  font-size: 11px;
   font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
@@ -206,6 +214,7 @@
   }
 
   .committee-results-header {
+    align-items: stretch;
     flex-direction: column;
   }
 

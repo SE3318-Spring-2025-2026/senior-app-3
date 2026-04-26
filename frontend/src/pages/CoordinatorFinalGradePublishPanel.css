@@ -1,20 +1,34 @@
 .publish-panel-container {
-  padding: 24px;
+  min-height: 100vh;
+  padding: 32px 24px;
   max-width: 900px;
   margin: 0 auto;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+body:has(.publish-panel-container) {
+  background: #f8fafc;
+}
+
+.publish-header {
+  background: #ffffff;
+  border-left: 4px solid #667eea;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.08);
+  margin-bottom: 28px;
+  padding: 24px 28px;
 }
 
 .publish-header h1 {
   margin: 0 0 8px 0;
-  font-size: 28px;
-  color: #111827;
+  font-size: 26px;
+  color: #1a1a2e;
 }
 
 .publish-header p {
-  margin: 0 0 24px 0;
+  margin: 0;
   color: #6b7280;
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .summary-cards {
@@ -24,15 +38,16 @@
   margin-bottom: 32px;
 }
 
-.card {
-  background: #f9fafb;
+.summary-cards .card {
+  background: #ffffff;
   border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 20px;
   text-align: center;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.07);
 }
 
-.card h3 {
+.summary-cards .card h3 {
   margin: 0 0 12px 0;
   font-size: 14px;
   color: #4b5563;
@@ -40,50 +55,51 @@
   letter-spacing: 0.05em;
 }
 
-.card .count {
+.summary-cards .card .count {
   margin: 0;
   font-size: 36px;
   font-weight: 700;
   color: #1f2937;
 }
 
-.card.approved {
+.summary-cards .card.approved {
   background: #f0fdf4;
   border-color: #bbf7d0;
 }
 
-.card.approved h3 {
+.summary-cards .card.approved h3 {
   color: #166534;
 }
 
-.card.approved .count {
+.summary-cards .card.approved .count {
   color: #15803d;
 }
 
-.card.published {
+.summary-cards .card.published {
   background: #eff6ff;
   border-color: #bfdbfe;
 }
 
-.card.published h3 {
+.summary-cards .card.published h3 {
   color: #1e40af;
 }
 
-.card.published .count {
+.summary-cards .card.published .count {
   color: #1d4ed8;
 }
 
 .publish-actions {
   text-align: center;
-  margin-top: 40px;
+  margin-top: 24px;
   padding: 30px;
   background: #fff;
   border-radius: 12px;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.07);
 }
 
 .btn-publish {
-  background-color: #4f46e5;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   border: none;
   padding: 14px 28px;
@@ -95,8 +111,7 @@
 }
 
 .btn-publish:hover:not(.disabled) {
-  background-color: #4338ca;
-  transform: translateY(-1px);
+  opacity: 0.9;
 }
 
 .btn-publish.disabled {
@@ -155,7 +170,7 @@
   width: 100%;
   padding: 10px;
   border: 1px solid #d1d5db;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 14px;
   box-sizing: border-box;
 }
@@ -164,7 +179,7 @@
   width: 100%;
   padding: 10px;
   border: 1px solid #d1d5db;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 14px;
   background: #f9fafb;
   color: #374151;
@@ -208,7 +223,7 @@
   background: white;
   border: 1px solid #d1d5db;
   padding: 10px 16px;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   font-weight: 500;
 }
@@ -218,11 +233,11 @@
 }
 
 .btn-confirm {
-  background: #059669;
+  background: #16a34a;
   color: white;
   border: none;
   padding: 10px 20px;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   font-weight: 600;
 }
@@ -235,7 +250,7 @@
   color: #dc2626;
   background: #fef2f2;
   padding: 12px;
-  border-radius: 6px;
+  border-radius: 8px;
   margin-bottom: 16px;
   font-size: 14px;
   border: 1px solid #f87171;
@@ -260,7 +275,8 @@
   padding: 40px;
   border-radius: 12px;
   text-align: center;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.07);
 }
 
 .publish-success-state h2 {
@@ -311,15 +327,26 @@
 }
 
 .btn-primary {
-  background: #4f46e5;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   border: none;
   padding: 12px 24px;
-  border-radius: 6px;
+  border-radius: 8px;
   font-weight: 600;
   cursor: pointer;
 }
 
 .btn-primary:hover {
-  background: #4338ca;
+  opacity: 0.9;
+}
+
+@media (max-width: 760px) {
+  .publish-panel-container {
+    padding: 22px 16px 36px;
+  }
+
+  .summary-cards,
+  .publish-stats {
+    grid-template-columns: 1fr;
+  }
 }

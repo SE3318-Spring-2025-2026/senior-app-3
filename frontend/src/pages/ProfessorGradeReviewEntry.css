@@ -1,0 +1,141 @@
+.grade-review-entry-page {
+  align-items: flex-start;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 40px 20px;
+  color: #333;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.grade-review-entry-card {
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+  max-width: 620px;
+  padding: 40px;
+  width: 100%;
+}
+
+.grade-review-entry-header {
+  border-bottom: 1px solid #e5e7eb;
+  margin-bottom: 28px;
+  padding-bottom: 24px;
+  text-align: center;
+}
+
+.grade-review-entry-header h1 {
+  color: #333;
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.grade-review-entry-header p {
+  color: #666;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin: 0 0 14px;
+}
+
+.grade-review-entry-header code {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  color: #374151;
+  display: inline-block;
+  font-size: 0.8rem;
+  padding: 4px 8px;
+}
+
+.grade-review-linked-group {
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  color: #166534;
+  margin-bottom: 24px;
+  padding: 14px 16px;
+}
+
+.grade-review-linked-group p {
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.grade-review-linked-group a {
+  color: #047857;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.grade-review-entry-card label {
+  color: #333;
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.grade-review-entry-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.grade-review-entry-actions input {
+  border: 2px solid #e0e0e0;
+  border-radius: 6px;
+  color: #1f2937;
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.95rem;
+  min-width: 0;
+  padding: 11px 14px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.grade-review-entry-actions input:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.12);
+  outline: none;
+}
+
+.grade-review-entry-actions button {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  border-radius: 6px;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 11px 18px;
+  white-space: nowrap;
+}
+
+.grade-review-entry-actions button:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.grade-review-entry-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.grade-review-entry-warning {
+  color: #b45309;
+  font-size: 0.82rem;
+  margin: 8px 0 0;
+}
+
+@media (max-width: 620px) {
+  .grade-review-entry-card {
+    padding: 28px 22px;
+  }
+
+  .grade-review-entry-actions {
+    flex-direction: column;
+  }
+}
