@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import useOnboardingStore, { STEPS } from '../../store/onboardingStore';
 import useAuthStore from '../../store/authStore';
@@ -8,7 +8,7 @@ import {
   verifyEmail,
   completeOnboarding,
 } from '../../api/onboardingService';
-import { registerStudent } from '../../api/authService';
+import { registerStudent, getAccount } from '../../api/authService';
 import { validatePasswordStrength } from '../../utils/passwordValidator';
 import './OnboardingStepper.css';
 
@@ -112,28 +112,31 @@ const Step1 = ({ onNext, onBack }) => {
 // ─────────────────────────────────────────────
 const Step2 = ({ onNext, onBack }) => {
   const navigate = useNavigate();
-  const { validationToken, email, userId, setUserId, setStepComplete, setEmailLastSentAt } = useOnboardingStore();
+  const { validationToken, email, password, userId, setUserId, setStepComplete, setEmailLastSentAt } =
+    useOnboardingStore();
   const { setAuth } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState('');
   const [accountExists, setAccountExists] = useState(false);
   const [done, setDone] = useState(!!userId);
-
-  useEffect(() => {
-    // Auto-submit if we already have a validationToken and no userId yet
-    if (validationToken && !userId) {
-      handleRegister();
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const autoRegisterFired = useRef(false);
+  const registerInFlight = useRef(false);
 
   const handleRegister = async () => {
+    if (registerInFlight.current) return;
+    const { validationToken: vt, email: em, password: pw, userId: uid } = useOnboardingStore.getState();
+    if (!vt || !em || !pw) {
+      setApiError('Missing sign-up data. Go back, complete student validation, and try again.');
+      return;
+    }
+    if (uid) {
+      return;
+    }
+    registerInFlight.current = true;
     setLoading(true);
     setApiError('');
     try {
-      // We need the password — stored in the validationToken (it was validated in step 1)
-      // Re-read from store
-      const password = useOnboardingStore.getState().password;
-      const response = await registerStudent(validationToken, email, password || '');
+      const response = await registerStudent(vt, em, pw);
       setAuth(
         { userId: response.userId, email: response.email, role: 'student',
           groupId: response.groupId,
@@ -180,8 +183,19 @@ const Step2 = ({ onNext, onBack }) => {
       setApiError(msg);
     } finally {
       setLoading(false);
+      registerInFlight.current = false;
     }
   };
+
+  // Auto-register once token + password are available (incl. after zustand persist rehydration)
+  useEffect(() => {
+    if (autoRegisterFired.current || userId) return;
+    if (!validationToken || !email || !password) return;
+    autoRegisterFired.current = true;
+    void handleRegister();
+    // Intentionally omit handleRegister: stable behavior via getState() inside it + autoRegisterFired guard
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [validationToken, email, password, userId]);
 
   if (loading) {
     return (
@@ -250,6 +264,7 @@ const Step3 = ({ onNext, onBack, urlToken }) => {
   const [tokenError, setTokenError] = useState('');
   const [alreadyVerified, setAlreadyVerified] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
+  const autoVerifyOnce = useRef(false);
 
   // Compute initial countdown from emailLastSentAt stored in the onboarding store
   useEffect(() => {
@@ -266,38 +281,71 @@ const Step3 = ({ onNext, onBack, urlToken }) => {
     return () => clearInterval(timer);
   }, [secondsLeft]);
 
-  // Auto-verify when token comes from URL deep-link
-  useEffect(() => {
-    if (urlToken) {
-      submitVerify(urlToken);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const submitVerify = async (t) => {
-    setLoading(true);
-    setApiError('');
-    try {
-      const data = await verifyEmail(t);
-      if (data.code === 'ALREADY_VERIFIED') {
-        setAlreadyVerified(true);
-        setUser({ emailVerified: true, accountStatus: data.accountStatus });
-        setStepComplete('emailVerified');
+  const submitVerify = useCallback(
+    async (t) => {
+      const raw = t != null ? String(t).trim() : '';
+      if (!raw) {
+        setTokenError('Please enter the verification token');
         return;
       }
-      setUser({ emailVerified: true, accountStatus: data.accountStatus });
-      setStepComplete('emailVerified');
-      onNext();
-    } catch (err) {
-      const code = err.response?.data?.code;
-      if (code === 'EXPIRED_TOKEN') {
-        setApiError('Your verification link has expired. Please request a new one.');
-      } else {
-        setApiError(err.response?.data?.message || 'Invalid token. Please check and try again.');
+      setLoading(true);
+      setApiError('');
+      setTokenError('');
+      try {
+        const data = await verifyEmail(raw);
+        if (data.code === 'ALREADY_VERIFIED') {
+          setAlreadyVerified(true);
+          setUser({ emailVerified: true, accountStatus: data.accountStatus });
+          setStepComplete('emailVerified');
+          return;
+        }
+        setUser({ emailVerified: true, accountStatus: data.accountStatus });
+        setStepComplete('emailVerified');
+        onNext();
+      } catch (err) {
+        const code = err.response?.data?.code;
+        const status = err.response?.status;
+        // After a successful verify the server clears the token; a duplicate request (refresh/strict mode)
+        // gets INVALID_TOKEN — recover by checking account if we are logged in.
+        if ((code === 'INVALID_TOKEN' || code === 'MISSING_FIELDS') && status === 400) {
+          const uid = useOnboardingStore.getState().userId;
+          if (uid) {
+            try {
+              const acc = await getAccount(uid);
+              if (acc.emailVerified) {
+                setUser({ emailVerified: true, accountStatus: acc.accountStatus });
+                setStepComplete('emailVerified');
+                onNext();
+                return;
+              }
+            } catch {
+              /* fall through */
+            }
+          }
+        }
+        if (code === 'EXPIRED_TOKEN') {
+          setApiError('Your verification link has expired. Please request a new one.');
+        } else if (code === 'INVALID_TOKEN') {
+          setApiError(
+            'This verification link is invalid or was already used. If your email is already verified, continue to the dashboard or sign in again.'
+          );
+        } else {
+          setApiError(err.response?.data?.message || 'Invalid token. Please check and try again.');
+        }
+      } finally {
+        setLoading(false);
       }
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    [setUser, setStepComplete, onNext]
+  );
+
+  // Auto-verify when token comes from URL deep-link (once; trimmed; no empty POST)
+  useEffect(() => {
+    const raw = urlToken != null ? String(urlToken).trim() : '';
+    if (!raw || autoVerifyOnce.current) return;
+    autoVerifyOnce.current = true;
+    void submitVerify(raw);
+  }, [urlToken, submitVerify]);
 
   const handleVerify = async (e) => {
     e.preventDefault();

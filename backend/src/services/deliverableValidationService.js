@@ -7,6 +7,7 @@ const Deliverable = require('../models/Deliverable');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
 const { validateFormat, validateFileSize } = require('../utils/fileValidator');
+const { ensureDemoSprintConfigsForSprint } = require('./sprintConfigSeedService');
 
 /**
  * Fire-and-forget audit log. Swallows errors so logging never blocks response.
@@ -228,10 +229,9 @@ const checkTeamRequirements = async (groupId) => {
  * and prior submission count from D4.
  *
  * @param {string} stagingId
- * @param {string} sprintId
  * @returns {{ eligible: boolean, submissionVersion: number, priorSubmissions: number, reason?: string, deadlineResult?: object, teamResult?: object }}
  */
-const checkSubmissionEligibility = async (stagingId, sprintId) => {
+const checkSubmissionEligibility = async (stagingId) => {
   let staging;
   try {
     staging = await DeliverableStaging.findOne({ stagingId }).lean();
@@ -245,7 +245,7 @@ const checkSubmissionEligibility = async (stagingId, sprintId) => {
   }
 
   const [deadlineResult, teamResult] = await Promise.all([
-    checkDeadline(sprintId, staging.deliverableType),
+    checkDeadline(staging.sprintId, staging.deliverableType),
     checkTeamRequirements(staging.groupId),
   ]);
 
@@ -315,11 +315,11 @@ const checkSubmissionEligibility = async (stagingId, sprintId) => {
  *  4. On success: set status = 'requirements_validated', return success payload.
  *
  * @param {string} stagingId
- * @param {string} sprintId
+ * @param {string|null|undefined} bodySprintId - optional; if sent, must match staging.sprintId
  * @param {string} actorId - userId performing the request
  * @returns {{ status: number, body: object }}
  */
-const runDeadlineValidation = async (stagingId, sprintId, actorId) => {
+const runDeadlineValidation = async (stagingId, bodySprintId, actorId) => {
   // 1. Look up staging record
   let staging;
   try {
@@ -336,7 +336,22 @@ const runDeadlineValidation = async (stagingId, sprintId, actorId) => {
     };
   }
 
-  if (staging.status !== 'format_validated') {
+  if (bodySprintId != null && String(bodySprintId).trim() !== String(staging.sprintId)) {
+    return {
+      status: 400,
+      body: {
+        code: 'SPRINT_ID_MISMATCH',
+        message: 'sprintId in the request does not match this staging record',
+      },
+    };
+  }
+
+  // Allow retry from `deadline_failed` so that if the underlying cause
+  // (e.g. missing SprintConfig deadline) gets fixed, the user can resume
+  // without re-uploading. Format was already validated; only the deadline
+  // / team eligibility branch failed.
+  const RETRYABLE_STATES = ['format_validated', 'deadline_failed'];
+  if (!RETRYABLE_STATES.includes(staging.status)) {
     return {
       status: 404,
       body: {
@@ -346,10 +361,13 @@ const runDeadlineValidation = async (stagingId, sprintId, actorId) => {
     };
   }
 
-  // 2. Run eligibility checks
+  // 1b. Local dev: ensure D8 has placeholder deadlines so 5.4 does not fail on fresh DBs
+  await ensureDemoSprintConfigsForSprint(staging.sprintId);
+
+  // 2. Run eligibility checks (deadline uses staging.sprintId + deliverableType from DB)
   let eligibility;
   try {
-    eligibility = await checkSubmissionEligibility(stagingId, sprintId);
+    eligibility = await checkSubmissionEligibility(stagingId);
   } catch (err) {
     console.error('[deliverableValidationService] runDeadlineValidation eligibility error:', err);
     return { status: 500, body: { code: 'INTERNAL_ERROR', message: 'Eligibility check failed' } };

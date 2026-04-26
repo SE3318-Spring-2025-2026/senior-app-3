@@ -293,6 +293,8 @@ const publishGradesToD7WithTransaction = async (groupId, coordinatorId, grades) 
  * @param {String} coordinatorId - Coordinator who published
  * @param {Boolean} notifyFaculty - Should faculty receive notifications?
  * @param {String} correlationId - Trace ID for this publish operation
+ * @param {Boolean} shouldNotifyStudents - Whether to notify any student (any channel on)
+ * @param {{ email: boolean, sms: boolean, push: boolean }} channelFlags
  * @returns {Promise<Object>} { sent: Number, failed: Number, skipped: Number }
  */
 const dispatchNotificationsAsync = async (
@@ -300,6 +302,8 @@ const dispatchNotificationsAsync = async (
   grades,
   coordinatorId,
   notifyFaculty,
+  shouldNotifyStudents,
+  channelFlags,
   correlationId
 ) => {
   // ISSUE #255: Non-blocking dispatch via setImmediate
@@ -309,20 +313,22 @@ const dispatchNotificationsAsync = async (
     let failedCount = 0;
 
     try {
-      // ISSUE #255: Dispatch student notifications (one per grade)
-      for (const grade of grades) {
-        try {
-          // ISSUE #255: Create student notification dispatch function
-          const dispatchFn = async () => {
-            return await dispatchFinalGradeNotificationToStudent({
-              groupId,
-              studentId: grade.studentId,
-              finalGrade: grade.getEffectiveGrade(),
-              publishedAt: new Date(),
-              coordinatorId,
-              groupName: (await Group.findOne({ groupId }))?.groupName
-            });
-          };
+      // ISSUE #255: Dispatch student notifications (one per grade) when a channel is selected
+      if (shouldNotifyStudents) {
+        for (const grade of grades) {
+          try {
+            // ISSUE #255: Create student notification dispatch function
+            const dispatchFn = async () => {
+              return await dispatchFinalGradeNotificationToStudent({
+                groupId,
+                studentId: grade.studentId,
+                finalGrade: grade.getEffectiveGrade(),
+                publishedAt: new Date(),
+                coordinatorId,
+                groupName: (await Group.findOne({ groupId }))?.groupName,
+                notificationFlags: channelFlags
+              });
+            };
 
           // ISSUE #255: Retry up to 3 times with backoff
           const result = await retryNotificationWithBackoff(dispatchFn, {
@@ -354,9 +360,13 @@ const dispatchNotificationsAsync = async (
               lastError: `${errCode}: ${errMsg}`
             });
           }
-        } catch (err) {
-          failedCount++;
-          console.error(`[Issue #255] Student notification failed for ${grade.studentId}:`, err.message);
+          } catch (err) {
+            failedCount++;
+            console.error(
+              `[Issue #255] Student notification failed for ${grade.studentId}:`,
+              err.message
+            );
+          }
         }
       }
 
@@ -487,18 +497,31 @@ const publishFinalGrades = async (
       `[Issue #255] D7 publication complete. Published ${publishResult.publishCount} grades.`
     );
 
-    // ISSUE #255: Step 3 - Dispatch notifications asynchronously (non-blocking)
-    const notifyOptions = {
-      notifyFaculty: options.notifyFaculty || false,
-      notifyStudents: options.notifyStudents !== false // Default true
-    };
+    // ISSUE #255: Per-channel flags from UI, or legacy notifyStudents (email only)
+    const rawFlags = options.notificationFlags;
+    const hasChannelPayload = rawFlags && typeof rawFlags === 'object' && !Array.isArray(rawFlags);
+    const channelFlags = hasChannelPayload
+      ? {
+          email: Boolean(rawFlags.email),
+          sms: Boolean(rawFlags.sms),
+          push: Boolean(rawFlags.push)
+        }
+      : {
+          email: options.notifyStudents !== false,
+          sms: false,
+          push: false
+        };
+    const anyStudentChannel = channelFlags.email || channelFlags.sms || channelFlags.push;
+    const notifyFaculty = options.notifyFaculty || false;
 
     // ISSUE #255: Fire-and-forget: dispatch immediately but don't await
     dispatchNotificationsAsync(
       groupId,
       eligibilityCheck.grades,
       coordinatorId,
-      notifyOptions.notifyFaculty,
+      notifyFaculty,
+      anyStudentChannel,
+      channelFlags,
       correlationId
     ).catch(err => {
       console.error(`[Issue #255] Notification dispatch queue error:`, err);
@@ -506,16 +529,20 @@ const publishFinalGrades = async (
 
     // ISSUE #255: Step 4 - Return success response for frontend
     // Issue #255 marks publication complete; Issue #256 will query D7 for dashboard
-    return {
+    const responseShape = {
       success: true,
       publishId: correlationId,
       publishedAt: publishResult.publishedAt,
+      publishCycle: options.publishCycle || null,
       groupId,
       groupName: eligibilityCheck.groupName,
       studentCount: eligibilityCheck.grades.length,
-      notificationsDispatched: notifyOptions.notifyStudents || notifyOptions.notifyFaculty,
+      publishedCount: publishResult.publishCount,
+      notificationsDispatched: anyStudentChannel || notifyFaculty,
+      notificationStatus: { email: channelFlags.email, sms: channelFlags.sms, push: channelFlags.push },
       message: `Successfully published ${eligibilityCheck.grades.length} final grades to D7`
     };
+    return responseShape;
 
   } catch (error) {
     // ISSUE #255: Log publication failure with correlation ID for debugging

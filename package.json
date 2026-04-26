@@ -1,0 +1,13 @@
+{
+  "name": "senior-app-3",
+  "private": true,
+  "description": "Convenience scripts to run API + web together for local development.",
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,magenta \"npm run dev --prefix backend\" \"npm start --prefix frontend\"",
+    "dev:backend": "npm run dev --prefix backend",
+    "dev:frontend": "npm start --prefix frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
