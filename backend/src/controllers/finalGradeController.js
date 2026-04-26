@@ -456,7 +456,19 @@ const publishFinalGradesHandler = async (req, res) => {
     }
 
     const { groupId } = req.params;
-    const { notifyStudents, notifyFaculty } = req.body;
+    const { notifyStudents, notifyFaculty, publishCycle, notificationFlags } = req.body;
+    const normalizedFlags =
+      notificationFlags && typeof notificationFlags === 'object' && !Array.isArray(notificationFlags)
+        ? {
+            email: Boolean(notificationFlags.email),
+            sms: Boolean(notificationFlags.sms),
+            push: Boolean(notificationFlags.push)
+          }
+        : {
+            email: notifyStudents !== false,
+            sms: false,
+            push: false
+          };
 
     if (!groupId || typeof groupId !== 'string' || groupId.trim() === '') {
       return res.status(400).json({
@@ -486,7 +498,11 @@ const publishFinalGradesHandler = async (req, res) => {
       }
     }
 
-    console.log(`[Issue #255] Publish attempt - Group: ${groupId}, Actor: ${actorId}, Notify: S=${notifyStudents} F=${notifyFaculty}`);
+    console.log(
+      `[Issue #255] Publish attempt - Group: ${groupId}, Actor: ${actorId}, flags=${JSON.stringify(
+        normalizedFlags
+      )} F=${notifyFaculty || false}`
+    );
 
     let publishResult;
     try {
@@ -494,8 +510,9 @@ const publishFinalGradesHandler = async (req, res) => {
         groupId,
         actorId,
         {
-          notifyStudents: notifyStudents !== false, // Default true
-          notifyFaculty: notifyFaculty || false     // Default false
+          publishCycle: publishCycle || null,
+          notificationFlags: normalizedFlags,
+          notifyFaculty: notifyFaculty || false
         }
       );
     } catch (error) {

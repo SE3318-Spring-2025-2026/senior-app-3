@@ -356,7 +356,8 @@ const dispatchFinalGradeNotificationToStudent = async ({
   finalGrade,
   publishedAt,
   coordinatorId,
-  groupName
+  groupName,
+  notificationFlags = { email: true, sms: false, push: false }
 }) => {
   console.log(
     `[Issue #255] Dispatching final grade notification to student ${studentId} in group ${groupId}`
@@ -369,6 +370,11 @@ const dispatchFinalGradeNotificationToStudent = async ({
         type: 'final_grade_published',
         groupId,
         studentId,
+        notificationFlags: {
+          email: Boolean(notificationFlags.email),
+          sms: Boolean(notificationFlags.sms),
+          push: Boolean(notificationFlags.push)
+        },
         payload: {
           finalGrade,
           publishedAt: publishedAt.toISOString(),

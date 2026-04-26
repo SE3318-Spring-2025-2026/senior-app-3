@@ -586,8 +586,21 @@ const getGroupCommitteeStatus = async (req, res) => {
     return res.status(200).json({
       groupId,
       committeeId: group.committeeId || null,
+      // Flat fields kept for any consumer that already relies on them.
       committeeStatus: committee?.status || null,
       publishedAt: committee?.publishedAt || null,
+      // Nested object expected by the GroupDashboard / CommitteeStatusCard FE.
+      committee: committee
+        ? {
+            committeeId: committee.committeeId,
+            committeeName: committee.committeeName,
+            description: committee.description || null,
+            status: committee.status,
+            advisorIds: committee.advisorIds || [],
+            juryIds: committee.juryIds || [],
+            publishedAt: committee.publishedAt || null,
+          }
+        : null,
     });
   } catch (error) {
     console.error('getGroupCommitteeStatus error:', error);
