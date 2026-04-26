@@ -1,13 +1,40 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
-import { getMyPendingInvitation } from '../api/groupService';
+import { getMyPendingInvitation, submitMembershipDecision } from '../api/groupService';
 import { getMyAdvisorRequests, decideOnAdvisorRequest } from '../api/advisorService';
+import { normalizeGroupId } from '../utils/groupId';
 import './Dashboard.css';
+
+const resolveInvitationDetails = (invitation) => {
+  if (!invitation || typeof invitation !== 'object') {
+    return { groupId: null, groupName: '' };
+  }
+
+  const nestedGroup = invitation.group || invitation.groupInfo || null;
+  const rawGroupId =
+    invitation.group_id ||
+    invitation.groupId ||
+    nestedGroup?.group_id ||
+    nestedGroup?.groupId ||
+    null;
+  const rawGroupName =
+    invitation.group_name ||
+    invitation.groupName ||
+    nestedGroup?.group_name ||
+    nestedGroup?.groupName ||
+    '';
+
+  return {
+    groupId: normalizeGroupId(String(rawGroupId || '')),
+    groupName: typeof rawGroupName === 'string' ? rawGroupName.trim() : '',
+  };
+};
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
+  const setUser = useAuthStore((state) => state.setUser);
   const [invitation, setInvitation] = useState(null);
   const [loading, setLoading] = useState(true);
   const [invitationError, setInvitationError] = useState('');
@@ -15,6 +42,9 @@ const Dashboard = () => {
   const [advisorLoading, setAdvisorLoading] = useState(false);
   const [advisorError, setAdvisorError] = useState('');
   const [decisionState, setDecisionState] = useState({});
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteDecisionLoading, setInviteDecisionLoading] = useState(false);
+  const [inviteDecisionMessage, setInviteDecisionMessage] = useState('');
 
   useEffect(() => {
     const loadStudentData = async () => {
@@ -22,15 +52,17 @@ const Dashboard = () => {
         setLoading(false);
         return;
       }
-
-      getMyPendingInvitation()
-        .then((inv) => setInvitation(inv))
-        .catch((err) => {
-          if (err?.response?.status !== 404) {
-            setInvitationError('Could not load invitation status. Please refresh.');
-          }
-        })
-        .finally(() => setLoading(false));
+      setInvitationError('');
+      try {
+        const inv = await getMyPendingInvitation();
+        setInvitation(inv);
+      } catch (err) {
+        if (err?.response?.status !== 404) {
+          setInvitationError('Could not load invitation status. Please refresh.');
+        }
+      } finally {
+        setLoading(false);
+      }
     };
 
     loadStudentData();
@@ -59,6 +91,9 @@ const Dashboard = () => {
 
   const isStudent = user?.role === 'student';
   const isProfessor = user?.role === 'professor';
+  const invitationDetails = resolveInvitationDetails(invitation);
+  const invitationGroupId = invitationDetails.groupId;
+  const invitationGroupName = invitationDetails.groupName;
 
   const updateDecisionDraft = (requestId, updates) => {
     setDecisionState((prev) => ({
@@ -102,6 +137,31 @@ const Dashboard = () => {
     }
   };
 
+  const handleInvitationDecision = async (decision) => {
+    if (!invitationGroupId || !user?.userId) {
+      setInviteDecisionMessage('Invitation is missing a valid group id.');
+      return;
+    }
+
+    setInviteDecisionLoading(true);
+    setInviteDecisionMessage('');
+    try {
+      await submitMembershipDecision(invitationGroupId, decision, user.userId);
+      if (decision === 'accepted') {
+        setUser({ groupId: invitationGroupId });
+        navigate(`/groups/${invitationGroupId}`);
+        return;
+      }
+      setInvitation(null);
+      setShowInviteModal(false);
+      setInviteDecisionMessage('Invitation declined.');
+    } catch (error) {
+      setInviteDecisionMessage(error?.response?.data?.message || 'Could not process invitation.');
+    } finally {
+      setInviteDecisionLoading(false);
+    }
+  };
+
   return (
     <div className="dashboard-page">
       <div className="dashboard-inner">
@@ -122,11 +182,11 @@ const Dashboard = () => {
               <div className="invitation-notice">
                 <p>
                   You have a pending invitation to join{' '}
-                  <strong>{invitation.group_name}</strong>.
+                  <strong>{invitationGroupName || 'a group'}</strong>.
                 </p>
                 <button
                   className="btn-primary"
-                  onClick={() => navigate(`/groups/${invitation.group_id}`)}
+                  onClick={() => setShowInviteModal(true)}
                 >
                   View Group &amp; Respond
                 </button>
@@ -200,6 +260,43 @@ const Dashboard = () => {
           </div>
         )}
       </div>
+      {showInviteModal && invitation && (
+        <div className="modal-overlay">
+          <div className="modal-content release-modal">
+            <h2>Respond to Group Invitation</h2>
+            <p>
+              Group: <strong>{invitationGroupName || invitationGroupId || 'Unknown group'}</strong>
+            </p>
+            <div className="modal-actions">
+              <button
+                className="cancel-btn"
+                type="button"
+                onClick={() => setShowInviteModal(false)}
+                disabled={inviteDecisionLoading}
+              >
+                Close
+              </button>
+              <button
+                className="confirm-release-btn"
+                type="button"
+                onClick={() => handleInvitationDecision('accepted')}
+                disabled={inviteDecisionLoading}
+              >
+                {inviteDecisionLoading ? 'Processing...' : 'Accept'}
+              </button>
+              <button
+                className="link-btn"
+                type="button"
+                onClick={() => handleInvitationDecision('rejected')}
+                disabled={inviteDecisionLoading}
+              >
+                Decline
+              </button>
+            </div>
+            {inviteDecisionMessage && <p className="dashboard-error">{inviteDecisionMessage}</p>}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,15 +1,14 @@
 import React, { useState } from 'react';
 import useAuthStore from '../../store/authStore';
 import { validateGroupForSubmission } from '../../api/deliverableService';
+import { normalizeGroupId } from '../../utils/groupId';
 
 /**
  * DeliverableSubmissionForm Component
  */
 const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
   const user = useAuthStore((state) => state.user);
-  const groupId = user?.groupId;
-
-  console.log(user)
+  const groupId = normalizeGroupId(user?.groupId);
 
   // Form inputs
   const [deliverableType, setDeliverableType] = useState('');
@@ -21,6 +20,8 @@ const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
   const [error, setError] = useState(null);
   const [errorCode, setErrorCode] = useState(null);
   const [validationToken, setValidationToken] = useState(null);
+  const [lockedReason, setLockedReason] = useState('');
+  const devBypass = localStorage.getItem('DEV_BYPASS') === 'true';
 
   // Field-level error tracking
   const [fieldErrors, setFieldErrors] = useState({});
@@ -31,6 +32,7 @@ const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
   const isSubmitDisabled =
     !deliverableType ||
     !sprintId ||
+    (Boolean(lockedReason) && !devBypass) ||
     formState === 'loading' ||
     formState === 'token_received';
 
@@ -41,6 +43,7 @@ const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
     e.preventDefault();
     setError(null);
     setErrorCode(null);
+    setLockedReason('');
     setFieldErrors({});
 
     // Validate required fields
@@ -75,7 +78,21 @@ const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
 
       let msg = 'An error occurred during validation';
       if (status === 403) msg = data?.message || 'Access Forbidden';
-      if (status === 404) msg = data?.message || 'Group Not Found';
+      if (status === 404) {
+        const backendMessage = (data?.message || '').toLowerCase();
+        if (backendMessage.includes('committee')) {
+          if (devBypass) {
+            msg = 'Committee is missing, but DEV_BYPASS is enabled so submission flow remains testable.';
+            setErrorCode('NO_COMMITTEE_BYPASSED');
+          } else {
+            msg = 'Awaiting Committee Assignment';
+            setLockedReason('Awaiting Committee Assignment');
+            setErrorCode('NO_COMMITTEE');
+          }
+        } else {
+          msg = data?.message || 'Group Not Found';
+        }
+      }
       if (status === 409) msg = data?.message || 'Conflict detected';
       if (err.code === 'ERR_NETWORK') msg = 'Network error. Please try again.';
 
@@ -109,6 +126,18 @@ const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
       <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
         <h2 className="text-2xl font-bold text-slate-800 mb-2">Initiate Submission</h2>
         <p className="text-slate-500 mb-8 text-sm">Select the deliverable type and provide sprint details to proceed.</p>
+        {devBypass && (
+          <div className="mb-6 p-4 rounded-2xl border border-blue-100 bg-blue-50 text-blue-800">
+            <p className="text-sm font-bold">Dev Bypass Enabled</p>
+            <p className="text-sm">Frontend lock checks are bypassed (`DEV_BYPASS=true`).</p>
+          </div>
+        )}
+        {lockedReason && (
+          <div className="mb-6 p-4 rounded-2xl border border-amber-100 bg-amber-50 text-amber-800">
+            <p className="text-sm font-bold">Submission Locked</p>
+            <p className="text-sm">{lockedReason}</p>
+          </div>
+        )}
 
         {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-3">
@@ -194,6 +223,11 @@ const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
                 {fieldErrors.sprintId}
               </p>
             )}
+            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+              Use the same <code className="text-slate-700">sprintId</code> as in Coordinator Sprint Dashboard / DB (e.g.{' '}
+              <code className="text-slate-700">sprint_1_1</code> from general seed or <code className="text-slate-700">sprint_1</code> from test scripts).
+              See <code className="text-slate-700">TEST-DATA-CHEATSHEET.md</code> § Deliverables.
+            </p>
           </div>
 
           {/* DESCRIPTION */}

@@ -27,8 +27,15 @@ export const createCommittee = async ({ committeeName, coordinatorId, descriptio
  * @returns {Promise<{ committees: object[], total: number }>}
  */
 export const listCommittees = async () => {
-  const response = await apiClient.get('/committees');
-  return response.data;
+  try {
+    const response = await apiClient.get('/committees');
+    return response.data;
+  } catch (error) {
+    if (error.response?.status === 404) {
+      return { committees: [], total: 0 };
+    }
+    throw error;
+  }
 };
 
 /**

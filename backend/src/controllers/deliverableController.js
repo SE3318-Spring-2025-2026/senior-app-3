@@ -18,6 +18,7 @@ const {
   notifyCoordinator,
   notifyStudents,
 } = require('../services/deliverableNotificationService');
+const { studentBelongsToGroup } = require('../utils/studentGroupMembership');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
@@ -52,7 +53,7 @@ const logValidationAudit = (action, userId, groupId, reason, req) => {
  * Process 5.1 — Group + Committee gate check.
  *
  * Verifies:
- *   1. groupId in body matches req.user.groupId (set by deliverableAuthMiddleware)
+ *   1. Non-empty groupId in JSON body and the student is leader or accepted member of that group
  *   2. Group exists in D2 with status === 'active'
  *   3. Group has a committee assigned in D3 with at least one member
  *
@@ -63,11 +64,14 @@ const logValidationAudit = (action, userId, groupId, reason, req) => {
  * @param {import('express').Response} res
  */
 const validateGroup = async (req, res) => {
-  const groupId = req.body.groupId || req.user?.groupId;
+  const rawGroupId = req.body?.groupId;
+  const groupId =
+    typeof rawGroupId === 'string'
+      ? rawGroupId.trim()
+      : rawGroupId != null
+        ? String(rawGroupId).trim()
+        : '';
   const userId = req.user?.userId;
-  const userGroupId = req.user?.groupId;
-
-  console.log('hey')
 
   if (!groupId) {
     return res.status(400).json({
@@ -76,8 +80,9 @@ const validateGroup = async (req, res) => {
     });
   }
 
-  // Gate 1: groupId in body must belong to the authenticated student
-  if (groupId !== userGroupId) {
+  // Gate 1: student must belong to the requested group (avoids wrong group when multiple DB rows match)
+  const allowed = await studentBelongsToGroup(userId, groupId);
+  if (!allowed) {
     logValidationAudit('GROUP_VALIDATION_FAILED', userId, groupId, 'GROUP_ID_MISMATCH', req);
     return res.status(403).json({
       code: 'GROUP_ID_MISMATCH',
@@ -118,7 +123,10 @@ const validateGroup = async (req, res) => {
     logValidationAudit('GROUP_VALIDATION_FAILED', userId, groupId, 'NO_COMMITTEE_ASSIGNED', req);
     return res.status(409).json({
       code: 'NO_COMMITTEE_ASSIGNED',
-      message: 'No committee has been assigned to this group',
+      message:
+        'No published committee is linked to this group yet (group.committeeId is empty). ' +
+        'Coordinator: assign this group to a committee and call POST /api/v1/committees/:committeeId/publish. ' +
+        'Then refresh and try again.',
     });
   }
 
@@ -139,7 +147,9 @@ const validateGroup = async (req, res) => {
     logValidationAudit('GROUP_VALIDATION_FAILED', userId, groupId, 'NO_COMMITTEE_ASSIGNED', req);
     return res.status(409).json({
       code: 'NO_COMMITTEE_ASSIGNED',
-      message: 'Assigned committee has no members',
+      message:
+        'The committee linked to this group has no advisors or jury members in D3. ' +
+        'Coordinator: edit the committee, add members, then publish again.',
     });
   }
 
@@ -465,7 +475,7 @@ const storeDeliverableHandler = async (req, res) => {
  * @param {import('express').Response} res
  */
 const listDeliverablesHandler = async (req, res) => {
-  const { role, groupId: userGroupId } = req.user;
+  const { role, userId, groupId: userGroupId } = req.user;
 
   let { groupId, sprintId, status, page, limit } = req.query;
 
@@ -478,9 +488,12 @@ const listDeliverablesHandler = async (req, res) => {
     }
   }
 
-  // Students can only query their own group
-  if (role === 'student' && groupId !== userGroupId) {
-    return res.status(403).json({ code: 'FORBIDDEN', message: 'Students can only view their own group deliverables' });
+  // Students can only query groups they belong to
+  if (role === 'student') {
+    const ok = await studentBelongsToGroup(userId, groupId);
+    if (!ok) {
+      return res.status(403).json({ code: 'FORBIDDEN', message: 'Students can only view their own group deliverables' });
+    }
   }
 
   // Pagination
@@ -536,7 +549,7 @@ const listDeliverablesHandler = async (req, res) => {
  */
 const getDeliverableHandler = async (req, res) => {
   const { deliverableId } = req.params;
-  const { role, groupId: userGroupId } = req.user;
+  const { role, userId } = req.user;
 
   let deliverable;
   try {
@@ -551,8 +564,11 @@ const getDeliverableHandler = async (req, res) => {
   }
 
   // Students can only view their own group's deliverables
-  if (role === 'student' && deliverable.groupId !== userGroupId) {
-    return res.status(403).json({ code: 'FORBIDDEN', message: 'Students can only view their own group deliverables' });
+  if (role === 'student') {
+    const ok = await studentBelongsToGroup(userId, deliverable.groupId);
+    if (!ok) {
+      return res.status(403).json({ code: 'FORBIDDEN', message: 'Students can only view their own group deliverables' });
+    }
   }
 
   return res.status(200).json({

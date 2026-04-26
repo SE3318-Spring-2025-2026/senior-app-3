@@ -72,6 +72,8 @@ const LoginForm = () => {
           email: response.email,
           role: response.role,
           groupId: response.groupId,
+          activeGroupId: response.activeGroupId,
+          currentGroupId: response.currentGroupId,
           emailVerified: response.emailVerified,
           accountStatus: response.accountStatus,
         },

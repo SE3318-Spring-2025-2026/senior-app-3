@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { approveFinalGrades, previewFinalGrades } from '../api/finalGradeService';
+import { normalizeGroupId } from '../utils/groupId';
 import './CoordinatorFinalGradeApprovalPanel.css';
 
 const formatNumber = (value, fractionDigits = 2) => {
@@ -39,7 +40,9 @@ const resolveApiError = (error, fallback) => {
 const normalizeStudents = (preview) => (Array.isArray(preview?.students) ? preview.students : []);
 
 const CoordinatorFinalGradeApprovalPanel = () => {
-  const { groupId } = useParams();
+  const { groupId: groupIdParam } = useParams();
+  const groupId = normalizeGroupId(groupIdParam);
+  const hasValidGroupId = Boolean(groupId);
   const [preview, setPreview] = useState(null);
   const [publishCycle, setPublishCycle] = useState('');
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -57,6 +60,20 @@ const CoordinatorFinalGradeApprovalPanel = () => {
   const students = useMemo(() => normalizeStudents(preview), [preview]);
   const overrideCount = Object.keys(overrides).length;
 
+  if (!hasValidGroupId) {
+    return (
+      <div className="approval-page">
+        <section className="approval-empty">
+          <h2>Missing group selection</h2>
+          <p>Please open this panel from a valid group row in Coordinator Panel.</p>
+          <Link className="approval-primary-link" to="/coordinator">
+            Back to coordinator panel
+          </Link>
+        </section>
+      </div>
+    );
+  }
+
   const handleGeneratePreview = async () => {
     setLoadingPreview(true);
     setError('');
@@ -66,13 +83,31 @@ const CoordinatorFinalGradeApprovalPanel = () => {
       const data = await previewFinalGrades(groupId, {
         persistForApproval: true,
         publishCycle: publishCycle.trim() || undefined,
-        useLatestRatios: false,
+        useLatestRatios: true,
+        allowMissingRatios: true,
       });
       setPreview(data);
       setPublishCycle(data.publishCycle || publishCycle);
       setOverrides({});
     } catch (err) {
-      setError(resolveApiError(err, 'Failed to generate final grade preview.'));
+      const status = err?.response?.status;
+      const code = err?.response?.data?.code;
+      if (status === 422 && code === 'MISSING_CONTRIBUTION_RATIOS') {
+        setError(
+          'No contribution ratios are recorded for this group yet. ' +
+            'Run a sprint recalculation (Coordinator → Sprint Dashboard) or seed ' +
+            'fixtures (npm run seed:test-general) first. The current request asked the ' +
+            "backend to allow missing ratios but it still couldn't fall back."
+        );
+      } else if (status === 422) {
+        setError(
+          err?.response?.data?.message ||
+            'Cannot preview grades. Backend rejected the request with 422 ' +
+              "(check that contribution ratios and committee assignments exist for this group)."
+        );
+      } else {
+        setError(resolveApiError(err, 'Failed to generate final grade preview.'));
+      }
     } finally {
       setLoadingPreview(false);
     }
@@ -219,12 +254,18 @@ const CoordinatorFinalGradeApprovalPanel = () => {
           <h2>Generate an approval preview</h2>
           <p>Build the coordinator review snapshot from the latest deliverable scores and contribution ratios.</p>
           <label htmlFor="publish-cycle">Publish cycle</label>
+          <p className="approval-field-help" style={{ margin: '0 0 8px', fontSize: '0.9rem', color: '#475569', maxWidth: '42rem' }}>
+            Identifier for this grade publication run (stored with the approval snapshot). You may leave it empty and the
+            API will assign one, or set a stable label for reporting (e.g. <code>cycle-2026-sp1</code>). The same value is
+            used on the <Link to={groupId ? `/groups/${groupId}/final-grades/publish` : '#'}>publish wizard</Link> when
+            pushing grades to students.
+          </p>
           <input
             id="publish-cycle"
             type="text"
             value={publishCycle}
             onChange={(event) => setPublishCycle(event.target.value)}
-            placeholder="Optional. A cycle ID will be generated."
+            placeholder="Optional, e.g. cycle-2026-sp1"
           />
           <button type="button" onClick={handleGeneratePreview} disabled={loadingPreview}>
             {loadingPreview ? 'Generating preview' : 'Generate Preview'}

@@ -61,7 +61,8 @@ describe('CoordinatorFinalGradeApprovalPanel', () => {
     expect(previewFinalGrades).toHaveBeenCalledWith('group-1', {
       persistForApproval: true,
       publishCycle: undefined,
-      useLatestRatios: false,
+      useLatestRatios: true,
+      allowMissingRatios: true,
     });
 
     expect(await screen.findByText('student-1')).toBeInTheDocument();

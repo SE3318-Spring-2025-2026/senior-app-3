@@ -159,93 +159,119 @@ const validatePublishEligibility = async (groupId) => {
  * @throws {GradePublishError} On transaction failure
  */
 const publishGradesToD7WithTransaction = async (groupId, coordinatorId, grades) => {
-  // ISSUE #255: Start MongoDB session for transaction
-  const session = await FinalGrade.startSession();
+  // Inner write block: works with or without an active session so that we can
+  // transparently fall back to sequential writes on standalone MongoDB
+  // (transactions require a replica set / mongos).
+  const performWrites = async (session) => {
+    const publishedAt = new Date();
+    const gradeIds = grades.map(g => g._id);
+    const opts = session ? { session } : {};
 
+    const updateResult = await FinalGrade.updateMany(
+      { _id: { $in: gradeIds } },
+      {
+        $set: {
+          status: FINAL_GRADE_STATUS.PUBLISHED,
+          publishedAt,
+          publishedBy: coordinatorId,
+          updatedAt: new Date()
+        }
+      },
+      opts
+    );
+
+    if (updateResult.modifiedCount !== grades.length) {
+      throw new GradePublishError(
+        `Expected ${grades.length} updates, got ${updateResult.modifiedCount}`,
+        500,
+        'PUBLISH_MISMATCH'
+      );
+    }
+
+    await createAuditLog(
+      {
+        action: 'FINAL_GRADE_PUBLISHED',
+        actorId: coordinatorId,
+        targetId: groupId,
+        details: {
+          publishedAt: publishedAt.toISOString(),
+          gradeCount: grades.length,
+          studentIds: grades.map(g => g.studentId),
+          averageFinalGrade: grades.reduce((sum, g) => sum + g.getEffectiveGrade(), 0) / grades.length
+        }
+      },
+      session
+    );
+
+    await Group.updateOne(
+      { groupId },
+      {
+        $set: {
+          finalGradePublishedAt: publishedAt,
+          finalGradePublishedBy: coordinatorId
+        }
+      },
+      opts
+    );
+
+    return publishedAt;
+  };
+
+  const isStandaloneTxnError = (err) => {
+    const msg = err?.message || '';
+    const code = err?.code;
+    const codeName = err?.codeName;
+    return (
+      msg.includes('Transaction numbers are only allowed on a replica set') ||
+      msg.includes('replica set') ||
+      codeName === 'IllegalOperation' ||
+      code === 20 ||
+      code === 'ECONNREFUSED'
+    );
+  };
+
+  let session;
   try {
-    // ISSUE #255: Begin atomic transaction
-    await session.withTransaction(async () => {
-      // ISSUE #255: Step 1 - Update all grades to published state
-      const publishedAt = new Date();
-      
-      const gradeIds = grades.map(g => g._id);
-      
-      // ISSUE #255: Batch update all grades atomically
-      // Sets: status=published, publishedAt, publishedBy
-      // This ensures all-or-nothing publication (no partial updates)
-      const updateResult = await FinalGrade.updateMany(
-        { _id: { $in: gradeIds } },
-        {
-          $set: {
-            status: FINAL_GRADE_STATUS.PUBLISHED,
-            publishedAt,
-            publishedBy: coordinatorId,
-            updatedAt: new Date()
-          }
-        },
-        { session }
-      );
-
-      // ISSUE #255: Verify all grades were updated (sanity check)
-      if (updateResult.modifiedCount !== grades.length) {
-        throw new GradePublishError(
-          `Expected ${grades.length} updates, got ${updateResult.modifiedCount}`,
-          500,
-          'PUBLISH_MISMATCH'
-        );
+    session = await FinalGrade.startSession();
+    let publishedAtFromTxn;
+    try {
+      await session.withTransaction(async () => {
+        publishedAtFromTxn = await performWrites(session);
+      });
+      return {
+        publishedAt: publishedAtFromTxn || new Date(),
+        publishCount: grades.length,
+        status: 'published'
+      };
+    } catch (txnError) {
+      if (!isStandaloneTxnError(txnError)) {
+        throw txnError;
       }
-
-      // ISSUE #255: Step 2 - Create audit log within transaction
-      // This ensures audit trail is consistent with D7 writes
-      await createAuditLog(
-        {
-          action: 'FINAL_GRADE_PUBLISHED',
-          actorId: coordinatorId,
-          targetId: groupId,
-          details: {
-            publishedAt: publishedAt.toISOString(),
-            gradeCount: grades.length,
-            studentIds: grades.map(g => g.studentId),
-            averageFinalGrade: grades.reduce((sum, g) => sum + g.getEffectiveGrade(), 0) / grades.length
-          }
-        },
-        session
-      );
-
-      // ISSUE #255: Step 3 - Mark group evaluation complete (optional tracking)
-      // This ties publication to group lifecycle; helps dashboards track completion
-      await Group.updateOne(
-        { groupId },
-        {
-          $set: {
-            finalGradePublishedAt: publishedAt,
-            finalGradePublishedBy: coordinatorId
-          }
-        },
-        { session }
-      );
-
-      // ISSUE #255: Transaction auto-commits at end of withTransaction block
-      // If any error occurs, entire transaction rolls back automatically
-    });
-
-    // ISSUE #255: Transaction succeeded; return publication metadata
-    return {
-      publishedAt: new Date(),
-      publishCount: grades.length,
-      status: 'published'
-    };
-
+      // Fallback: standalone MongoDB (no replica set / mongos) →
+      // run writes sequentially without a session. Atomicity guarantees
+      // are weakened, but the operation set is small (3 writes) and
+      // appropriate for local/demo environments.
+      const publishedAt = await performWrites(null);
+      return {
+        publishedAt: publishedAt || new Date(),
+        publishCount: grades.length,
+        status: 'published'
+      };
+    }
   } catch (error) {
-    // ISSUE #255: Transaction failed or rolled back
+    if (error instanceof GradePublishError) {
+      throw error;
+    }
     throw new GradePublishError(
       `Failed to publish grades: ${error.message}`,
       500,
       'TRANSACTION_FAILED'
     );
   } finally {
-    // ISSUE #255: Always clean up session
-    await session.endSession();
+    // ISSUE #255: Always clean up session if it was created
+    if (session) {
+      try { await session.endSession(); } catch (_endErr) { /* noop */ }
+    }
   }
 };
 
@@ -315,16 +341,17 @@ const dispatchNotificationsAsync = async (
             sentCount++;
           } else {
             failedCount++;
-            // ISSUE #255: Log to SyncErrorLog for manual investigation
+            // ISSUE #255: Log to SyncErrorLog for manual investigation.
+            // SyncErrorLog.lastError is a String field, so flatten the
+            // error object into a single readable line.
+            const errCode = result.error?.code || 'NOTIFICATION_FAILED';
+            const errMsg = result.error?.message || 'Unknown error';
             await SyncErrorLog.create({
               service: 'notification',
               groupId,
               actorId: coordinatorId,
               attempts: 3,
-              lastError: {
-                message: result.error?.message || 'Unknown error',
-                code: result.error?.code || 'NOTIFICATION_FAILED'
-              }
+              lastError: `${errCode}: ${errMsg}`
             });
           }
         } catch (err) {

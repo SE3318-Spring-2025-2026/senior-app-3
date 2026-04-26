@@ -1,5 +1,23 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { normalizeGroupId } from '../utils/groupId';
+
+const normalizeUserPayload = (user) => {
+  if (!user || typeof user !== 'object') {
+    return user;
+  }
+
+  const normalizedGroupId =
+    normalizeGroupId(user.groupId) ||
+    normalizeGroupId(user.activeGroupId) ||
+    normalizeGroupId(user.currentGroupId) ||
+    null;
+
+  return {
+    ...user,
+    groupId: normalizedGroupId,
+  };
+};
 
 /**
  * Global auth state management using Zustand
@@ -23,7 +41,7 @@ const useAuthStore = create(
        */
       setAuth: (user, accessToken, refreshToken) => {
         set({
-          user,
+          user: normalizeUserPayload(user),
           accessToken,
           refreshToken,
           isAuthenticated: true,
@@ -42,7 +60,12 @@ const useAuthStore = create(
        * Update user info
        */
       setUser: (user) => {
-        set({ user });
+        set((state) => ({
+          user: normalizeUserPayload({
+            ...(state.user || {}),
+            ...(user || {}),
+          }),
+        }));
       },
 
       /**

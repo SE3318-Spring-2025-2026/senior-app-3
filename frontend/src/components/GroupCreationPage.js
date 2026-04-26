@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
 import { createGroup } from '../api/groupService';
+import { normalizeGroupId } from '../utils/groupId';
 import './GroupCreationPage.css';
 
 /**
@@ -14,6 +15,7 @@ import './GroupCreationPage.css';
 const GroupCreationPage = () => {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
+  const setUser = useAuthStore((state) => state.setUser);
 
   const [formData, setFormData] = useState({
     groupName: '',
@@ -27,6 +29,7 @@ const GroupCreationPage = () => {
 
   const [fieldErrors, setFieldErrors] = useState({});
   const [submitError, setSubmitError] = useState('');
+  const [conflictGroupId, setConflictGroupId] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
@@ -49,6 +52,7 @@ const GroupCreationPage = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitError('');
+    setConflictGroupId('');
 
     if (!validate()) return;
 
@@ -65,6 +69,13 @@ const GroupCreationPage = () => {
         projectKey: formData.projectKey.trim() || undefined,
       });
 
+      // Keep auth store in sync with the newly created active group
+      setUser({
+        groupId: result.groupId,
+        activeGroupId: result.groupId,
+        currentGroupId: result.groupId,
+      });
+
       navigate(`/groups/${result.groupId}`);
     } catch (err) {
       const data = err.response?.data;
@@ -77,7 +88,25 @@ const GroupCreationPage = () => {
       } else if (code === 'OUTSIDE_SCHEDULE_WINDOW') {
         setSubmitError('Group creation is currently closed. Please check the coordinator-defined schedule.');
       } else if (code === 'STUDENT_ALREADY_IN_GROUP' || code === 'STUDENT_ALREADY_LEADER') {
-        setSubmitError('You already belong to an active group and cannot create another.');
+        const existingGroupId =
+          normalizeGroupId(data?.existingGroupId) ||
+          normalizeGroupId(data?.groupId) ||
+          normalizeGroupId(data?.activeGroupId) ||
+          normalizeGroupId(user?.groupId);
+        if (existingGroupId) {
+          setConflictGroupId(existingGroupId);
+        }
+        if (code === 'STUDENT_ALREADY_LEADER') {
+          setSubmitError(
+            (message ? `${message} ` : '') +
+              `You are already the team leader of group ${existingGroupId || ''}. A student can lead only one open group at a time. Open the existing group and either complete its lifecycle (graduate / archive / coordinator override) before creating a new team.`
+          );
+        } else {
+          setSubmitError(
+            (message ? `${message} ` : '') +
+              `You already belong to an active group (${existingGroupId || 'unknown'}). Leave it through the coordinator override flow before creating a new team.`
+          );
+        }
       } else if (code === 'FORBIDDEN') {
         setSubmitError(message || 'You do not have permission to create a group.');
       } else {
@@ -97,7 +126,21 @@ const GroupCreationPage = () => {
         </p>
 
         {submitError && (
-          <div className="alert error">{submitError}</div>
+          <div className="alert error">
+            {submitError}
+            {conflictGroupId && (
+              <div style={{ marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="back-link"
+                  style={{ padding: '4px 10px' }}
+                  onClick={() => navigate(`/groups/${conflictGroupId}`)}
+                >
+                  Open existing group ({conflictGroupId})
+                </button>
+              </div>
+            )}
+          </div>
         )}
 
         <form onSubmit={handleSubmit} noValidate>

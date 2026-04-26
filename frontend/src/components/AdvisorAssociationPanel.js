@@ -9,6 +9,7 @@ import {
 } from '../api/advisorService';
 import { getGroup, getAllGroups, advisorSanitization } from '../api/groupService';
 import useAuthStore from '../store/authStore';
+import { normalizeGroupId } from '../utils/groupId';
 import './AdvisorAssociationPanel.css';
 
 /**
@@ -18,7 +19,8 @@ import './AdvisorAssociationPanel.css';
  * 2. Group Mode: For Students to manage their own advisor (3.1 & 3.5).
  */
 const AdvisorAssociationPanel = () => {
-  const { group_id: groupId } = useParams();
+  const { group_id: groupIdParam } = useParams();
+  const groupId = normalizeGroupId(groupIdParam);
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
 
@@ -40,6 +42,9 @@ const AdvisorAssociationPanel = () => {
   const [group, setGroup] = useState(null);
   const [message, setMessage] = useState('');
   const [scheduleOpen, setScheduleOpen] = useState(true);
+  const bypassScheduleWindow =
+    process.env.REACT_APP_ALLOW_CLOSED_SCHEDULE_BYPASS === 'true' ||
+    localStorage.getItem('allowAdvisorWindowBypass') === 'true';
 
   const isCoordinator = user?.role === 'coordinator' || user?.role === 'admin';
 
@@ -64,14 +69,14 @@ const AdvisorAssociationPanel = () => {
           getAdvisorAssociationWindow()
         ]);
         setGroup(groupData);
-        setScheduleOpen(Boolean(windowData?.open));
+        setScheduleOpen(Boolean(windowData?.open) || bypassScheduleWindow);
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load panel data');
     } finally {
       setLoading(false);
     }
-  }, [isCoordinator, groupId]);
+  }, [isCoordinator, groupId, bypassScheduleWindow]);
 
   useEffect(() => {
     loadData();
@@ -113,7 +118,11 @@ const AdvisorAssociationPanel = () => {
       setSuccess('Advisor request submitted successfully');
       loadData();
     } catch (err) {
-      setError(err.response?.status === 422 ? 'Schedule window is closed' : (err.response?.data?.message || 'Request failed'));
+      if (err.response?.status === 422 && bypassScheduleWindow) {
+        setError('Server still blocks advisor association. Ask coordinator to open advisor_association window.');
+      } else {
+        setError(err.response?.status === 422 ? 'Schedule window is closed' : (err.response?.data?.message || 'Request failed'));
+      }
     }
   };
 
@@ -211,6 +220,9 @@ const AdvisorAssociationPanel = () => {
 
       {!scheduleOpen && isLeader && (
         <div className="alert alert-warning">⏰ Schedule window is currently closed.</div>
+      )}
+      {bypassScheduleWindow && isLeader && (
+        <div className="alert alert-warning">Bypass mode is enabled for schedule checks (testing only).</div>
       )}
       {error && <div className="alert alert-error">❌ {error}</div>}
       {success && <div className="alert alert-success">✓ {success}</div>}

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import * as groupService from '../api/groupService';
+import { normalizeGroupId } from '../utils/groupId';
 
 /**
  * Group Store - Manages group dashboard state
@@ -21,9 +22,23 @@ const useGroupStore = create((set, get) => ({
    * Fetch group dashboard data
    */
   fetchGroupDashboard: async (groupId) => {
+    const safeGroupId = normalizeGroupId(groupId);
+    if (!safeGroupId) {
+      set({
+        groupData: null,
+        committeeStatus: null,
+        members: [],
+        github: { connected: false, repo_url: null, last_synced: null },
+        jira: { connected: false, project_key: null, board_url: null },
+        pendingApprovalsCount: 0,
+        isLoading: false,
+        error: 'Invalid group selection',
+      });
+      return;
+    }
     set({ isLoading: true, error: null });
     try {
-      const data = await groupService.getGroupDashboardData(groupId);
+      const data = await groupService.getGroupDashboardData(safeGroupId);
       
       // Extract pending approvals count
       const approvalsArray = data.approvals?.approvals || data.approvals || [];
@@ -53,14 +68,18 @@ const useGroupStore = create((set, get) => ({
    * Set polling interval for auto-refresh
    */
   startPolling: (groupId, intervalMs = 30000) => {
+    const safeGroupId = normalizeGroupId(groupId);
+    if (!safeGroupId) {
+      return null;
+    }
     const { fetchGroupDashboard } = get();
     
     // Initial fetch
-    fetchGroupDashboard(groupId);
+    fetchGroupDashboard(safeGroupId);
 
     // Set up polling interval
     const intervalId = setInterval(() => {
-      fetchGroupDashboard(groupId);
+      fetchGroupDashboard(safeGroupId);
     }, intervalMs);
 
     return intervalId;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   listScheduleWindows,
   createScheduleWindow,
@@ -316,6 +316,7 @@ const CoordinatorPanel = () => {
 
   const activeWindows = windows.filter((w) => w.isActive);
   const inactiveWindows = windows.filter((w) => !w.isActive);
+  const validGroups = groups.filter((group) => typeof group.groupId === 'string' && group.groupId.trim() !== '');
 
   // Integration health helper
   const getIntegrationHealthClass = (group) => {
@@ -389,11 +390,11 @@ const CoordinatorPanel = () => {
             {groupsLoading && <p style={{ color: '#666' }}>Loading groups…</p>}
             {groupsError && <p style={{ color: '#d73a49' }}>{groupsError}</p>}
 
-            {!groupsLoading && groups.length === 0 && (
+            {!groupsLoading && validGroups.length === 0 && (
               <p style={{ color: '#666', fontSize: '14px' }}>No groups found.</p>
             )}
 
-            {!groupsLoading && groups.length > 0 && (
+            {!groupsLoading && validGroups.length > 0 && (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                   <thead>
@@ -409,8 +410,8 @@ const CoordinatorPanel = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {groups.map((group, idx) => (
-                      <tr key={group.groupId || group._id || `group-row-${idx}`} style={{ borderBottom: '1px solid #e1e4e8' }}>
+                    {validGroups.map((group, idx) => (
+                      <tr key={`group-row-${idx}-${group.groupId || group._id || 'unknown'}`} style={{ borderBottom: '1px solid #e1e4e8' }}>
                         <td style={{ padding: '12px', fontFamily: '\"SF Mono\", Monaco, monospace', fontSize: '12px', color: '#444' }}>
                           {group.groupId}
                         </td>
@@ -457,37 +458,47 @@ const CoordinatorPanel = () => {
                           </span>
                         </td>
                         <td style={{ padding: '12px' }}>
-                          <button
-                            onClick={() => navigate(`/groups/${group.groupId}/final-grades/approval`)}
-                            style={{
-                              padding: '4px 8px',
-                              backgroundColor: '#0366d6',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '4px',
-                              cursor: 'pointer',
-                              fontSize: '11px',
-                              fontWeight: '600',
-                              marginRight: '6px'
-                            }}
-                          >
-                            Review
-                          </button>
-                          <button
-                            onClick={() => navigate(`/groups/${group.groupId}/final-grades/publish`)}
-                            style={{
-                              padding: '4px 8px',
-                              backgroundColor: '#4f46e5',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '4px',
-                              cursor: 'pointer',
-                              fontSize: '11px',
-                              fontWeight: '600'
-                            }}
-                          >
-                            Publish
-                          </button>
+                          {(group.groupId || group._id) ? (
+                            <>
+                              <Link
+                                to={`/groups/${group.groupId || group._id}/final-grades/approval`}
+                                style={{
+                                  display: 'inline-block',
+                                  padding: '4px 8px',
+                                  backgroundColor: '#0366d6',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  fontSize: '11px',
+                                  fontWeight: '600',
+                                  marginRight: '6px',
+                                  textDecoration: 'none'
+                                }}
+                              >
+                                Review
+                              </Link>
+                              <Link
+                                to={`/groups/${group.groupId || group._id}/final-grades/publish`}
+                                style={{
+                                  display: 'inline-block',
+                                  padding: '4px 8px',
+                                  backgroundColor: '#4f46e5',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  fontSize: '11px',
+                                  fontWeight: '600',
+                                  textDecoration: 'none'
+                                }}
+                              >
+                                Publish
+                              </Link>
+                            </>
+                          ) : (
+                            <span style={{ color: '#999', fontSize: '11px' }}>Unavailable</span>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -519,8 +530,8 @@ const CoordinatorPanel = () => {
                     required
                   >
                     <option value="">-- Choose a group --</option>
-                    {groups.map((g, idx) => (
-                      <option key={g.groupId || g._id || `transfer-group-${idx}`} value={g.groupId || ''}>
+                    {validGroups.map((g, idx) => (
+                      <option key={`transfer-group-${idx}-${g.groupId || g._id || 'unknown'}`} value={g.groupId || ''}>
                         {g.groupName} ({g.groupId}) {g.advisorId ? `- current: ${g.advisorId}` : '- no advisor'}
                       </option>
                     ))}
@@ -598,8 +609,8 @@ const CoordinatorPanel = () => {
                     required
                   >
                     <option value="">-- Choose a group --</option>
-                    {groups.map((g, idx) => (
-                      <option key={g.groupId || g._id || `override-group-${idx}`} value={g.groupId || ''}>
+                    {validGroups.map((g, idx) => (
+                      <option key={`override-group-${idx}-${g.groupId || g._id || 'unknown'}`} value={g.groupId || ''}>
                         {g.groupName} ({g.groupId})
                       </option>
                     ))}
@@ -899,18 +910,18 @@ const CoordinatorPanel = () => {
             {groupsLoading && <p style={{ color: '#666' }}>Loading…</p>}
             {groupsError && <p style={{ color: '#d73a49' }}>{groupsError}</p>}
 
-            {!groupsLoading && groups.length === 0 && (
+            {!groupsLoading && validGroups.length === 0 && (
               <p style={{ color: '#666', fontSize: '14px' }}>No groups found.</p>
             )}
 
-            {!groupsLoading && groups.length > 0 && (
+            {!groupsLoading && validGroups.length > 0 && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
-                {groups.map((group) => {
+                {validGroups.map((group) => {
                   const health = getIntegrationHealthClass(group);
                   const hasErrors = group.integrationErrors && group.integrationErrors.length > 0;
 
                   return (
-                    <div key={group.groupId} style={{
+                    <div key={`health-card-${group.groupId || group._id || 'unknown'}`} style={{
                       border: '1px solid #e1e4e8',
                       borderRadius: '8px',
                       padding: '16px',
@@ -951,7 +962,7 @@ const CoordinatorPanel = () => {
                         <div style={{ borderTop: '1px solid #e1e4e8', paddingTop: '12px' }}>
                           <p style={{ margin: '0 0 8px 0', fontSize: '12px', fontWeight: '600', color: '#dc3545' }}>Recent Errors:</p>
                           {group.integrationErrors.slice(0, 3).map((err, idx) => (
-                            <div key={idx} style={{ fontSize: '11px', color: '#24292e', marginBottom: '4px' }}>
+                            <div key={`integration-error-${group.groupId || 'unknown'}-${idx}-${err.service || 'service'}`} style={{ fontSize: '11px', color: '#24292e', marginBottom: '4px' }}>
                               <span style={{ fontWeight: '600', color: '#24292e' }}>{err.service}:</span> <span style={{ color: '#444' }}>{err.lastError}</span>
                             </div>
                           ))}
@@ -1039,7 +1050,7 @@ const CoordinatorPanel = () => {
                   </thead>
                   <tbody>
                     {committees.map((c, idx) => (
-                      <tr key={c.committeeId || c._id || `committee-row-${idx}`} style={{ borderBottom: '1px solid #e1e4e8' }}>
+                      <tr key={`committee-row-${idx}-${c.committeeId || c._id || 'unknown'}`} style={{ borderBottom: '1px solid #e1e4e8' }}>
                         <td style={{ padding: '12px', fontFamily: '"SF Mono", Monaco, monospace', fontSize: '12px', color: '#444' }}>
                           {c.committeeId}
                         </td>
@@ -1091,23 +1102,29 @@ const CoordinatorPanel = () => {
                           {new Date(c.createdAt).toLocaleDateString()}
                         </td>
                         <td style={{ padding: '12px' }}>
-                          <button
-                            id={`committee-assign-jury-btn-${c.committeeId}`}
-                            onClick={() => navigate(`/coordinator/committees/${c.committeeId}/jury`)}
-                            style={{
-                              padding: '5px 12px',
-                              backgroundColor: '#f1f8ff',
-                              border: '1px solid #0366d6',
-                              borderRadius: '6px',
-                              cursor: 'pointer',
-                              fontSize: '12px',
-                              fontWeight: '600',
-                              color: '#0366d6',
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            ⚖️ Assign Jury
-                          </button>
+                          {(c.committeeId || c._id) ? (
+                            <Link
+                              id={`committee-assign-jury-btn-${c.committeeId || c._id}`}
+                              to={`/coordinator/committees/${c.committeeId || c._id}/jury`}
+                              style={{
+                                display: 'inline-block',
+                                padding: '5px 12px',
+                                backgroundColor: '#f1f8ff',
+                                border: '1px solid #0366d6',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                color: '#0366d6',
+                                whiteSpace: 'nowrap',
+                                textDecoration: 'none'
+                              }}
+                            >
+                              ⚖️ Assign Jury
+                            </Link>
+                          ) : (
+                            <span style={{ color: '#999', fontSize: '11px' }}>Unavailable</span>
+                          )}
                         </td>
                       </tr>
                     ))}

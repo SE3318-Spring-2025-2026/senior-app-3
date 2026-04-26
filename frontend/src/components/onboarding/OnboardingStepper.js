@@ -136,6 +136,9 @@ const Step2 = ({ onNext, onBack }) => {
       const response = await registerStudent(validationToken, email, password || '');
       setAuth(
         { userId: response.userId, email: response.email, role: 'student',
+          groupId: response.groupId,
+          activeGroupId: response.activeGroupId,
+          currentGroupId: response.currentGroupId,
           emailVerified: false, accountStatus: response.accountStatus },
         response.accessToken,
         response.refreshToken

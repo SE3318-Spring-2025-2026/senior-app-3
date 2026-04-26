@@ -3,9 +3,9 @@
 const Comment = require('../models/Comment');
 const Review = require('../models/Review');
 const Deliverable = require('../models/Deliverable');
-const Group = require('../models/Group');
 const AuditLog = require('../models/AuditLog');
 const { dispatchClarificationRequiredNotification } = require('../services/notificationService');
+const { studentBelongsToGroup } = require('../utils/studentGroupMembership');
 
 const COMMENTS_PER_PAGE = 10;
 
@@ -115,7 +115,7 @@ exports.addComment = async (req, res, next) => {
  */
 exports.getComments = async (req, res, next) => {
   try {
-    const { userId, role, groupId } = req.user;
+    const { userId, role } = req.user;
     const { deliverableId, page = 1, limit = COMMENTS_PER_PAGE, status } = req.query;
 
     if (!deliverableId) {
@@ -130,11 +130,8 @@ exports.getComments = async (req, res, next) => {
 
     // Students can only view comments for their own group's deliverables
     if (role === 'student') {
-      const group = await Group.findOne({
-        groupId: deliverable.groupId,
-        'members.userId': userId,
-      }).lean();
-      if (!group) {
+      const ok = await studentBelongsToGroup(userId, deliverable.groupId);
+      if (!ok) {
         return res.status(403).json({ message: 'You do not have permission to view comments for this deliverable' });
       }
     }

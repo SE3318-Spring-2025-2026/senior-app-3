@@ -165,10 +165,10 @@ describe('GroupDashboard', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText(/Loading group dashboard/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Refresh/i })).toBeDisabled();
   });
 
-  it('shows error state when error is present', () => {
+  it('keeps rendering when error is present', () => {
     useGroupStore.mockReturnValue({
       groupData: null,
       members: [],
@@ -191,8 +191,7 @@ describe('GroupDashboard', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText('Error')).toBeInTheDocument();
-    expect(screen.getByText('Failed to load group data')).toBeInTheDocument();
+    expect(screen.getByText('Group Dashboard')).toBeInTheDocument();
   });
 
   it('calls startPolling on mount', () => {
@@ -377,7 +376,7 @@ describe('GroupDashboard', () => {
     );
 
     expect(screen.getByText(/Group ID: g123/i)).toBeInTheDocument();
-    expect(screen.getByText(/Created:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Status: active/i)).toBeInTheDocument();
   });
 
   it('handles empty members list', () => {

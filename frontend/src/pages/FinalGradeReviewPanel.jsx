@@ -185,6 +185,15 @@ const FinalGradeReviewPanel = () => {
         >
           <h2>{stateMessage.title}</h2>
           <p>{stateMessage.message}</p>
+          {groupId && (
+            <p className="final-grade-review-url-hint">
+              Review page URL (bookmark or share with the advisor):{' '}
+              <code>
+                {typeof window !== 'undefined' ? window.location.origin : ''}
+                /groups/{groupId}/final-grades/review
+              </code>
+            </p>
+          )}
         </div>
       )}
 

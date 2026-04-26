@@ -81,12 +81,15 @@ const persistPreviewForApproval = async ({
   const now = new Date();
   const incomingStudentIds = students.map((student) => student.studentId);
 
-  // Refresh pending snapshot for this cycle to avoid stale/duplicate pending states.
+  // Supersede prior non-published rows for the incoming students so that a
+  // freshly generated preview snapshot represents the single active draft.
+  // This prevents stale PENDING/APPROVED rows from older preview cycles
+  // accumulating and blocking publish eligibility (notApprovedCount>0 → 422).
+  // PUBLISHED rows are never touched (they are immutable history).
   await FinalGrade.deleteMany({
     groupId,
-    publishCycle,
-    status: FINAL_GRADE_STATUS.PENDING,
-    studentId: { $nin: incomingStudentIds }
+    studentId: { $in: incomingStudentIds },
+    status: { $ne: FINAL_GRADE_STATUS.PUBLISHED }
   });
 
   for (const student of students) {

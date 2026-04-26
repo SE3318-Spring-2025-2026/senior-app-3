@@ -1,6 +1,15 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import useAuthStore from '../../store/authStore';
+import { normalizeGroupId } from '../../utils/groupId';
+
+const isLikelyConcreteGroupId = (value) => {
+  const normalized = normalizeGroupId(value);
+  if (!normalized) return false;
+  // Reserved route fragments like /groups/new must not be treated as real group ids.
+  if (normalized.toLowerCase() === 'new') return false;
+  return true;
+};
 
 const Sidebar = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -28,7 +37,14 @@ const Sidebar = () => {
     user?.advisedGroupId,
     user?.advisorGroupId,
     user?.currentGroupId,
-  ].find((value) => typeof value === 'string' && value.trim() && !value.includes(':'));
+  ].map((value) => normalizeGroupId(value)).find(Boolean);
+  const routeGroupIdMatch = location.pathname.match(/^\/groups\/([^/]+)/);
+  const routeGroupId = routeGroupIdMatch?.[1];
+  const routeDerivedGroupId = isLikelyConcreteGroupId(routeGroupId) ? routeGroupId : null;
+  const userGroupId = [
+    user?.groupId,
+    routeDerivedGroupId,
+  ].map((value) => normalizeGroupId(value)).find(Boolean) || null;
 
   const navSections = [
     {
@@ -61,13 +77,18 @@ const Sidebar = () => {
             </svg>
           ), requiredRoles: ['professor']
         },
-        ...(reviewGroupId ? [{
-          label: 'Grade Review', path: `/groups/${reviewGroupId}/final-grades/review`, icon: (
+        {
+          label: 'Grade Review',
+          path: reviewGroupId
+            ? `/groups/${reviewGroupId}/final-grades/review`
+            : '/professor/grade-review',
+          icon: (
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-6m4 6V7m4 10v-4M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" />
             </svg>
-          ), requiredRoles: ['professor', 'advisor']
-        }] : []),
+          ),
+          requiredRoles: ['professor', 'advisor'],
+        },
         {
           label: 'Jury Committees', path: '/jury/committees', icon: (
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -96,25 +117,26 @@ const Sidebar = () => {
           ), requiredRoles: ['student']
         },
         {
-          label: 'Group Dashboard', path: `/groups/${user?.groupId || ':group_id'}`, icon: (
+          label: 'Group Dashboard', path: userGroupId ? `/groups/${userGroupId}` : '/dashboard', icon: (
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
             </svg>
-          )
+          ),
+          disabled: !userGroupId
         },
         {
-          label: 'Advisor Request', path: `/groups/${user?.groupId || ':group_id'}/advisor-request`, icon: (
+          label: 'Advisor Request', path: userGroupId ? `/groups/${userGroupId}/advisor-request` : '/dashboard', icon: (
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
             </svg>
-          ), requiredRoles: ['student']
+          ), requiredRoles: ['student'], disabled: !userGroupId
         },
         {
-          label: 'Advisor Panel', path: `/groups/${user?.groupId || ':group_id'}/advisor`, icon: (
+          label: 'Advisor Panel', path: userGroupId ? `/groups/${userGroupId}/advisor` : '/dashboard', icon: (
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
-          ), requiredRoles: ['student']
+          ), requiredRoles: ['student'], disabled: !userGroupId
         },
         {
           label: 'Submit Deliverable', path: '/dashboard/submit-deliverable', icon: (
@@ -131,11 +153,11 @@ const Sidebar = () => {
           ), requiredRoles: ['student']
         },
         {
-          label: 'Group Coordinator', path: `/groups/${user?.groupId || ':group_id'}/coordinator`, icon: (
+          label: 'Group Coordinator', path: userGroupId ? `/groups/${userGroupId}/coordinator` : '/coordinator', icon: (
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
             </svg>
-          ), requiredRoles: ['coordinator', 'admin']
+          ), requiredRoles: ['coordinator', 'admin'], disabled: !userGroupId
         },
       ],
     },
@@ -163,6 +185,13 @@ const Sidebar = () => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
             </svg>
           ), requiredRoles: ['coordinator']
+        },
+        {
+          label: 'Advisor requests', path: '/coordinator/advisor-requests', icon: (
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+          ), requiredRoles: ['coordinator', 'admin']
         },
         {
           label: 'Manage Professors', path: '/admin/professor-creation', icon: (
@@ -249,7 +278,7 @@ const Sidebar = () => {
                     className={`flex items-center space-x-3 px-4 py-3 rounded-xl transition-all group ${isActive
                       ? 'bg-indigo-600/10 text-indigo-400 border-l-4 border-indigo-500 rounded-l-none'
                       : 'hover:bg-slate-800/50 hover:text-white'
-                      } ${isCollapsed ? 'justify-center' : ''}`}
+                      } ${isCollapsed ? 'justify-center' : ''} ${item.disabled ? 'opacity-50 pointer-events-none' : ''}`}
                     title={isCollapsed ? item.label : ''}
                   >
                     <div className={`flex-shrink-0 transition-colors ${isActive ? 'text-indigo-400' : 'text-slate-500 group-hover:text-slate-300'}`}>

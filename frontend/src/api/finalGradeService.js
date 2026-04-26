@@ -1,4 +1,5 @@
 import apiClient from './apiClient';
+import { normalizeGroupId } from '../utils/groupId';
 
 /**
  * Helper to ensure a value is an array.
@@ -68,7 +69,11 @@ export const getMyFinalGrades = async () => {
  * POST /groups/:groupId/final-grades/preview
  */
 export const previewFinalGrades = async (groupId, payload = {}) => {
-  const response = await apiClient.post(`/groups/${groupId}/final-grades/preview`, payload);
+  const safeGroupId = normalizeGroupId(groupId);
+  if (!safeGroupId) {
+    throw new Error('Invalid group id');
+  }
+  const response = await apiClient.post(`/groups/${safeGroupId}/final-grades/preview`, payload);
   return response.data;
 };
 
@@ -77,7 +82,11 @@ export const previewFinalGrades = async (groupId, payload = {}) => {
  * POST /groups/:groupId/final-grades/approval
  */
 export const approveFinalGrades = async (groupId, payload) => {
-  const response = await apiClient.post(`/groups/${groupId}/final-grades/approval`, payload);
+  const safeGroupId = normalizeGroupId(groupId);
+  if (!safeGroupId) {
+    throw new Error('Invalid group id');
+  }
+  const response = await apiClient.post(`/groups/${safeGroupId}/final-grades/approval`, payload);
   return response.data;
 };
 
@@ -86,7 +95,11 @@ export const approveFinalGrades = async (groupId, payload) => {
  * GET /groups/:groupId/final-grades/summary
  */
 export const getGroupApprovalSummary = async (groupId) => {
-  const response = await apiClient.get(`/groups/${groupId}/final-grades/summary`);
+  const safeGroupId = normalizeGroupId(groupId);
+  if (!safeGroupId) {
+    throw new Error('Invalid group id');
+  }
+  const response = await apiClient.get(`/groups/${safeGroupId}/final-grades/summary`);
   return response.data;
 };
 
@@ -95,7 +108,11 @@ export const getGroupApprovalSummary = async (groupId) => {
  * POST /groups/:groupId/final-grades/publish
  */
 export const publishFinalGrades = async (groupId, payload) => {
-  const response = await apiClient.post(`/groups/${groupId}/final-grades/publish`, payload);
+  const safeGroupId = normalizeGroupId(groupId);
+  if (!safeGroupId) {
+    throw new Error('Invalid group id');
+  }
+  const response = await apiClient.post(`/groups/${safeGroupId}/final-grades/publish`, payload);
   return response.data;
 };
 

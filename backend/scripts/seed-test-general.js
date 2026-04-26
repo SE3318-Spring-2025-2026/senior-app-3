@@ -148,6 +148,10 @@ async function seedScheduleWindows() {
     { type: 'member_addition', dayOffset: -5 },
     { type: 'deliverable_submission', dayOffset: 0 },
     { type: 'advisor_association', dayOffset: 5 },
+    { type: 'advisor_release', dayOffset: -10 },
+    { type: 'advisor_transfer', dayOffset: -10 },
+    { type: 'advisor_decision', dayOffset: -10 },
+    { type: 'advisor_sanitization', dayOffset: -10 },
   ];
 
   for (const { type, dayOffset } of windowTypes) {

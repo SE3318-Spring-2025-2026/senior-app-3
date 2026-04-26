@@ -65,3 +65,28 @@ Bu nedenle advisor transfer testinde `422` alinabilir.
 - **`404` override isteklerinde**  
   Yanlis group id veya olmayan `target_student_id` kullaniliyor olabilir.
 
+- **"No published committee is linked to this group" (deliverable / teslimat)**  
+  Koordinator: grubu bir komiteye baglayip `POST /api/v1/committees/:committeeId/publish` ile yayinlayin. `group.committeeId` dolu ve komitede uyeler olmali.
+
+## 7) Publish cycle (final grade onayi)
+
+- Coordinator: `Coordinator Panel` → gruba git → **Preview & Approve** (`/groups/<groupId>/final-grades/approval`).
+- **Publish cycle** alani: opsiyonel etiket (ornek `cycle-2026-sp1`). Bos birakilirsa API genelde otomatik uretir; raporlama icin sabit bir string vermek iyi pratik.
+- Onay sonrasi: **Continue to publish** → `/groups/<groupId>/final-grades/publish` sihirbazi ile yayin.
+
+## 8) Professor / advisor — final grade review URL
+
+- Sidebar: **Grade Review** (JWT’de grup yoksa `/professor/grade-review` uzerinden `grp_...` yapistirin).
+- Dogrudan: `/groups/<groupId>/final-grades/review` (koordinator oncesinden preview uretmeli).
+
+## 9) Coordinator — bekleyen advisor talepleri
+
+- UI: **Administration → Advisor requests** → `/coordinator/advisor-requests`
+- API: `GET /api/v1/advisor-requests/coordinator/pending`, karar: `PATCH /api/v1/advisor-requests/:requestId` (koordinator/admin; professor takvim penceresinden bagimsiz).
+
+## 10) Deliverable — Sprint ID ornekleri
+
+- Genel seed (`scripts/seed-test-general.js`): `sprint_1_1`, `sprint_1_2`, … (`sprint_${i}_${j}`).
+- Hafif test seed (`scripts/seed-test-student.js`): `sprint_1`.
+- Sprint ID, `SprintConfig` / deadline kayitlariyla eslesmeli; yanlis id ile staging sonrasi adimlarda hata alinabilir.
+

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { getGroupApprovalSummary, publishFinalGrades } from '../api/finalGradeService';
 import './CoordinatorFinalGradePublishPanel.css';
 
@@ -47,6 +47,13 @@ const CoordinatorFinalGradePublishPanel = () => {
   const pendingCount = summaryData?.find((s) => s._id === 'pending')?.count || 0;
 
   const canPublish = approvedCount > 0 && publishedCount === 0 && Boolean(publishCycle);
+  const publishBlockedReason = approvedCount === 0
+    ? 'No approved grades found yet. First generate preview and approve grades.'
+    : publishedCount > 0
+      ? 'These grades are already published for this cycle.'
+      : !publishCycle
+        ? 'Publish cycle is missing. Refresh the page and re-open from approval flow.'
+        : 'A valid approval snapshot is required before publish.';
 
   const handlePublish = async () => {
     setPublishing(true);
@@ -152,8 +159,13 @@ const CoordinatorFinalGradePublishPanel = () => {
             </button>
             {!canPublish && (
               <p className="action-hint">
-                A valid approval snapshot and publish cycle are required. Ensure there are approved grades and none are already published.
+                {publishBlockedReason}
               </p>
+            )}
+            {!canPublish && (
+              <Link className="btn-publish" to={`/groups/${groupId}/final-grades/approval`}>
+                Go to Review & Approve
+              </Link>
             )}
           </div>
         </div>

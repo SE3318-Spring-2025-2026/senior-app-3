@@ -374,7 +374,17 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
     });
 
     it('should return connected:false (error state) after failed setup attempt', async () => {
-      // First attempt: invalid PAT (fails)
+      const coordinatorUser = await User.create({
+        email: 'coord-github-status@university.edu',
+        hashedPassword: await hashPassword('TempPass1!'),
+        role: 'coordinator',
+        accountStatus: 'active',
+        emailVerified: true,
+        requiresPasswordChange: false,
+      });
+      const coordinatorToken = generateTokenPair(coordinatorUser.userId, 'coordinator').accessToken;
+
+      // First attempt: invalid PAT (fails) — POST requires coordinator
       axios.get.mockRejectedValueOnce({
         response: { status: 401 },
         message: 'Unauthorized',
@@ -382,10 +392,12 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
 
       const failRes = await request(app)
         .post(`/api/v1/groups/${group.groupId}/github`)
-        .set('Authorization', `Bearer ${leaderToken}`)
+        .set('Authorization', `Bearer ${coordinatorToken}`)
         .send({
           pat: 'ghp_invalidtoken',
-          org: 'test-org',
+          org_name: 'test-org',
+          repo_name: 'test-repo',
+          visibility: 'private',
         });
 
       expect(failRes.status).toBe(422);
@@ -662,7 +674,17 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
     });
 
     it('should return connected:false (error state) after failed setup attempt', async () => {
-      // First attempt: invalid JIRA credentials (fails)
+      const coordinatorUser = await User.create({
+        email: 'coord-jira-status@university.edu',
+        hashedPassword: await hashPassword('TempPass1!'),
+        role: 'coordinator',
+        accountStatus: 'active',
+        emailVerified: true,
+        requiresPasswordChange: false,
+      });
+      const coordinatorToken = generateTokenPair(coordinatorUser.userId, 'coordinator').accessToken;
+
+      // First attempt: invalid JIRA credentials (fails) — POST requires coordinator
       axios.get.mockRejectedValueOnce({
         response: { status: 401 },
         message: 'Unauthorized',
@@ -670,7 +692,7 @@ describe('External API Integration: GitHub, JIRA, Notifications', () => {
 
       const failRes = await request(app)
         .post(`/api/v1/groups/${group.groupId}/jira`)
-        .set('Authorization', `Bearer ${leaderToken}`)
+        .set('Authorization', `Bearer ${coordinatorToken}`)
         .send({
           host: 'https://jira.company.com',
           email: 'invalid_user@example.com',

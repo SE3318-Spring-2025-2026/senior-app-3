@@ -232,4 +232,34 @@ describe('PATCH /api/v1/advisor-requests/:requestId', () => {
     expect(res.body.reason).toBeUndefined();
     expect(res.body.message).toBeDefined();
   });
+
+  it('allows coordinator to approve without advisor_decision schedule window', async () => {
+    const professor = await createUser({ userId: 'usr_prof_coord_win', role: 'professor' });
+    await createUser({ userId: 'usr_coord_win', role: 'coordinator' });
+    await createUser({ userId: 'usr_student_coord_win', role: 'student' });
+    const group = await Group.create({
+      groupName: 'Advisor Group Coord Win',
+      groupId: 'grp_ad_coord_win',
+      leaderId: 'usr_student_coord_win',
+      status: 'active',
+    });
+    const requestDoc = await AdvisorRequest.create({
+      requestId: 'arq_coord_win',
+      groupId: group.groupId,
+      professorId: professor.userId,
+      requesterId: 'usr_student_coord_win',
+      status: 'pending',
+    });
+
+    const res = await request(app)
+      .patch(`/api/v1/advisor-requests/${requestDoc.requestId}`)
+      .set('Authorization', authHeader('usr_coord_win', 'coordinator'))
+      .send({ decision: 'approve', reason: 'Coordinator override' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.decision).toBe('approve');
+
+    const updatedGroup = await Group.findOne({ groupId: group.groupId });
+    expect(updatedGroup.advisorId).toBe(professor.userId);
+  });
 });

@@ -8,6 +8,10 @@ const { dispatchInvitationNotification, dispatchMembershipDecisionNotification, 
 const { INACTIVE_GROUP_STATUSES } = require('../utils/groupStatusEnum');
 const OT = require('../utils/operationTypes');
 const SyncErrorLog = require('../models/SyncErrorLog');
+const {
+  resolveStudentAffiliatedGroupId,
+  findOpenApprovedGroupMembership,
+} = require('../utils/studentGroupMembership');
 
 const VALID_DECISIONS = new Set(['accepted', 'rejected']);
 const MAX_RETRY_ATTEMPTS = 3;
@@ -93,12 +97,14 @@ const addMember = async (req, res) => {
         continue;
       }
 
-      const existingApproved = await GroupMembership.findOne({
-        studentId: invitee.userId,
-        status: 'approved',
-        groupId: { $ne: groupId },
+      const openMembershipElsewhere = await findOpenApprovedGroupMembership(invitee.userId, groupId);
+      const embeddedOpenElsewhere = await resolveStudentAffiliatedGroupId(invitee.userId, {
+        statusIn: ['active', 'pending_validation'],
       });
-      if (existingApproved) {
+      if (
+        openMembershipElsewhere ||
+        (embeddedOpenElsewhere && embeddedOpenElsewhere !== groupId)
+      ) {
         errors.push({ student_id: inviteeId, code: 'STUDENT_ALREADY_IN_GROUP', message: 'Student already belongs to an active group' });
         continue;
       }
@@ -420,14 +426,13 @@ const membershipDecision = async (req, res) => {
       });
     }
 
-    // Auto-denial: one active group per student
+    // Auto-denial: one open group per student (ignore dead-group membership rows)
     if (decision === 'accepted') {
-      const existingApproved = await GroupMembership.findOne({
-        studentId,
-        status: 'approved',
-        groupId: { $ne: groupId },
+      const existingApproved = await findOpenApprovedGroupMembership(studentId, groupId);
+      const embeddedOpen = await resolveStudentAffiliatedGroupId(studentId, {
+        statusIn: ['active', 'pending_validation'],
       });
-      if (existingApproved) {
+      if (existingApproved || (embeddedOpen && embeddedOpen !== groupId)) {
         // Auto-deny this invitation
         invitation.status = 'rejected';
         invitation.decidedAt = new Date();
@@ -621,7 +626,14 @@ const getMyPendingInvitation = async (req, res) => {
       });
     }
 
-    return res.status(404).json({ code: 'NO_PENDING_INVITATION', message: 'No pending invitation found' });
+    return res.status(200).json({
+      invitation_id: null,
+      group_id: null,
+      group_name: null,
+      invited_by: null,
+      status: null,
+      created_at: null
+    });
   } catch (err) {
     console.error('getMyPendingInvitation error:', err);
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });

@@ -1,5 +1,5 @@
 const { verifyAccessToken } = require('../utils/jwt');
-const Group = require('../models/Group');
+const { resolveStudentAffiliatedGroupId } = require('../utils/studentGroupMembership');
 const { createAuditLog } = require('../services/auditService');
 
 const isIntegrationRoute = (req) => {
@@ -321,11 +321,13 @@ const deliverableAuthMiddleware = async (req, res, next) => {
 
     const { userId, role } = decoded;
 
-    const group = await Group.findOne({
-      members: { $elemMatch: { userId, status: 'accepted' } },
-    }).select('groupId').lean();
+    // Leaders may not be in members[] yet; multiple groups → newest by _id wins (matches login intent).
+    let groupId = null;
+    if (role === 'student') {
+      groupId = await resolveStudentAffiliatedGroupId(userId);
+    }
 
-    req.user = { userId, role, groupId: group ? group.groupId : null };
+    req.user = { userId, role, groupId };
     next();
   } catch (error) {
     res.status(500).json({

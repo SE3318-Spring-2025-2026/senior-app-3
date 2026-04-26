@@ -192,6 +192,20 @@ const normalizeContributionRow = (entry = {}) => {
   };
 };
 
+/**
+ * Coordinator-only: bootstrap an empty SprintRecord for a group when no
+ * Jira/GitHub sync has produced one yet. The optional `sprintId` is auto-
+ * generated server-side as `bootstrap-sprint-N` when omitted.
+ */
+export const bootstrapSprint = async ({ groupId, sprintId, status, committeeId } = {}) => {
+  const payload = {};
+  if (sprintId) payload.sprintId = sprintId.trim();
+  if (status) payload.status = status;
+  if (committeeId) payload.committeeId = committeeId;
+  const response = await apiClient.post(`/groups/${groupId}/sprints`, payload);
+  return response.data;
+};
+
 export const recalculateContributions = async ({ groupId, sprintId, triggeredBy }) => {
   const response = await apiClient.post(
     `/groups/${groupId}/sprints/${sprintId}/contributions/recalculate`,
