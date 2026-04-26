@@ -203,7 +203,7 @@ const CoordinatorAdvisorInbox = () => {
             </div>
             <button
               type="button"
-              className="px-3 py-1.5 rounded-md border border-slate-300 text-sm bg-white hover:bg-slate-100 disabled:opacity-50"
+              className="px-3 py-1.5 rounded-md border border-slate-300 text-sm text-slate-900 bg-white hover:bg-slate-100 disabled:opacity-50"
               onClick={load}
               disabled={loading}
             >

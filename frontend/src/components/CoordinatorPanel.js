@@ -352,6 +352,7 @@ const CoordinatorPanel = () => {
             border: 'none',
             borderRadius: '6px',
             cursor: 'pointer',
+            color: '#000',
             fontSize: '14px',
             marginBottom: '24px',
           }}
