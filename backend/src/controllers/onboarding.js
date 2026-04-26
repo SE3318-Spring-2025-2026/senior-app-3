@@ -8,6 +8,18 @@ const { sendVerificationEmail, sendAccountReadyEmail } = require('../services/em
 const { createAuditLog } = require('../services/auditService');
 
 /**
+ * When DEMO_OPEN_STUDENT_ONBOARDING=true and NODE_ENV is not production, allow local/demo
+ * registration without a pre-seeded email match: create or align StudentIdRegistry rows
+ * so arbitrary studentId + email pairs work. Never enable in production.
+ */
+function isDemoOpenStudentOnboarding() {
+  return (
+    process.env.DEMO_OPEN_STUDENT_ONBOARDING === 'true' &&
+    process.env.NODE_ENV !== 'production'
+  );
+}
+
+/**
  * Upload and process student ID CSV file
  * POST /onboarding/upload-student-ids
  */
@@ -171,12 +183,23 @@ const validateStudentId = async (req, res) => {
     }
 
     // Check if student ID exists in registry
-    const registeredStudent = await StudentIdRegistry.findOne({
-      studentId: studentId.trim(),
+    const normalizedId = studentId.trim();
+    const normalizedEmail = email.trim().toLowerCase();
+
+    let registeredStudent = await StudentIdRegistry.findOne({
+      studentId: normalizedId,
       status: 'valid',
     });
 
-    if (!registeredStudent) {
+    if (!registeredStudent && isDemoOpenStudentOnboarding()) {
+      registeredStudent = await StudentIdRegistry.create({
+        studentId: normalizedId,
+        name: `Demo ${normalizedId}`,
+        email: normalizedEmail,
+        status: 'valid',
+        uploadBatchId: 'demo_open_onboarding',
+      });
+    } else if (!registeredStudent) {
       return res.status(422).json({
         valid: false,
         reason: 'Student ID not found in records. Please verify your ID and try again.',
@@ -184,17 +207,23 @@ const validateStudentId = async (req, res) => {
       });
     }
 
-    // Check email matches
-    if (registeredStudent.email !== email.trim().toLowerCase()) {
-      return res.status(422).json({
-        valid: false,
-        reason: 'Email address does not match the registered student ID. Please use the email associated with your enrollment.',
-        code: 'EMAIL_MISMATCH',
-      });
+    // Check email matches (strict unless demo open onboarding is enabled)
+    if (registeredStudent.email !== normalizedEmail) {
+      if (isDemoOpenStudentOnboarding()) {
+        registeredStudent.email = normalizedEmail;
+        await registeredStudent.save();
+      } else {
+        return res.status(422).json({
+          valid: false,
+          reason:
+            'Email address does not match the registered student ID. Please use the email associated with your enrollment.',
+          code: 'EMAIL_MISMATCH',
+        });
+      }
     }
 
     // Check if this student ID has already been registered
-    const existingUser = await User.findOne({ studentId: studentId.trim() });
+    const existingUser = await User.findOne({ studentId: normalizedId });
     if (existingUser) {
       return res.status(422).json({
         valid: false,
@@ -204,7 +233,7 @@ const validateStudentId = async (req, res) => {
     }
 
     // Check if this email has already been registered
-    const existingEmailUser = await User.findOne({ email: email.trim().toLowerCase() });
+    const existingEmailUser = await User.findOne({ email: normalizedEmail });
     if (existingEmailUser) {
       return res.status(422).json({
         valid: false,
@@ -216,8 +245,8 @@ const validateStudentId = async (req, res) => {
     // Generate validation token
     const jwt = require('jsonwebtoken');
     const validationPayload = {
-      studentId: studentId.trim(),
-      email: email.trim().toLowerCase(),
+      studentId: normalizedId,
+      email: normalizedEmail,
       iat: Math.floor(Date.now() / 1000),
       exp: Math.floor(Date.now() / 1000) + 600, // 10 minutes expiry
       type: 'student_id_validation',

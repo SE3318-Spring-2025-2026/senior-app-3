@@ -4,7 +4,6 @@ import useAuthStore from './store/authStore';
 import ProtectedRoute from './components/ProtectedRoute';
 import AuthMethodSelection from './components/AuthMethodSelection';
 import LoginForm from './components/LoginForm';
-import RegisterForm from './components/RegisterForm';
 import OnboardingStepper from './components/onboarding/OnboardingStepper';
 import ForgotPasswordPage from './components/ForgotPasswordPage';
 import ResetPasswordPage from './components/ResetPasswordPage';
@@ -64,7 +63,8 @@ function App() {
             <Route path="/" element={<Navigate to="/auth/method-selection" replace />} />
             <Route path="/auth/method-selection" element={<AuthMethodSelection />} />
             <Route path="/auth/login" element={<LoginForm />} />
-            <Route path="/auth/register" element={<RegisterForm />} />
+            {/* Student sign-up uses the full onboarding wizard; keep /auth/register as a stable alias */}
+            <Route path="/auth/register" element={<Navigate to="/onboarding" replace />} />
             <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
             <Route path="/auth/github/callback" element={<GitHubCallbackHandler />} />
