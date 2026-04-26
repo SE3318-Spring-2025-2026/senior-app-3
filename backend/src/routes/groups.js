@@ -41,11 +41,13 @@ const {
   recalculateContributions,
   requireCoordinatorRole,
 } = require('../controllers/contributionRatios');
+const { coordinatorAdminOrGroupMember } = require('../middleware/groupIntegrationReadAccess');
 
 // Integrated Controllers from both branches
 const { submitDeliverableHandler } = require('../controllers/deliverables'); // From main
 const { releaseAdvisor } = require('../controllers/advisorAssociation'); // From main
 const { advisorSanitization } = require('../controllers/sanitizationController'); // From main
+const { bootstrapSprint } = require('../controllers/coordinatorSprintBootstrap');
 
 // ============================================================================
 // GROUP LIFECYCLE & MANAGEMENT (Process 2.1 - 2.2)
@@ -82,7 +84,7 @@ router.get('/:groupId', authMiddleware, getGroup);
 /**
  * GET /api/v1/groups/:groupId/committee-status — Committee status lookup (From your branch)
  */
-// router.get('/:groupId/committee-status', authMiddleware, getGroupCommitteeStatus);
+router.get('/:groupId/committee-status', authMiddleware, getGroupCommitteeStatus);
 
 // GET /api/v1/groups/:groupId/sprints/:sprintId/contributions — read-only Process 7.x summary
 router.get(
@@ -123,15 +125,25 @@ router.post(
 // ============================================================================
 
 router.post('/:groupId/github', authMiddleware, roleMiddleware(['coordinator']), configureGithub);
-router.get('/:groupId/github', authMiddleware, roleMiddleware(['coordinator']), getGithub);
+router.get('/:groupId/github', authMiddleware, coordinatorAdminOrGroupMember, getGithub);
 router.post('/:groupId/jira', authMiddleware, roleMiddleware(['coordinator']), configureJira);
-router.get('/:groupId/jira', authMiddleware, roleMiddleware(['coordinator']), getJira);
+router.get('/:groupId/jira', authMiddleware, coordinatorAdminOrGroupMember, getJira);
 router.post(
   '/:groupId/sprints/:sprintId/jira-sync',
   serviceOrBearerAuth,
   roleMiddleware(['coordinator']),
   checkJiraSyncRateLimit,
   triggerJiraSync
+);
+
+// POST /api/v1/groups/:groupId/sprints — Coordinator bootstrap empty sprint
+// (used when no Jira/GitHub sync exists yet, so the sprint dropdown stays
+// empty and downstream flows like deliverable assignment break)
+router.post(
+  '/:groupId/sprints',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'admin']),
+  bootstrapSprint
 );
 
 // ============================================================================

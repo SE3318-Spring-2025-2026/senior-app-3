@@ -33,24 +33,34 @@ const CoordinatorSprintDashboard = () => {
   const [githubLoading, setGithubLoading] = useState(false);
   const [recalcLoading, setRecalcLoading] = useState(false);
 
+  const refreshGroups = async () => {
+    setGroupsLoading(true);
+    try {
+      const response = await getAllGroups();
+      const loadedGroups = response.groups || [];
+      setGroups(loadedGroups);
+    } catch (error) {
+      setGlobalError(error?.response?.data?.message || 'Failed to load groups.');
+    } finally {
+      setGroupsLoading(false);
+    }
+  };
+
   useEffect(() => {
     let mounted = true;
-    const loadGroups = async () => {
+    (async () => {
       setGroupsLoading(true);
       try {
         const response = await getAllGroups();
         if (!mounted) return;
-        const loadedGroups = response.groups || [];
-        setGroups(loadedGroups);
+        setGroups(response.groups || []);
       } catch (error) {
         if (!mounted) return;
         setGlobalError(error?.response?.data?.message || 'Failed to load groups.');
       } finally {
         if (mounted) setGroupsLoading(false);
       }
-    };
-
-    loadGroups();
+    })();
     return () => {
       mounted = false;
     };
@@ -246,6 +256,7 @@ const CoordinatorSprintDashboard = () => {
             setJobLogs({});
           }}
           loadingGroups={groupsLoading}
+          onSprintsRefresh={refreshGroups}
         />
 
         <SyncActionButtons

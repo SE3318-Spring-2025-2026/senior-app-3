@@ -405,10 +405,79 @@ const assignJuryHandler = async (req, res) => {
   }
 };
 
+/**
+ * List committees for coordinator panel.
+ * GET /api/v1/committees
+ */
+const listCommittees = async (_req, res) => {
+  try {
+    const committees = await Committee.find({})
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return res.status(200).json({
+      committees: committees.map((committee) => ({
+        committeeId: committee.committeeId,
+        committeeName: committee.committeeName,
+        description: committee.description || null,
+        status: committee.status,
+        advisorIds: Array.isArray(committee.advisorIds) ? committee.advisorIds : [],
+        juryIds: Array.isArray(committee.juryIds) ? committee.juryIds : [],
+        createdAt: committee.createdAt,
+        updatedAt: committee.updatedAt
+      })),
+      total: committees.length
+    });
+  } catch (err) {
+    console.error('listCommittees error:', err);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: 'Failed to load committees'
+    });
+  }
+};
+
+/**
+ * Get single committee by committeeId.
+ * GET /api/v1/committees/:committeeId
+ */
+const getCommitteeById = async (req, res) => {
+  try {
+    const { committeeId } = req.params;
+    const committee = await Committee.findOne({ committeeId }).lean();
+
+    if (!committee) {
+      return res.status(404).json({
+        code: 'COMMITTEE_NOT_FOUND',
+        message: `Committee ${committeeId} not found`
+      });
+    }
+
+    return res.status(200).json({
+      committeeId: committee.committeeId,
+      committeeName: committee.committeeName,
+      description: committee.description || null,
+      status: committee.status,
+      advisorIds: Array.isArray(committee.advisorIds) ? committee.advisorIds : [],
+      juryIds: Array.isArray(committee.juryIds) ? committee.juryIds : [],
+      createdAt: committee.createdAt,
+      updatedAt: committee.updatedAt
+    });
+  } catch (err) {
+    console.error('getCommitteeById error:', err);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: 'Failed to load committee'
+    });
+  }
+};
+
 module.exports = {
   createCommittee,
   publishCommittee,
   validateCommitteeHandler,
   assignAdvisorsHandler,
   assignJuryHandler,
+  listCommittees,
+  getCommitteeById
 };

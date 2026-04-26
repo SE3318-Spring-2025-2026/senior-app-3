@@ -10,6 +10,7 @@ const AuditLog = require('../models/AuditLog');
 const Group = require('../models/Group');
 const Committee = require('../models/Committee');
 const { getCorrelationId } = require('../middleware/correlationId');
+const { studentBelongsToGroup } = require('../utils/studentGroupMembership');
 
 const NOTIFICATION_SERVICE_URL = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:4000';
 
@@ -431,7 +432,7 @@ const replyToCommentHandler = async (req, res) => {
 
 const getComments = async (req, res) => {
   const { deliverableId } = req.params;
-  const { role, groupId: userGroupId } = req.user;
+  const { role, userId } = req.user;
   const { sortBy = 'timestamp', status, page = '1' } = req.query;
 
   // Fetch deliverable
@@ -448,11 +449,14 @@ const getComments = async (req, res) => {
   }
 
   // Students can only view comments on their own group's deliverables
-  if (role === 'student' && deliverable.groupId !== userGroupId) {
-    return res.status(403).json({
-      code: 'FORBIDDEN',
-      message: 'Students can only view comments on their own group deliverables',
-    });
+  if (role === 'student') {
+    const ok = await studentBelongsToGroup(userId, deliverable.groupId);
+    if (!ok) {
+      return res.status(403).json({
+        code: 'FORBIDDEN',
+        message: 'Students can only view comments on their own group deliverables',
+      });
+    }
   }
 
   // Build query filter

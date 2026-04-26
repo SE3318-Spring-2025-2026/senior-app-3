@@ -37,6 +37,8 @@ import StudentFinalGradesPage from './pages/StudentFinalGradesPage.jsx';
 import FinalGradeReviewPanel from './pages/FinalGradeReviewPanel.jsx';
 import CoordinatorFinalGradeApprovalPanel from './pages/CoordinatorFinalGradeApprovalPanel.jsx';
 import CoordinatorFinalGradePublishPanel from './pages/CoordinatorFinalGradePublishPanel.jsx';
+import ProfessorGradeReviewEntry from './pages/ProfessorGradeReviewEntry.jsx';
+import CoordinatorAdvisorInbox from './pages/CoordinatorAdvisorInbox.jsx';
 
 
 const Profile = () => <div className="page">Profile - Coming Soon</div>;
@@ -75,6 +77,14 @@ function App() {
             <Route
               path="/professor/inbox"
               element={<ProtectedRoute component={ProfessorInbox} requiredRoles={['professor']} />}
+            />
+            <Route
+              path="/professor/grade-review"
+              element={<ProtectedRoute component={ProfessorGradeReviewEntry} requiredRoles={['professor', 'advisor']} />}
+            />
+            <Route
+              path="/coordinator/advisor-requests"
+              element={<ProtectedRoute component={CoordinatorAdvisorInbox} requiredRoles={['coordinator', 'admin']} />}
             />
 
             <Route

@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const {
   createCommittee,
+  listCommittees,
+  getCommitteeById,
   assignAdvisorsHandler,
   assignJuryHandler,
   validateCommitteeHandler,
@@ -14,6 +16,8 @@ const { authMiddleware, roleMiddleware } = require('../middleware/auth');
  * POST /api/v1/committees
  */
 router.post('/', authMiddleware, roleMiddleware(['coordinator']), createCommittee);
+router.get('/', authMiddleware, roleMiddleware(['coordinator', 'admin']), listCommittees);
+router.get('/:committeeId', authMiddleware, roleMiddleware(['coordinator', 'admin']), getCommitteeById);
 
 /**
  * Process 4.2: Assign Advisors

@@ -38,6 +38,56 @@ const Group = require('../models/Group');
 const { attributeStoryPoints } = require('./attributionService');
 const { createAuditLog } = require('./auditService');
 
+/**
+ * When recalculating against a freshly bootstrapped sprint (or any sprint
+ * that hasn't been touched by a Jira/GitHub sync yet) there are zero
+ * ContributionRecord rows for the (groupId, sprintId) pair. The controller
+ * then bails with 422 EMPTY_CONTRIBUTION_LIST, which breaks the chain of
+ * recalculate → final-grade preview the demo flow needs. This helper
+ * lazily seeds one empty row per accepted member so the rest of the
+ * pipeline always has at least N>0 rows to work with.
+ */
+async function ensureContributionRowsForAcceptedMembers(sprintId, groupId) {
+  const existing = await ContributionRecord.countDocuments({ sprintId, groupId });
+  if (existing > 0) return { seeded: 0, alreadyExisting: existing };
+
+  const group = await Group.findOne({ groupId }).select('members').lean();
+  const acceptedMemberIds = (group?.members || [])
+    .filter((member) => member && member.status === 'accepted' && member.userId)
+    .map((member) => member.userId);
+  if (acceptedMemberIds.length === 0) {
+    return { seeded: 0, alreadyExisting: 0 };
+  }
+
+  const ops = acceptedMemberIds.map((studentId) => ({
+    updateOne: {
+      filter: { sprintId, groupId, studentId },
+      update: {
+        $setOnInsert: {
+          sprintId,
+          groupId,
+          studentId,
+          storyPointsAssigned: 0,
+          storyPointsCompleted: 0,
+          contributionRatio: 0,
+          targetStoryPoints: 0,
+          groupTotalStoryPoints: 0,
+          jiraIssueKeys: [],
+          jiraIssueKey: null,
+          githubHandle: null,
+          lastUpdatedAt: new Date(),
+        },
+      },
+      upsert: true,
+    },
+  }));
+  const result = await ContributionRecord.bulkWrite(ops, { ordered: false });
+  return {
+    seeded: result.upsertedCount || 0,
+    alreadyExisting: 0,
+  };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // ERROR CLASS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -156,6 +206,17 @@ async function recalculateSprintContributions(sprintId, groupId, options = {}) {
     // For now, we assume a basic ratio calculation.
 
     console.log(`[recalculateSprintContributions] STEP 2: Calculating contribution ratios`);
+
+    // Defensive backfill: a freshly bootstrapped sprint has no
+    // ContributionRecord rows yet. Seed one zeroed row per accepted member
+    // so we never return 422 EMPTY_CONTRIBUTION_LIST on the "minimum data
+    // set" path that the demo / coordinator preview flow relies on.
+    const seedResult = await ensureContributionRowsForAcceptedMembers(sprintId, groupId);
+    if (seedResult.seeded > 0) {
+      console.log(
+        `[recalculateSprintContributions] Seeded ${seedResult.seeded} empty contribution rows for accepted members (sprint had no prior records).`
+      );
+    }
 
     const contributionRecords = await ContributionRecord.find({
       sprintId,

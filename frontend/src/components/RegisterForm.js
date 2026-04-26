@@ -221,6 +221,8 @@ const RegisterForm = () => {
           email: response.email,
           role: 'student',
           groupId: response.groupId,
+          activeGroupId: response.activeGroupId,
+          currentGroupId: response.currentGroupId,
           emailVerified: false,
           accountStatus: response.accountStatus,
         },

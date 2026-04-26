@@ -1,4 +1,5 @@
 import apiClient from './apiClient';
+import { normalizeGroupId } from '../utils/groupId';
 
 /**
  * Process 5.1 — Validate group eligibility and obtain a short-lived validationToken.
@@ -6,7 +7,11 @@ import apiClient from './apiClient';
  * @returns {Promise<{ validationToken: string, groupId: string, committeeId: string }>}
  */
 export const validateGroupForSubmission = async (groupId) => {
-  const response = await apiClient.post('/deliverables/validate-group', { groupId });
+  const safeGroupId = normalizeGroupId(groupId);
+  if (!safeGroupId) {
+    throw new Error('Invalid group id');
+  }
+  const response = await apiClient.post('/deliverables/validate-group', { groupId: safeGroupId });
   return response.data;
 };
 
@@ -19,10 +24,14 @@ export const validateGroupForSubmission = async (groupId) => {
  * @returns {Promise<{ stagingId: string, fileHash: string, sizeMb: number, mimeType: string, nextStep: string }>}
  */
 export const submitDeliverableStaging = async (groupId, { deliverableType, sprintId, file, description }) => {
-  const { validationToken } = await validateGroupForSubmission(groupId);
+  const safeGroupId = normalizeGroupId(groupId);
+  if (!safeGroupId) {
+    throw new Error('Invalid group id');
+  }
+  const { validationToken } = await validateGroupForSubmission(safeGroupId);
 
   const formData = new FormData();
-  formData.append('groupId', groupId);
+  formData.append('groupId', safeGroupId);
   formData.append('deliverableType', deliverableType);
   formData.append('sprintId', sprintId);
   formData.append('file', file);
@@ -44,7 +53,11 @@ export const submitDeliverableStaging = async (groupId, { deliverableType, sprin
  * @returns {Promise<object>}
  */
 export const submitDeliverable = async (groupId, formData) => {
-  const response = await apiClient.post(`/groups/${groupId}/deliverables`, formData, {
+  const safeGroupId = normalizeGroupId(groupId);
+  if (!safeGroupId) {
+    throw new Error('Invalid group id');
+  }
+  const response = await apiClient.post(`/groups/${safeGroupId}/deliverables`, formData, {
     headers: { 'Content-Type': undefined },
   });
   return response.data;
@@ -56,6 +69,26 @@ export const submitDeliverable = async (groupId, formData) => {
  * @returns {Promise<object>}
  */
 export const getGroupDeliverables = async (groupId) => {
-  const response = await apiClient.get(`/groups/${groupId}/deliverables`);
-  return response.data;
+  const safeGroupId = normalizeGroupId(groupId);
+  if (!safeGroupId) {
+    return { deliverables: [] };
+  }
+  // List endpoint lives under /api/v1/deliverables (not GET /groups/:id/deliverables — only POST exists there).
+  try {
+    const response = await apiClient.get('/deliverables', {
+      params: { groupId: safeGroupId, limit: 100, page: 1 },
+    });
+    const data = response.data || {};
+    return {
+      deliverables: data.deliverables || [],
+      total: data.total,
+      page: data.page,
+      limit: data.limit,
+    };
+  } catch (error) {
+    if (error.response?.status === 403 || error.response?.status === 404) {
+      return { deliverables: [] };
+    }
+    throw error;
+  }
 };

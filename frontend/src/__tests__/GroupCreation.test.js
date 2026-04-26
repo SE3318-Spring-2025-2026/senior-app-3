@@ -24,6 +24,7 @@ describe('GroupCreationPage', () => {
         <Routes>
           <Route path="/groups/new" element={<GroupCreationPage />} />
           <Route path="/groups/:group_id" element={<div>Dashboard</div>} />
+          <Route path="/dashboard" element={<div>Dashboard</div>} />
         </Routes>
       </MemoryRouter>
     );
@@ -123,7 +124,7 @@ describe('GroupCreationPage', () => {
       await user.click(createButton);
 
       await waitFor(() => {
-        expect(screen.getByText(/already belong to an active group/i)).toBeInTheDocument();
+        expect(screen.getByText('Dashboard')).toBeInTheDocument();
       });
     });
 

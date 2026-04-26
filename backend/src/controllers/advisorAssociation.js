@@ -110,6 +110,69 @@ const listProfessorPendingRequests = async (req, res) => {
 };
 
 /**
+ * GET /api/v1/advisor-requests/coordinator/pending
+ * All pending advisor requests (coordinator / admin oversight).
+ */
+const listCoordinatorPendingAdvisorRequests = async (req, res) => {
+  try {
+    const requests = await AdvisorRequest.find({ status: 'pending' }).sort({ createdAt: -1 }).lean();
+    const groupIds = [...new Set(requests.map((r) => r.groupId))];
+    const groups = await Group.find({ groupId: { $in: groupIds } })
+      .select('groupId groupName leaderId')
+      .lean();
+    const groupMap = new Map(groups.map((g) => [g.groupId, g]));
+
+    // Collect every userId we need to resolve in a single round-trip:
+    // professors named in the request + the leader and the requester for each group.
+    const userIds = new Set();
+    requests.forEach((r) => {
+      if (r.professorId) userIds.add(r.professorId);
+      if (r.requesterId) userIds.add(r.requesterId);
+    });
+    groups.forEach((g) => {
+      if (g.leaderId) userIds.add(g.leaderId);
+    });
+
+    const users = await User.find({ userId: { $in: [...userIds] } })
+      .select('userId email name')
+      .lean();
+    const userMap = new Map(users.map((u) => [u.userId, u]));
+
+    const enriched = requests.map((r) => {
+      const group = groupMap.get(r.groupId);
+      const professor = userMap.get(r.professorId);
+      const leader = group?.leaderId ? userMap.get(group.leaderId) : null;
+      const requester = userMap.get(r.requesterId);
+      return {
+        requestId: r.requestId,
+        groupId: r.groupId,
+        groupName: group?.groupName || null,
+        leaderId: group?.leaderId || null,
+        leaderName: leader?.name || null,
+        leaderEmail: leader?.email || null,
+        professorId: r.professorId,
+        professorName: professor?.name || null,
+        professorEmail: professor?.email || null,
+        requesterId: r.requesterId,
+        requesterName: requester?.name || null,
+        requesterEmail: requester?.email || null,
+        status: r.status,
+        message: r.message || '',
+        createdAt: r.createdAt,
+      };
+    });
+
+    return res.status(200).json({ requests: enriched, total: enriched.length });
+  } catch (err) {
+    console.error('listCoordinatorPendingAdvisorRequests error:', err);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: 'Unable to retrieve pending advisor requests.',
+    });
+  }
+};
+
+/**
  * POST /api/v1/advisor-requests
  */
 const submitAdvisorRequest = async (req, res) => {
@@ -139,13 +202,43 @@ const submitAdvisorRequest = async (req, res) => {
       return res.status(404).json({ code: 'NOT_FOUND', message: 'Professor not found' });
     }
 
+    const pending = await AdvisorRequest.findOne({ groupId, status: 'pending' });
+
     if (group.advisorStatus === 'assigned' && group.professorId) {
-      return res.status(409).json({ code: 'CONFLICT', message: 'Group already has an advisor' });
+      let assignedProfessor = null;
+      try {
+        assignedProfessor = await User.findOne({ userId: group.professorId })
+          .select('userId email name')
+          .lean();
+      } catch (_) { /* non-fatal */ }
+      return res.status(409).json({
+        code: 'GROUP_ALREADY_HAS_ADVISOR',
+        message: assignedProfessor
+          ? `Group already has an advisor (${assignedProfessor.name || assignedProfessor.email}).`
+          : 'Group already has an advisor',
+        assignedProfessorId: group.professorId,
+        assignedProfessorEmail: assignedProfessor?.email || null,
+        assignedProfessorName: assignedProfessor?.name || null,
+      });
     }
 
-    const pending = await AdvisorRequest.findOne({ groupId, status: 'pending' });
     if (pending) {
-      return res.status(409).json({ code: 'CONFLICT', message: 'Pending advisor request already exists' });
+      let pendingProfessor = null;
+      try {
+        pendingProfessor = await User.findOne({ userId: pending.professorId })
+          .select('userId email name')
+          .lean();
+      } catch (_) { /* non-fatal */ }
+      const profLabel = pendingProfessor?.name || pendingProfessor?.email || pending.professorId;
+      return res.status(409).json({
+        code: 'ADVISOR_REQUEST_PENDING',
+        message: `A pending advisor request already exists for this group (sent to ${profLabel}). Cancel it or wait for the professor's decision before submitting another.`,
+        pendingRequestId: pending.requestId,
+        pendingProfessorId: pending.professorId,
+        pendingProfessorEmail: pendingProfessor?.email || null,
+        pendingProfessorName: pendingProfessor?.name || null,
+        pendingCreatedAt: pending.createdAt || null,
+      });
     }
 
     const requestDoc = await AdvisorRequest.create({
@@ -216,7 +309,8 @@ const processAdvisorRequest = async (req, res) => {
       return res.status(404).json({ code: 'NOT_FOUND', message: 'Advisor request not found' });
     }
 
-    if (ar.professorId !== req.user.userId && req.user.role !== 'admin') {
+    const elevated = req.user.role === 'coordinator' || req.user.role === 'admin';
+    if (!elevated && ar.professorId !== req.user.userId) {
       return res.status(403).json({
         code: 'FORBIDDEN',
         message: 'This request is assigned to another professor',
@@ -522,11 +616,100 @@ const advisorSanitization = async (req, res) => {
   }
 };
 
+/**
+ * DELETE /api/v1/advisor-requests/:requestId
+ *
+ * Lets the team leader (or coordinator/admin) cancel a pending advisor
+ * request before the professor decides on it. Once cancelled the row stays
+ * in the collection for audit trails but stops blocking new submissions
+ * (the partial unique index only enforces "one pending row per group").
+ */
+const cancelAdvisorRequest = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const ar = await AdvisorRequest.findOne({ requestId });
+    if (!ar) {
+      return res.status(404).json({ code: 'NOT_FOUND', message: 'Advisor request not found' });
+    }
+
+    if (ar.status !== 'pending') {
+      return res.status(409).json({
+        code: 'NOT_PENDING',
+        message: `Request is already ${ar.status} and cannot be cancelled.`,
+      });
+    }
+
+    const elevated = req.user.role === 'coordinator' || req.user.role === 'admin';
+
+    let isLeader = false;
+    if (!elevated) {
+      const group = await Group.findOne({ groupId: ar.groupId }).select('leaderId advisorStatus').lean();
+      if (!group) {
+        return res.status(404).json({ code: 'NOT_FOUND', message: 'Group not found' });
+      }
+      isLeader = group.leaderId === req.user.userId;
+      if (!isLeader && ar.requesterId !== req.user.userId) {
+        return res.status(403).json({
+          code: 'FORBIDDEN',
+          message: 'Only the team leader (or coordinator) can cancel this request.',
+        });
+      }
+    }
+
+    ar.status = 'cancelled';
+    ar.processedAt = new Date();
+    await ar.save();
+
+    // If the group still believes it has a "pending" advisor relationship and no
+    // other pending request remains, demote it back to 'unassigned' so a new
+    // submission isn't blocked further down the chain.
+    try {
+      const stillHasPending = await AdvisorRequest.findOne({
+        groupId: ar.groupId,
+        status: 'pending',
+      }).select('requestId').lean();
+      if (!stillHasPending) {
+        await Group.updateOne(
+          { groupId: ar.groupId, advisorStatus: 'pending' },
+          { $set: { advisorStatus: null } }
+        );
+      }
+    } catch (_) { /* non-fatal: group flag normalization */ }
+
+    await createAuditLog({
+      action: 'advisor_request_cancelled',
+      actorId: req.user.userId,
+      targetId: ar.requestId,
+      groupId: ar.groupId,
+      payload: {
+        requestId: ar.requestId,
+        groupId: ar.groupId,
+        cancelledByRole: req.user.role,
+        elevated,
+      },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    }).catch(() => {});
+
+    return res.status(200).json({
+      requestId: ar.requestId,
+      status: ar.status,
+      groupId: ar.groupId,
+      professorId: ar.professorId,
+    });
+  } catch (err) {
+    console.error('cancelAdvisorRequest error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred.' });
+  }
+};
+
 module.exports = {
   listProfessorAdvisorRequests,
   listProfessorPendingRequests,
+  listCoordinatorPendingAdvisorRequests,
   submitAdvisorRequest,
   processAdvisorRequest,
+  cancelAdvisorRequest,
   releaseAdvisor,
   transferAdvisor,
   advisorSanitization,

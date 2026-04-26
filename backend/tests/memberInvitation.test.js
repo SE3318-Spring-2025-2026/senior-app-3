@@ -352,6 +352,34 @@ describe('groupMembers controller', () => {
       expect(body.errors[0].code).toBe('STUDENT_ALREADY_IN_GROUP');
     });
 
+    it('allows invite when student only has approved membership on an inactive group', async () => {
+      const group = await makeGroup();
+      const deadGroup = await makeGroup({
+        leaderId: 'usr_leader',
+        groupName: `Dead ${Date.now()}`,
+        status: 'inactive',
+      });
+      const student = await makeStudent();
+
+      await GroupMembership.create({
+        groupId: deadGroup.groupId,
+        studentId: student.userId,
+        status: 'approved',
+      });
+
+      const res = makeRes();
+      await addMember(
+        makeReq({ groupId: group.groupId }, { student_ids: [student.userId] }),
+        res
+      );
+
+      expect(res.status).toHaveBeenCalledWith(201);
+      const body = res.json.mock.calls[0][0];
+      expect(body.errors || []).toHaveLength(0);
+      expect(body.added).toHaveLength(1);
+      expect(body.added[0].invitee_id).toBe(student.userId);
+    });
+
     it('partial batch: adds valid students and collects errors for invalid ones', async () => {
       const group = await makeGroup();
       const validStudent = await makeStudent();

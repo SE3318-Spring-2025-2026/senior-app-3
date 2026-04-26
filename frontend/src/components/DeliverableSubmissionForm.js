@@ -31,6 +31,12 @@ const DeliverableSubmissionForm = ({
   const [successMsg, setSuccessMsg] = useState('');
   const [submittedDeliverables, setSubmittedDeliverables] = useState({});
 
+  useEffect(() => {
+    if (sprintIdProp) {
+      setSprintId(sprintIdProp);
+    }
+  }, [sprintIdProp]);
+
   const isGroupMember = useMemo(() => {
     if (!members || !Array.isArray(members)) return false;
     return members.some((m) => m.userId === userId || m.user_id === userId);
@@ -56,7 +62,10 @@ const DeliverableSubmissionForm = ({
         const deliverables = data.deliverables || data.items || data.data || [];
         const byType = {};
         if (Array.isArray(deliverables)) {
-          deliverables.forEach((d) => { byType[d.type] = d; });
+          deliverables.forEach((d) => {
+            const key = d.deliverableType || d.type;
+            if (key) byType[key] = d;
+          });
         }
         setSubmittedDeliverables(byType);
       } catch {
@@ -242,11 +251,15 @@ const DeliverableSubmissionForm = ({
                     id="deliverable-sprint"
                     type="text"
                     className="add-member-input"
-                    placeholder="e.g. sprint_1"
+                    placeholder="e.g. sprint_1_1 (see TEST-DATA-CHEATSHEET)"
                     value={sprintId}
                     onChange={(e) => setSprintId(e.target.value)}
                     disabled={!windowOpen || loadingSubmit}
                   />
+                  <p className="deliverable-form-hint" style={{ marginTop: 6, fontSize: '0.85rem', color: '#64748b' }}>
+                    Must match a sprint configured for deadlines (Sprint Dashboard / seed). Example seeded ids often look like{' '}
+                    <code>sprint_1_1</code> or <code>sprint_1</code>.
+                  </p>
                 </div>
 
                 <div className="deliverable-form-row">

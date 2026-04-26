@@ -1,4 +1,7 @@
 import apiClient from './apiClient';
+import { normalizeGroupId } from '../utils/groupId';
+
+const isExpectedIntegrationStatus = (status) => status === 403 || status === 404;
 
 /**
  * Group Service - Handles all group-related API calls
@@ -102,7 +105,11 @@ export const deactivateScheduleWindow = async (windowId) => {
  * @returns {Promise<{added: object[], errors: object[], group_id: string, total_members: number}>}
  */
 export const addGroupMembers = async (groupId, studentIds) => {
-  const response = await apiClient.post(`/groups/${groupId}/members`, {
+  const safeGroupId = normalizeGroupId(groupId);
+  if (!safeGroupId) {
+    return { added: [], errors: [{ message: 'Invalid group id' }], group_id: null, total_members: 0 };
+  }
+  const response = await apiClient.post(`/groups/${safeGroupId}/members`, {
     student_ids: studentIds,
   });
   return response.data;
@@ -115,7 +122,17 @@ export const addGroupMembers = async (groupId, studentIds) => {
 export const getMyPendingInvitation = async () => {
   try {
     const response = await apiClient.get('/groups/pending-invitation');
-    return response.data;
+    const payload = response.data;
+    if (!payload || typeof payload !== 'object') return null;
+    const invitationId = payload.invitation_id || payload.invitationId || null;
+    const groupId =
+      payload.group_id ||
+      payload.groupId ||
+      payload.group?.group_id ||
+      payload.group?.groupId ||
+      null;
+    if (!invitationId || !groupId) return null;
+    return payload;
   } catch (error) {
     if (error.response?.status === 404) return null;
     throw error;
@@ -130,9 +147,13 @@ export const getMyPendingInvitation = async () => {
  * @param {string} [message] - Optional message accompanying the decision
  */
 export const submitMembershipDecision = async (groupId, decision, studentId, message) => {
+  const safeGroupId = normalizeGroupId(groupId);
+  if (!safeGroupId) {
+    throw new Error('Invalid group id');
+  }
   const body = { decision, student_id: studentId };
   if (message) body.message = message;
-  const response = await apiClient.post(`/groups/${groupId}/membership-decisions`, body);
+  const response = await apiClient.post(`/groups/${safeGroupId}/membership-decisions`, body);
   return response.data;
 };
 
@@ -142,8 +163,12 @@ export const submitMembershipDecision = async (groupId, decision, studentId, mes
  * @returns {Promise} Group data
  */
 export const getGroup = async (groupId) => {
+  const safeGroupId = normalizeGroupId(groupId);
+  if (!safeGroupId) {
+    throw new Error('Invalid group id');
+  }
   try {
-    const response = await apiClient.get(`/groups/${groupId}`);
+    const response = await apiClient.get(`/groups/${safeGroupId}`);
     return response.data;
   } catch (error) {
     console.error('Error fetching group:', error);
@@ -162,7 +187,11 @@ export const getGroup = async (groupId) => {
  *   2. Call GET /committees/{committeeId} to fetch published committee data
  */
 export const getGroupCommitteeStatus = async (groupId) => {
-  const response = await apiClient.get(`/groups/${groupId}/committee-status`);
+  const safeGroupId = normalizeGroupId(groupId);
+  if (!safeGroupId) {
+    return { groupId: null, committeeId: null, committee: null };
+  }
+  const response = await apiClient.get(`/groups/${safeGroupId}/committee-status`);
   return response.data;
 };
 
@@ -176,20 +205,13 @@ export const getGroupCommitteeStatus = async (groupId) => {
  *   Filter response to only published committees for non-coordinator users
  */
 export const getJuryCommittees = async () => {
-  try {
-    // TODO: Backend implementation required (Level 2.4 Issue #75 or related)
-    // Once backend provides endpoint for jury committee retrieval, uncomment:
-    // const response = await apiClient.get('/committees?role=jury&status=published');
-    // return response.data;
-
-    // Temporary: Return empty placeholder response
-    return {
-      committees: [], // Awaiting backend GET endpoint for jury committee retrieval
-    };
-  } catch (error) {
-    console.error('Error fetching jury committees:', error);
-    throw error;
-  }
+  // TODO: Backend implementation required (Level 2.4 Issue #75 or related)
+  // Once backend provides endpoint for jury committee retrieval, uncomment:
+  // const response = await apiClient.get('/committees?role=jury&status=published');
+  // return response.data;
+  return {
+    committees: [], // Awaiting backend GET endpoint for jury committee retrieval
+  };
 };
 
 /**
@@ -211,8 +233,12 @@ export const createAdvisorRequest = async ({ groupId, professorId, requesterId, 
  * @returns {Promise} List of group members
  */
 export const getGroupMembers = async (groupId) => {
+  const safeGroupId = normalizeGroupId(groupId);
+  if (!safeGroupId) {
+    return { members: [] };
+  }
   try {
-    const response = await apiClient.get(`/groups/${groupId}/members`);
+    const response = await apiClient.get(`/groups/${safeGroupId}/members`);
     return response.data;
   } catch (error) {
     console.error('Error fetching group members:', error);
@@ -226,14 +252,18 @@ export const getGroupMembers = async (groupId) => {
  * @returns {Promise} GitHub integration details
  */
 export const getGitHubStatus = async (groupId) => {
+  const safeGroupId = normalizeGroupId(groupId);
+  if (!safeGroupId) {
+    return { connected: false, repo_url: null, last_synced: null };
+  }
   try {
-    const response = await apiClient.get(`/groups/${groupId}/github`);
+    const response = await apiClient.get(`/groups/${safeGroupId}/github`);
     return response.data;
   } catch (error) {
-    console.error('Error fetching GitHub status:', error);
-    if (error.response?.status === 404) {
+    if (isExpectedIntegrationStatus(error.response?.status)) {
       return { connected: false, repo_url: null, last_synced: null };
     }
+    console.error('Error fetching GitHub status:', error);
     throw error;
   }
 };
@@ -244,14 +274,18 @@ export const getGitHubStatus = async (groupId) => {
  * @returns {Promise} JIRA integration details
  */
 export const getJiraStatus = async (groupId) => {
+  const safeGroupId = normalizeGroupId(groupId);
+  if (!safeGroupId) {
+    return { connected: false, project_key: null, board_url: null };
+  }
   try {
-    const response = await apiClient.get(`/groups/${groupId}/jira`);
+    const response = await apiClient.get(`/groups/${safeGroupId}/jira`);
     return response.data;
   } catch (error) {
-    console.error('Error fetching JIRA status:', error);
-    if (error.response?.status === 404) {
+    if (isExpectedIntegrationStatus(error.response?.status)) {
       return { connected: false, project_key: null, board_url: null };
     }
+    console.error('Error fetching JIRA status:', error);
     throw error;
   }
 };
@@ -262,8 +296,12 @@ export const getJiraStatus = async (groupId) => {
  * @returns {Promise} List of pending approvals
  */
 export const getPendingApprovals = async (groupId) => {
+  const safeGroupId = normalizeGroupId(groupId);
+  if (!safeGroupId) {
+    return { approvals: [] };
+  }
   try {
-    const response = await apiClient.get(`/groups/${groupId}/approvals`, {
+    const response = await apiClient.get(`/groups/${safeGroupId}/approvals`, {
       params: { status: 'pending' }
     });
     return response.data;
@@ -282,13 +320,24 @@ export const getPendingApprovals = async (groupId) => {
  * @returns {Promise} All dashboard data
  */
 export const getGroupDashboardData = async (groupId) => {
+  const safeGroupId = normalizeGroupId(groupId);
+  if (!safeGroupId) {
+    return {
+      group: null,
+      members: [],
+      github: { connected: false, repo_url: null, last_synced: null },
+      jira: { connected: false, project_key: null, board_url: null },
+      approvals: { approvals: [] },
+      committeeStatus: { groupId: null, committeeId: null, committee: null },
+    };
+  }
   try {
     const [groupData, approvalsData, githubData, jiraData, committeeData] = await Promise.all([
-      getGroup(groupId),
-      apiClient.get(`/groups/${groupId}/approvals`).then((r) => r.data).catch(() => ({ approvals: [] })),
-      getGitHubStatus(groupId).catch(() => ({ connected: false, repo_url: null, last_synced: null })),
-      getJiraStatus(groupId).catch(() => ({ connected: false, project_key: null, board_url: null })),
-      getGroupCommitteeStatus(groupId).catch(() => ({ groupId, committeeId: null, committee: null })),
+      getGroup(safeGroupId),
+      apiClient.get(`/groups/${safeGroupId}/approvals`).then((r) => r.data).catch(() => ({ approvals: [] })),
+      getGitHubStatus(safeGroupId).catch(() => ({ connected: false, repo_url: null, last_synced: null })),
+      getJiraStatus(safeGroupId).catch(() => ({ connected: false, project_key: null, board_url: null })),
+      getGroupCommitteeStatus(safeGroupId).catch(() => ({ groupId: safeGroupId, committeeId: null, committee: null })),
     ]);
 
     return {

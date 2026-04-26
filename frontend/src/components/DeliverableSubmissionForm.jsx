@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { validateGroupForSubmission } from '../api/deliverableService';
+import { normalizeGroupId } from '../utils/groupId';
 
 // Deliverable type options matching the enum from backend
 const DELIVERABLE_TYPES = [
@@ -16,7 +17,7 @@ const DELIVERABLE_TYPES = [
  */
 const DeliverableSubmissionForm = ({ groupId: groupIdProp, onValidationSuccess, FileUploadWidget }) => {
   const { group_id } = useParams();
-  const groupId = groupIdProp || group_id;
+  const groupId = normalizeGroupId(groupIdProp || group_id);
 
   // Form inputs
   const [deliverableType, setDeliverableType] = useState('');
@@ -28,6 +29,8 @@ const DeliverableSubmissionForm = ({ groupId: groupIdProp, onValidationSuccess, 
   const [error, setError] = useState(null);
   const [errorCode, setErrorCode] = useState(null);
   const [validationToken, setValidationToken] = useState(null);
+  const [lockedReason, setLockedReason] = useState('');
+  const devBypass = localStorage.getItem('DEV_BYPASS') === 'true';
 
   // Field-level error tracking
   const [fieldErrors, setFieldErrors] = useState({});
@@ -38,6 +41,7 @@ const DeliverableSubmissionForm = ({ groupId: groupIdProp, onValidationSuccess, 
   const isSubmitDisabled =
     !deliverableType ||
     !sprintId ||
+    (Boolean(lockedReason) && !devBypass) ||
     formState === 'loading' ||
     formState === 'token_received';
 
@@ -56,6 +60,7 @@ const DeliverableSubmissionForm = ({ groupId: groupIdProp, onValidationSuccess, 
     e.preventDefault();
     setError(null);
     setErrorCode(null);
+    setLockedReason('');
     setFieldErrors({});
 
     // Validate required fields
@@ -114,10 +119,22 @@ const DeliverableSubmissionForm = ({ groupId: groupIdProp, onValidationSuccess, 
           'Your group does not have permission to submit deliverables. Contact your advisor.';
         setErrorCode('FORBIDDEN');
       } else if (status === 404) {
-        errorMessage =
-          data?.message ||
-          'Your group was not found. Please check your account status.';
-        setErrorCode('NOT_FOUND');
+        const backendMessage = (data?.message || '').toLowerCase();
+        if (backendMessage.includes('committee')) {
+          if (devBypass) {
+            errorMessage = 'Committee is missing, but DEV_BYPASS is enabled so submission flow remains testable.';
+            setErrorCode('NO_COMMITTEE_BYPASSED');
+          } else {
+            errorMessage = 'Awaiting Committee Assignment';
+            setErrorCode('NO_COMMITTEE');
+            setLockedReason('Awaiting Committee Assignment');
+          }
+        } else {
+          errorMessage =
+            data?.message ||
+            'Your group was not found. Please check your account status.';
+          setErrorCode('NOT_FOUND');
+        }
       } else if (status === 409) {
         errorMessage =
           data?.message ||
@@ -184,6 +201,18 @@ const DeliverableSubmissionForm = ({ groupId: groupIdProp, onValidationSuccess, 
         </div>
 
         <div className="p-8">
+          {devBypass && (
+            <div className="mb-6 p-4 rounded-2xl border bg-blue-50 border-blue-100 text-blue-800" role="status">
+              <h3 className="font-extrabold text-sm mb-1 uppercase tracking-tight">Dev Bypass Enabled</h3>
+              <p className="text-sm font-medium">Frontend lock checks are bypassed (`DEV_BYPASS=true`).</p>
+            </div>
+          )}
+          {lockedReason && (
+            <div className="mb-6 p-4 rounded-2xl border bg-amber-50 border-amber-100 text-amber-800" role="status">
+              <h3 className="font-extrabold text-sm mb-1 uppercase tracking-tight">Submission Locked</h3>
+              <p className="text-sm font-medium">{lockedReason}</p>
+            </div>
+          )}
           {/* Error Alert */}
           {error && (
             <div

@@ -12,6 +12,7 @@ import CommitteeStatusCard from './CommitteeStatusCard';
 import DeliverableSubmissionForm from './DeliverableSubmissionForm';
 import { submitMembershipDecision, getMyPendingInvitation } from '../api/groupService';
 import { releaseAdvisor } from '../api/advisorService';
+import { normalizeGroupId } from '../utils/groupId';
 import './GroupDashboard.css';
 
 /**
@@ -19,7 +20,8 @@ import './GroupDashboard.css';
  * Senior Architecture: Handles polling, manual refresh, and integration states.
  */
 const GroupDashboard = () => {
-  const { group_id: groupId } = useParams();
+  const { group_id: groupIdParam } = useParams();
+  const groupId = normalizeGroupId(groupIdParam);
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
   const pollingIntervalRef = useRef(null);
@@ -49,7 +51,7 @@ const GroupDashboard = () => {
   } = useGroupStore();
 
   useEffect(() => {
-    if (!groupId) navigate('/');
+    if (!groupId) navigate('/dashboard');
   }, [groupId, navigate]);
 
   useEffect(() => {
@@ -273,6 +275,7 @@ const GroupDashboard = () => {
 
           <DeliverableSubmissionForm
             groupId={groupId}
+            sprintId={studentSprintId || undefined}
             isLeader={isLeader}
             userId={user?.userId}
             members={members}

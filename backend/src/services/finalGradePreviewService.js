@@ -43,6 +43,7 @@ async function buildFinalGradesPreview(groupId, input = {}) {
     useLatestRatios,
     includeDeliverableIds = [],
     baseGroupScore: explicitBaseGroupScore,
+    allowMissingRatios,
   } = input;
 
   // Process 8.1 placeholder: until D4/D5 aggregation service is wired,
@@ -54,6 +55,7 @@ async function buildFinalGradesPreview(groupId, input = {}) {
   const ratioResolution = await resolveContributionRatiosForPreview(groupId, {
     includeSprintIds,
     useLatestRatios,
+    allowMissingRatios: allowMissingRatios === true,
   });
   const warningsByStudent = normalizeWarningsByStudent(ratioResolution.warnings);
 

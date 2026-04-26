@@ -256,6 +256,7 @@ async function resolveContributionRatiosForPreview(groupId, input = {}) {
   const group = await loadGroup(groupId);
   const includeSprintIds = normalizeStringArray(input.includeSprintIds, 'includeSprintIds');
   const useLatestRatios = input.useLatestRatios !== false;
+  const allowMissingRatios = input.allowMissingRatios === true;
   const mode = useLatestRatios ? 'latest' : 'explicit_sprints';
 
   if (!useLatestRatios && includeSprintIds.length === 0) {
@@ -301,21 +302,35 @@ async function resolveContributionRatiosForPreview(groupId, input = {}) {
     (studentId) => !selectedStudentIds.has(studentId)
   );
 
-  if (missingStudentIds.length > 0) {
-    throw new FinalGradeRatioResolverError(
-      422,
-      'MISSING_CONTRIBUTION_RATIOS',
-      'Required contribution ratios are missing for one or more enrolled students.',
-      {
-        groupId: group.groupId,
-        missingStudentIds,
-        includeSprintIds,
-        useLatestRatios,
-      }
-    );
-  }
-
   const warnings = await buildGithubMappingWarnings(group.groupId, enrolledStudentIds);
+  if (missingStudentIds.length > 0) {
+    if (!allowMissingRatios) {
+      throw new FinalGradeRatioResolverError(
+        422,
+        'MISSING_CONTRIBUTION_RATIOS',
+        'Required contribution ratios are missing for one or more enrolled students.',
+        {
+          groupId: group.groupId,
+          missingStudentIds,
+          includeSprintIds,
+          useLatestRatios,
+        }
+      );
+    }
+
+    const fallbackEntries = missingStudentIds.map((studentId) => ({
+      studentId,
+      contributionRatio: 1,
+      records: [],
+    }));
+    selected.push(...fallbackEntries);
+    warnings.push({
+      code: 'RATIO_FALLBACK_APPLIED',
+      message:
+        'Contribution ratios were missing for some students. Default ratio 1.0 was applied for preview.',
+      missingStudentIds,
+    });
+  }
 
   return {
     groupId: group.groupId,

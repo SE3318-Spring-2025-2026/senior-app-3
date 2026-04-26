@@ -39,11 +39,17 @@ export const getAdvisorAssociationWindow = async () => {
  * Fetches users with professor role (D1)
  */
 export const searchProfessors = async (query = '') => {
-  const response = await apiClient.get('/users', {
-    params: { role: 'professor', ...(query && { q: query }) },
+  const response = await apiClient.get('/auth/users/professors');
+  const professors = response.data.professors || [];
+  if (!query) {
+    return professors;
+  }
+
+  const normalizedQuery = query.trim().toLowerCase();
+  return professors.filter((professor) => {
+    const searchable = `${professor.name || ''} ${professor.email || ''} ${professor.userId || ''}`.toLowerCase();
+    return searchable.includes(normalizedQuery);
   });
-  // Supports both simple list and search result structures
-  return response.data.professors || response.data;
 };
 
 export const getProfessors = searchProfessors;
@@ -82,6 +88,12 @@ export const getMyAdvisorRequests = async () => {
   return response.data.requests || [];
 };
 
+/** Coordinator / admin: all pending advisor association requests. */
+export const getCoordinatorPendingAdvisorRequests = async () => {
+  const response = await apiClient.get('/advisor-requests/coordinator/pending');
+  return response.data.requests || [];
+};
+
 /**
  * Professor inbox: approve or reject a pending advisor request.
  */
@@ -90,5 +102,14 @@ export const decideOnAdvisorRequest = async (requestId, decision, reason) => {
     decision,
     reason: reason ?? undefined,
   });
+  return response.data;
+};
+
+/**
+ * Cancel a pending advisor request. The team leader (or coordinator/admin)
+ * may withdraw a request before the professor has decided on it.
+ */
+export const cancelAdvisorRequest = async (requestId) => {
+  const response = await apiClient.delete(`/advisor-requests/${requestId}`);
   return response.data;
 };

@@ -15,7 +15,12 @@ const { dispatchGroupCreationNotification, dispatchAdvisorRequestNotification } 
 const { getCorrelationId } = require('../middleware/correlationId');
 const { INACTIVE_GROUP_STATUSES, VALID_STATUS_TRANSITIONS } = require('../utils/groupStatusEnum');
 const SyncErrorLog = require('../models/SyncErrorLog');
+const SprintRecord = require('../models/SprintRecord');
 const { encrypt } = require('../utils/cryptoUtils');
+const {
+  resolveStudentAffiliatedGroupId,
+  findOpenApprovedGroupMembership,
+} = require('../utils/studentGroupMembership');
 
 const VALID_DECISIONS = new Set(['approved', 'rejected']);
 
@@ -239,40 +244,58 @@ const createGroup = async (req, res) => {
       });
     }
 
-    // --- One-active-group constraint: student may not lead or belong to another group ---
-    const existingMembership = await GroupMembership.findOne({
-      studentId: leader.userId,
-      status: 'approved',
-    });
-    if (existingMembership) {
-      return res.status(409).json({
-        code: 'STUDENT_ALREADY_IN_GROUP',
-        message: 'You already belong to an active group and cannot create another.',
-      });
-    }
-
-    // Issue #52: Check if leader already leads an active group (any status except rejected terminal state)
+    // Leader may only have one "open" group at a time (active or awaiting validation).
+    // Inactive/archived/rejected groups must not block creating a new team.
     const existingLeadership = await Group.findOne({
       leaderId: leader.userId,
-      status: { $nin: ['rejected'] },
+      status: { $in: ['active', 'pending_validation'] },
     });
     if (existingLeadership) {
       return res.status(409).json({
         code: 'STUDENT_ALREADY_LEADER',
         message: 'You are already the leader of an existing group.',
+        existingGroupId: existingLeadership.groupId,
+      });
+    }
+
+    // One open group: membership rows on dead groups must not block new teams.
+    const embeddedOpenGroup = await resolveStudentAffiliatedGroupId(leader.userId, {
+      statusIn: ['active', 'pending_validation'],
+    });
+    const openMembershipRow = await findOpenApprovedGroupMembership(leader.userId);
+    const conflictGroupId = embeddedOpenGroup || openMembershipRow?.groupId;
+    if (conflictGroupId) {
+      return res.status(409).json({
+        code: 'STUDENT_ALREADY_IN_GROUP',
+        message: 'You already belong to an active group and cannot create another.',
+        groupId: conflictGroupId,
+        activeGroupId: conflictGroupId,
       });
     }
 
     // --- f18: Write validated group record to D2 with status pending_validation ---
+    let encryptedGithubPat = null;
+    let encryptedJiraToken = null;
+    try {
+      encryptedGithubPat = githubPat ? encrypt(githubPat) : null;
+      encryptedJiraToken = jiraToken ? encrypt(jiraToken) : null;
+    } catch (encryptionError) {
+      return res.status(422).json({
+        code: 'INTEGRATION_ENCRYPTION_UNAVAILABLE',
+        message:
+          'GitHub/JIRA secret fields cannot be saved because ENCRYPTION_KEY is missing or invalid. Remove secret values or configure ENCRYPTION_KEY.'
+      });
+    }
+
     const group = new Group({
       groupName: normalizedName,
       leaderId: leader.userId,
       status: 'pending_validation',
-      githubPat: githubPat ? encrypt(githubPat) : null,
+      githubPat: encryptedGithubPat,
       githubOrg: githubOrg || null,
       jiraUrl: jiraUrl || null,
       jiraUsername: jiraUsername || null,
-      jiraToken: jiraToken ? encrypt(jiraToken) : null,
+      jiraToken: encryptedJiraToken,
       projectKey: projectKey || null,
     });
 
@@ -983,16 +1006,16 @@ const createMemberRequest = async (req, res) => {
       });
     }
 
-    // Check if student is already in another active group
-    const otherGroupMembership = await GroupMembership.findOne({
-      groupId: { $ne: groupId },
-      studentId,
-      status: 'approved',
+    // Check if student is already in another open group (not stale membership on inactive groups)
+    const otherOpenMembership = await findOpenApprovedGroupMembership(studentId, groupId);
+    const otherEmbeddedGroup = await resolveStudentAffiliatedGroupId(studentId, {
+      statusIn: ['active', 'pending_validation'],
     });
-    if (otherGroupMembership) {
+    if (otherOpenMembership || (otherEmbeddedGroup && otherEmbeddedGroup !== groupId)) {
       return res.status(400).json({
         code: 'ALREADY_IN_GROUP',
         message: 'You already belong to another active group',
+        groupId: otherEmbeddedGroup || otherOpenMembership?.groupId || undefined,
       });
     }
 
@@ -1098,6 +1121,21 @@ const decideMemberRequest = async (req, res) => {
       });
     }
 
+    if (decision === 'approved') {
+      const inviteeId = memberRequest.inviteeId;
+      const openElsewhere = await findOpenApprovedGroupMembership(inviteeId, groupId);
+      const embeddedElsewhere = await resolveStudentAffiliatedGroupId(inviteeId, {
+        statusIn: ['active', 'pending_validation'],
+      });
+      if (openElsewhere || (embeddedElsewhere && embeddedElsewhere !== groupId)) {
+        return res.status(409).json({
+          code: 'STUDENT_ALREADY_IN_GROUP',
+          message: 'Student already belongs to another active group.',
+          groupId: embeddedElsewhere || openElsewhere?.groupId,
+        });
+      }
+    }
+
     // Update the request status
     const timestamp = new Date();
     memberRequest.status = decision === 'approved' ? 'accepted' : 'rejected';
@@ -1174,11 +1212,27 @@ const getAllGroups = async (req, res) => {
     // For each group, fetch integration errors from SyncErrorLog
     const enrichedGroups = await Promise.all(
       groups.map(async (group) => {
-        const syncErrors = await SyncErrorLog.find({ groupId: group.groupId })
-          .sort({ createdAt: -1 })
-          .limit(5)
-          .lean();
+        const [syncErrors, sprintDocs] = await Promise.all([
+          SyncErrorLog.find({ groupId: group.groupId })
+            .sort({ createdAt: -1 })
+            .limit(5)
+            .lean(),
+          SprintRecord.find({ groupId: group.groupId })
+            .select('sprintId sprintRecordId status startDate endDate finalizedAt deliverableRefs')
+            .sort({ startDate: 1, createdAt: 1 })
+            .lean(),
+        ]);
         const members = Array.isArray(group.members) ? group.members : [];
+
+        const sprints = sprintDocs.map((s) => ({
+          sprintId: s.sprintId,
+          sprintRecordId: s.sprintRecordId,
+          status: s.status,
+          startDate: s.startDate || null,
+          endDate: s.endDate || null,
+          finalizedAt: s.finalizedAt || null,
+          deliverableCount: Array.isArray(s.deliverableRefs) ? s.deliverableRefs.length : 0,
+        }));
 
         return {
           groupId: group.groupId,
@@ -1200,6 +1254,8 @@ const getAllGroups = async (req, res) => {
             attempts: err.attempts,
             createdAt: err.createdAt,
           })),
+          sprints,
+          sprintCount: sprints.length,
           createdAt: group.createdAt,
           updatedAt: group.updatedAt,
         };
@@ -1209,7 +1265,7 @@ const getAllGroups = async (req, res) => {
     // Audit log (non-fatal)
     try {
       await createAuditLog({
-        action: 'groups_listed',
+        action: 'GROUP_RETRIEVED',
         actorId: req.user.userId,
         payload: {
           total_groups: enrichedGroups.length,
@@ -1300,10 +1356,15 @@ const transferAdvisor = async (req, res) => {
       });
     }
 
-    let updatedGroup;
-    await session.withTransaction(async () => {
+    // Inner write block: works with or without an active session so we can
+    // gracefully fall back to sequential writes on standalone MongoDB
+    // (transactions require a replica set / mongos — errCode 20).
+    const performTransferWrites = async (activeSession) => {
       const now = new Date();
-      const groupToUpdate = await Group.findOne({ groupId }).session(session);
+      const findQuery = Group.findOne({ groupId });
+      const groupToUpdate = activeSession
+        ? await findQuery.session(activeSession)
+        : await findQuery;
       if (!groupToUpdate) {
         throw new Error('Group not found during transfer transaction');
       }
@@ -1313,7 +1374,7 @@ const transferAdvisor = async (req, res) => {
       groupToUpdate.advisorId = targetProfessor.userId;
       groupToUpdate.advisorStatus = 'transferred';
       groupToUpdate.advisorUpdatedAt = now;
-      await groupToUpdate.save({ session });
+      await groupToUpdate.save(activeSession ? { session: activeSession } : undefined);
 
       await AdvisorAssignment.create(
         [
@@ -1323,11 +1384,12 @@ const transferAdvisor = async (req, res) => {
             advisorId: targetProfessor.userId,
             previousAdvisorId: previousAdvisorId,
             status: 'transferred',
+            updatedBy: req.user.userId,
             releasedBy: req.user.userId,
             releaseReason: normalizedReason,
           },
         ],
-        { session }
+        activeSession ? { session: activeSession } : undefined
       );
 
       await createAuditLog(
@@ -1344,11 +1406,29 @@ const transferAdvisor = async (req, res) => {
           ipAddress: req.ip,
           userAgent: req.headers['user-agent'],
         },
-        session
+        activeSession || null
       );
 
-      updatedGroup = groupToUpdate;
-    });
+      return groupToUpdate;
+    };
+
+    const isStandaloneTxnError = (err) => {
+      if (!err) return false;
+      if (err.code === 20 || err.codeName === 'IllegalOperation') return true;
+      const msg = String(err.message || '');
+      return /replica set member|mongos|Transaction numbers/i.test(msg);
+    };
+
+    let updatedGroup;
+    try {
+      await session.withTransaction(async () => {
+        updatedGroup = await performTransferWrites(session);
+      });
+    } catch (txnErr) {
+      if (!isStandaloneTxnError(txnErr)) throw txnErr;
+      // Standalone MongoDB → run writes without a session.
+      updatedGroup = await performTransferWrites(null);
+    }
 
     return res.status(200).json({
       groupId: updatedGroup.groupId,

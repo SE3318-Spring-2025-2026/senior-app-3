@@ -9,6 +9,7 @@ const { sendPasswordResetEmail } = require('../services/emailService');
 const axios = require('axios');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const { resolveStudentAffiliatedGroupId } = require('../utils/studentGroupMembership');
 
 // In-memory CSRF state store: state → { userId, expiresAt }
 const oauthStateStore = new Map();
@@ -88,15 +89,12 @@ const loginWithPassword = async (req, res) => {
     // Generate tokens
     const tokens = generateTokenPair(user.userId, user.role);
 
-    // Look up groupId for students to populate the session/store
+    // Look up groupId for students to populate the session/store (newest matching group wins)
     let groupId = null;
     if (user.role === 'student') {
-      const group = await Group.findOne({
-        members: { $elemMatch: { userId: user.userId, status: 'accepted' } },
-      })
-        .select('groupId')
-        .lean();
-      if (group) groupId = group.groupId;
+      groupId = await resolveStudentAffiliatedGroupId(user.userId, {
+        statusIn: ['active', 'pending_validation'],
+      });
     }
 
     // Save refresh token to database
@@ -352,10 +350,18 @@ const refreshAccessToken = async (req, res) => {
       });
       await newRefreshTokenDoc.save();
 
+      let groupId = null;
+      if (user.role === 'student') {
+        groupId = await resolveStudentAffiliatedGroupId(user.userId, {
+          statusIn: ['active', 'pending_validation'],
+        });
+      }
+
       return res.status(200).json({
         accessToken: newTokens.accessToken,
         refreshToken: newTokens.refreshToken,
         expiresIn: 3600, // 1 hour in seconds
+        ...(user.role === 'student' ? { groupId } : {}),
       });
     } catch (tokenError) {
       return res.status(401).json({

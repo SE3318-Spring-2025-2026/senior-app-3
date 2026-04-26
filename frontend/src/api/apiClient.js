@@ -91,13 +91,20 @@ apiClient.interceptors.response.use(
           refreshToken,
         });
 
-        const { accessToken, refreshToken: newRefreshToken } = response.data;
+        const { accessToken, refreshToken: newRefreshToken, groupId: refreshedGroupId } = response.data;
 
         // Update store with new tokens
         useAuthStore.getState().updateAccessToken(accessToken);
         if (newRefreshToken) {
           useAuthStore.setState({
             refreshToken: newRefreshToken,
+          });
+        }
+        if (Object.prototype.hasOwnProperty.call(response.data, 'groupId')) {
+          useAuthStore.getState().setUser({
+            groupId: refreshedGroupId,
+            activeGroupId: refreshedGroupId,
+            currentGroupId: refreshedGroupId,
           });
         }
 
@@ -120,9 +127,11 @@ apiClient.interceptors.response.use(
 
     // Handle 403 - Forbidden (insufficient permissions)
     if (status === 403) {
-      const error = new Error(data?.message || 'Access forbidden');
-      error.code = data?.code || 'FORBIDDEN';
-      return Promise.reject(error);
+      const forbiddenError = new Error(data?.message || 'Access forbidden');
+      forbiddenError.code = data?.code || 'FORBIDDEN';
+      forbiddenError.response = error.response;
+      forbiddenError.status = status;
+      return Promise.reject(forbiddenError);
     }
 
     return Promise.reject(error);
