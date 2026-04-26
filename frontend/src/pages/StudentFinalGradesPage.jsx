@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { getMyFinalGrades } from '../api/finalGradeService';
+import useAuthStore from '../store/authStore';
 import './StudentFinalGradesPage.css';
 
 const formatNumber = (value, fractionDigits = 2) => {
@@ -45,7 +46,16 @@ const resolveErrorMessage = (error) => {
 
 const getPublishedAt = (grade) => grade.updatedAt || grade.createdAt;
 
+const getCurrentStudentId = (user) => user?.studentId || user?.id || user?._id;
+
+const isCurrentStudentGrade = (grade, currentStudentId) => {
+  if (!currentStudentId) return true;
+  const gradeStudentId = grade?.studentId || grade?.student?.id || grade?.student?._id;
+  return !gradeStudentId || String(gradeStudentId) === String(currentStudentId);
+};
+
 const StudentFinalGradesPage = () => {
+  const { user } = useAuthStore();
   const [grades, setGrades] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -72,9 +82,13 @@ const StudentFinalGradesPage = () => {
     loadFinalGrades();
   }, []);
 
+  const currentStudentId = getCurrentStudentId(user);
   const publishedGrades = useMemo(
-    () => grades.filter((grade) => grade?.status === 'published'),
-    [grades]
+    () =>
+      grades.filter(
+        (grade) => grade?.status === 'published' && isCurrentStudentGrade(grade, currentStudentId)
+      ),
+    [grades, currentStudentId]
   );
 
   const latestGrade = publishedGrades[0];
