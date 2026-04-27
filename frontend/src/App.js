@@ -41,7 +41,11 @@ import CoordinatorAdvisorInbox from './pages/CoordinatorAdvisorInbox.jsx';
 
 
 const Profile = () => <div className="page">Profile - Coming Soon</div>;
-const Unauthorized = () => <div className="page error">403 Forbidden - Coordinator access required</div>;
+const Unauthorized = () => (
+  <div className="page error" data-testid="unauthorized-page">
+    403 Forbidden - Coordinator access required
+  </div>
+);
 const NotFound = () => <div className="page error">Page Not Found</div>;
 
 function App() {
