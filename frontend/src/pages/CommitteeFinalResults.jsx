@@ -97,7 +97,7 @@ const CommitteeFinalResults = () => {
   }, [finalGrades, results]);
 
   return (
-    <div className="committee-results-page">
+    <div className="committee-results-page" data-testid="committee-final-results-page">
       <header className="committee-results-header">
         <div>
           <p className="committee-results-kicker">Read-only final results</p>
@@ -115,7 +115,7 @@ const CommitteeFinalResults = () => {
       </header>
 
       {loading && (
-        <div className="committee-results-state" role="status">
+        <div className="committee-results-state" role="status" data-testid="committee-final-results-loading">
           Loading published final results
         </div>
       )}
@@ -129,7 +129,11 @@ const CommitteeFinalResults = () => {
 
       {!loading && !error && (
         <>
-          <section className="committee-results-metrics" aria-label="Published result metrics">
+          <section
+            className="committee-results-metrics"
+            aria-label="Published result metrics"
+            data-testid="committee-results-metrics"
+          >
             <div>
               <span className="metric-label">Published records</span>
               <strong>{finalGrades.length}</strong>
@@ -154,7 +158,7 @@ const CommitteeFinalResults = () => {
               </div>
             ) : (
               <div className="committee-results-table-wrap">
-                <table className="committee-results-table">
+                <table className="committee-results-table" data-testid="committee-final-results-table">
                   <thead>
                     <tr>
                       <th>Student</th>
@@ -168,7 +172,10 @@ const CommitteeFinalResults = () => {
                   </thead>
                   <tbody>
                     {finalGrades.map((entry) => (
-                      <tr key={`${entry.groupId || 'group'}-${entry.studentId}`}>
+                      <tr
+                        key={`${entry.groupId || 'group'}-${entry.studentId}`}
+                        data-testid={`committee-grade-row-${entry.studentId || 'unknown'}`}
+                      >
                         <td>
                           <span className="student-label">{getStudentLabel(entry)}</span>
                           {entry.studentId && <span className="student-id">{entry.studentId}</span>}
@@ -179,7 +186,9 @@ const CommitteeFinalResults = () => {
                         <td>{formatNumber(entry.individualRatio ?? entry.contributionRatio, 4)}</td>
                         <td>{formatDateTime(entry.publishedAt || entry.createdAt)}</td>
                         <td>
-                          <span className="published-badge">{entry.status || 'published'}</span>
+                          <span className="published-badge" data-testid="committee-grade-status">
+                            {entry.status || 'published'}
+                          </span>
                         </td>
                       </tr>
                     ))}

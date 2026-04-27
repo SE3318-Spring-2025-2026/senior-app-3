@@ -81,7 +81,7 @@ const StudentFinalGradesPage = () => {
   const hasPublishedGrades = publishedGrades.length > 0;
 
   return (
-    <div className="student-final-grades-page">
+    <div className="student-final-grades-page" data-testid="student-final-grades-page">
       <header className="student-final-grades-header">
         <div>
           <p className="student-final-grades-kicker">Student final grade</p>
@@ -101,7 +101,7 @@ const StudentFinalGradesPage = () => {
       </header>
 
       {loading && (
-        <div className="student-final-grades-state" role="status">
+        <div className="student-final-grades-state" role="status" data-testid="student-final-grades-loading">
           Loading final grades
         </div>
       )}
@@ -114,7 +114,7 @@ const StudentFinalGradesPage = () => {
       )}
 
       {!loading && (!hasPublishedGrades || error?.empty) && (
-        <div className="student-final-grades-empty">
+        <div className="student-final-grades-empty" data-testid="student-final-grades-empty">
           <h2>Final grades are not published yet</h2>
           <p>Your final grades will appear here after the coordinator publishes them.</p>
         </div>
@@ -122,7 +122,11 @@ const StudentFinalGradesPage = () => {
 
       {!loading && hasPublishedGrades && (
         <>
-          <section className="student-final-grades-summary" aria-label="Published final grade summary">
+          <section
+            className="student-final-grades-summary"
+            aria-label="Published final grade summary"
+            data-testid="student-final-grade-summary"
+          >
             <div className="student-final-grades-score">
               <span>Final grade</span>
               <strong>{formatNumber(latestGrade.finalGrade)}</strong>
@@ -157,7 +161,7 @@ const StudentFinalGradesPage = () => {
               <p>Only published records returned for your student account are shown.</p>
             </div>
             <div className="student-final-grades-table-wrap">
-              <table className="student-final-grades-table">
+              <table className="student-final-grades-table" data-testid="student-final-grades-table">
                 <thead>
                   <tr>
                     <th>Group</th>
@@ -170,7 +174,10 @@ const StudentFinalGradesPage = () => {
                 </thead>
                 <tbody>
                   {publishedGrades.map((grade, index) => (
-                    <tr key={`${grade.groupId || 'group'}-${grade.studentId || 'student'}-${index}`}>
+                    <tr
+                      key={`${grade.groupId || 'group'}-${grade.studentId || 'student'}-${index}`}
+                      data-testid={`student-grade-row-${grade.studentId || 'unknown'}-${index}`}
+                    >
                       <td>{grade.groupId || 'Not available'}</td>
                       <td>{formatNumber(grade.finalGrade)}</td>
                       <td>{grade.baseGroupScore == null ? 'Not available' : formatNumber(grade.baseGroupScore)}</td>
