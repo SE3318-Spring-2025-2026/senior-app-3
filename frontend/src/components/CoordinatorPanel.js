@@ -327,7 +327,7 @@ const CoordinatorPanel = () => {
     return 'none';
   };
 
-  const labelStyle = { display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '14px' };
+  const labelStyle = { display: 'block', marginBottom: '8px', fontWeight: '600', fontSize: '14px', color: '#24292e' };
   const inputStyle = { width: '100%', padding: '8px 12px', border: '1px solid #d1d5da', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' };
   const tabButtonStyle = (isActive) => ({
     padding: '10px 16px',
@@ -342,7 +342,7 @@ const CoordinatorPanel = () => {
   });
 
   return (
-    <div className="page" style={{ padding: '24px' }}>
+    <div style={{ padding: '24px', minHeight: '100vh' }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         <button
           onClick={() => navigate(-1)}
@@ -352,7 +352,7 @@ const CoordinatorPanel = () => {
             border: 'none',
             borderRadius: '6px',
             cursor: 'pointer',
-            color: '#000',
+            color: '#24292e',
             fontSize: '14px',
             marginBottom: '24px',
           }}
@@ -360,7 +360,7 @@ const CoordinatorPanel = () => {
           ← Back
         </button>
 
-        <h1 style={{ marginTop: 0 }}>Coordinator Panel</h1>
+        <h1 style={{ marginTop: 0, color: 'white' }}>Coordinator Panel</h1>
 
         {/* Tab Navigation */}
         <div style={{ marginBottom: '24px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -387,7 +387,7 @@ const CoordinatorPanel = () => {
         {/* ──── GROUPS TAB ──── */}
         {activeTab === 'groups' && (
           <section style={{ background: 'white', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-            <h2 style={{ marginTop: 0, fontSize: '18px' }}>All Groups</h2>
+            <h2 style={{ marginTop: 0, fontSize: '18px', color: '#24292e' }}>All Groups</h2>
             {groupsLoading && <p style={{ color: '#666' }}>Loading groups…</p>}
             {groupsError && <p style={{ color: '#d73a49' }}>{groupsError}</p>}
 
@@ -513,7 +513,7 @@ const CoordinatorPanel = () => {
         {/* ──── TRANSFER TAB ──── */}
         {activeTab === 'transfer' && (
           <section style={{ background: 'white', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-            <h2 style={{ marginTop: 0, fontSize: '18px' }}>Coordinator Transfer (3.6)</h2>
+            <h2 style={{ marginTop: 0, fontSize: '18px', color: '#24292e' }}>Coordinator Transfer (3.6)</h2>
             <p style={{ color: '#666', fontSize: '14px', marginTop: 0 }}>
               Reassign a group to a new advisor. This bypasses the standard advisee request flow.
             </p>
@@ -593,7 +593,7 @@ const CoordinatorPanel = () => {
         {/* ──── OVERRIDES TAB ──── */}
         {activeTab === 'overrides' && (
           <section style={{ background: 'white', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-            <h2 style={{ marginTop: 0, fontSize: '18px' }}>Override Actions</h2>
+            <h2 style={{ marginTop: 0, fontSize: '18px', color: '#24292e' }}>Override Actions</h2>
             <p style={{ color: '#666', fontSize: '14px', marginTop: 0 }}>
               Perform administrative overrides: add/remove members or update group fields.
             </p>
@@ -711,7 +711,7 @@ const CoordinatorPanel = () => {
         {activeTab === 'schedule' && (
           <>
             <section style={{ background: 'white', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '24px' }}>
-              <h2 style={{ marginTop: 0, fontSize: '18px' }}>Configure Schedule Window</h2>
+              <h2 style={{ marginTop: 0, fontSize: '18px', color: '#24292e' }}>Configure Schedule Window</h2>
               <p style={{ color: '#666', fontSize: '14px', marginTop: 0 }}>
                 Set the open and close times for group formation operations.
               </p>
@@ -798,7 +798,7 @@ const CoordinatorPanel = () => {
             </section>
 
             <section style={{ background: 'white', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '24px' }}>
-              <h2 style={{ marginTop: 0, fontSize: '18px' }}>Active Windows</h2>
+              <h2 style={{ marginTop: 0, fontSize: '18px', color: '#24292e' }}>Active Windows</h2>
 
               {windowsLoading && <p style={{ color: '#666' }}>Loading…</p>}
               {windowsError && <p style={{ color: '#d73a49' }}>{windowsError}</p>}
@@ -906,7 +906,7 @@ const CoordinatorPanel = () => {
         {/* ──── INTEGRATION HEALTH TAB ──── */}
         {activeTab === 'health' && (
           <section style={{ background: 'white', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-            <h2 style={{ marginTop: 0, fontSize: '18px' }}>Integration Health Overview</h2>
+            <h2 style={{ marginTop: 0, fontSize: '18px', color: '#24292e' }}>Integration Health Overview</h2>
 
             {groupsLoading && <p style={{ color: '#666' }}>Loading…</p>}
             {groupsError && <p style={{ color: '#d73a49' }}>{groupsError}</p>}
@@ -982,7 +982,7 @@ const CoordinatorPanel = () => {
           <section style={{ background: 'white', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
               <div>
-                <h2 style={{ marginTop: 0, marginBottom: '4px', fontSize: '18px' }}>Committees</h2>
+                <h2 style={{ marginTop: 0, marginBottom: '4px', fontSize: '18px', color: '#24292e' }}>Committees</h2>
                 <p style={{ margin: 0, fontSize: '13px', color: '#586069' }}>
                   Process 4.1 — Create and manage committee drafts. Drafts are forwarded to Process 4.2 for advisor assignment.
                 </p>
