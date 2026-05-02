@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { initiateGithubLogin } from '../api/authService';
 import './AuthMethodSelection.css';
 
 /**
@@ -23,15 +24,14 @@ const AuthMethodSelection = () => {
   };
 
   const handleGithubOAuth = async () => {
-    setLoading(true);
     setError('');
     if (isRegistration) {
       navigate('/onboarding?connectGithub=true');
       return;
     }
 
+    setLoading(true);
     try {
-      const { initiateGithubLogin } = await import('../api/authService');
       const data = await initiateGithubLogin();
       window.location.href = data.authorizationUrl;
     } catch (err) {

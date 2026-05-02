@@ -988,8 +988,21 @@ const professorOnboard = async (req, res) => {
     };
 
     if (connectGithub) {
-      const state = crypto.randomBytes(16).toString('hex');
-      response.githubOauthUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&redirect_uri=${process.env.GITHUB_REDIRECT_URI}&state=${state}&scope=user`;
+      const configError = getGithubConfigError();
+      if (configError) {
+        return res.status(500).json({
+          code: 'GITHUB_CONFIG_MISSING',
+          message: `GitHub OAuth is not configured. Missing ${configError}.`,
+        });
+      }
+
+      const state = crypto.randomBytes(32).toString('hex');
+      oauthStateStore.set(state, {
+        userId: user.userId,
+        mode: 'link',
+        expiresAt: Date.now() + 10 * 60 * 1000,
+      });
+      response.githubOauthUrl = buildGithubAuthorizationUrl(state);
     }
 
     return res.status(200).json(response);

@@ -8,12 +8,24 @@ import useAuthStore from '../store/authStore';
 import useOnboardingStore from '../store/onboardingStore';
 import * as onboardingService from '../api/onboardingService';
 
+const mockNavigate = jest.fn();
+
+jest.mock('react-router-dom', () => {
+  const actual = jest.requireActual('react-router-dom');
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  };
+});
+
 jest.mock('../store/authStore');
 jest.mock('../store/onboardingStore');
 jest.mock('../api/onboardingService');
 
 describe('GitHubCallbackHandler', () => {
   const mockSetUser = jest.fn();
+  const mockSetAuth = jest.fn();
+  const mockSetRequiresPasswordChange = jest.fn();
   const mockSetStepComplete = jest.fn();
 
   beforeEach(() => {
@@ -23,6 +35,8 @@ describe('GitHubCallbackHandler', () => {
     useAuthStore.mockReturnValue({
       user: { id: '123', email: 'test@example.com' },
       setUser: mockSetUser,
+      setAuth: mockSetAuth,
+      setRequiresPasswordChange: mockSetRequiresPasswordChange,
     });
 
     // Mock useOnboardingStore - it's a zustand hook, so mock as a hook
@@ -39,6 +53,69 @@ describe('GitHubCallbackHandler', () => {
 
     // Mock onboardingService
     onboardingService.completeOnboarding = jest.fn().mockResolvedValue({});
+    mockNavigate.mockClear();
+  });
+
+  describe('Login Callback', () => {
+    it('sets auth and redirects to dashboard on logged_in', async () => {
+      render(
+        <MemoryRouter
+          initialEntries={[
+            '/auth/github/callback?status=logged_in&accessToken=acc&refreshToken=ref&userId=usr&email=test@example.com&role=student&emailVerified=true&accountStatus=active',
+          ]}
+        >
+          <GitHubCallbackHandler />
+        </MemoryRouter>
+      );
+
+      await waitFor(() => {
+        expect(mockSetAuth).toHaveBeenCalledWith(
+          {
+            userId: 'usr',
+            email: 'test@example.com',
+            role: 'student',
+            groupId: null,
+            emailVerified: true,
+            accountStatus: 'active',
+          },
+          'acc',
+          'ref'
+        );
+      });
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith('/dashboard', { replace: true });
+      });
+    });
+
+    it('shows error when logged_in is missing required params', async () => {
+      render(
+        <MemoryRouter initialEntries={['/auth/github/callback?status=logged_in&accessToken=acc']}>
+          <GitHubCallbackHandler />
+        </MemoryRouter>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Invalid Callback')).toBeInTheDocument();
+      });
+    });
+
+    it('redirects professor to setup when requiresPasswordChange=true', async () => {
+      render(
+        <MemoryRouter
+          initialEntries={[
+            '/auth/github/callback?status=logged_in&accessToken=acc&refreshToken=ref&userId=usr&email=prof@example.com&role=professor&emailVerified=true&accountStatus=active&requiresPasswordChange=true',
+          ]}
+        >
+          <GitHubCallbackHandler />
+        </MemoryRouter>
+      );
+
+      await waitFor(() => {
+        expect(mockSetRequiresPasswordChange).toHaveBeenCalledWith(true);
+        expect(mockNavigate).toHaveBeenCalledWith('/professor/setup', { replace: true });
+      });
+    });
   });
 
   describe('Success State', () => {

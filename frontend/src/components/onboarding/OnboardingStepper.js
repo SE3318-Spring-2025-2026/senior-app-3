@@ -445,7 +445,7 @@ const Step4 = ({ onFinish, onBack, autoStartGithub }) => {
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState('');
 
-  const handleLinkGithub = async () => {
+  const handleLinkGithub = useCallback(async () => {
     setLoading(true);
     setApiError('');
     try {
@@ -456,14 +456,14 @@ const Step4 = ({ onFinish, onBack, autoStartGithub }) => {
       setApiError(err.response?.data?.message || 'Failed to initiate GitHub OAuth');
       setLoading(false);
     }
-  };
+  }, [setApiError, setLoading]);
 
   useEffect(() => {
     if (autoStartGithub && !autoStarted) {
       setAutoStarted(true);
       handleLinkGithub();
     }
-  }, [autoStartGithub, autoStarted]);
+  }, [autoStartGithub, autoStarted, handleLinkGithub]);
 
   const handleSkip = async () => {
     setLoading(true);
