@@ -38,9 +38,7 @@ import CoordinatorFinalGradeApprovalPanel from './pages/CoordinatorFinalGradeApp
 import CoordinatorFinalGradePublishPanel from './pages/CoordinatorFinalGradePublishPanel.jsx';
 import ProfessorGradeReviewEntry from './pages/ProfessorGradeReviewEntry.jsx';
 import CoordinatorAdvisorInbox from './pages/CoordinatorAdvisorInbox.jsx';
-
-
-const Profile = () => <div className="page">Profile - Coming Soon</div>;
+import ProfilePage from './pages/ProfilePage.jsx';
 const Unauthorized = () => (
   <div className="page error" data-testid="unauthorized-page">
     403 Forbidden - Coordinator access required
@@ -193,7 +191,7 @@ function App() {
             />
             <Route
               path="/profile"
-              element={<ProtectedRoute component={Profile} />}
+              element={<ProtectedRoute component={ProfilePage} />}
             />
 
             <Route path="/unauthorized" element={<Unauthorized />} />
