@@ -767,6 +767,58 @@ const notifyDeliverableHandler = async (req, res) => {
   });
 };
 
+/**
+ * GET /api/deliverables/:deliverableId/download
+ *
+ * Stream the stored file to the requester.
+ * Students may only download deliverables belonging to their own group.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+const downloadDeliverableHandler = async (req, res) => {
+  const { deliverableId } = req.params;
+  const { role, userId } = req.user;
+
+  let deliverable;
+  try {
+    deliverable = await Deliverable.findOne({ deliverableId }).lean();
+  } catch (err) {
+    console.error('[downloadDeliverableHandler] DB error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Database query failed' });
+  }
+
+  if (!deliverable) {
+    return res.status(404).json({ code: 'DELIVERABLE_NOT_FOUND', message: 'Deliverable not found' });
+  }
+
+  if (role === 'student') {
+    const ok = await studentBelongsToGroup(userId, deliverable.groupId);
+    if (!ok) {
+      return res.status(403).json({ code: 'FORBIDDEN', message: 'Students can only download their own group deliverables' });
+    }
+  }
+
+  if (!fs.existsSync(deliverable.filePath)) {
+    return res.status(404).json({ code: 'FILE_NOT_FOUND', message: 'File not found on disk' });
+  }
+
+  const downloadName = `${deliverable.deliverableType}_v${deliverable.version}.${deliverable.format}`;
+  res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+  res.setHeader('Content-Length', deliverable.fileSize);
+
+  const mimeMap = {
+    pdf: 'application/pdf',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    doc: 'application/msword',
+    md: 'text/markdown',
+    zip: 'application/zip',
+  };
+  res.setHeader('Content-Type', mimeMap[deliverable.format] || 'application/octet-stream');
+
+  fs.createReadStream(deliverable.filePath).pipe(res);
+};
+
 module.exports = {
   validateGroup,
   submitDeliverable,
@@ -777,4 +829,5 @@ module.exports = {
   getDeliverableHandler,
   retractDeliverableHandler,
   notifyDeliverableHandler,
+  downloadDeliverableHandler,
 };

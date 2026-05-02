@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { getDeliverableDetails, getComments } from '../api/reviewAPI';
+import { getDeliverableDetails, getComments, downloadDeliverable } from '../api/reviewAPI';
 import CommentThread from '../components/reviews/CommentThread';
 import AddCommentForm from '../components/reviews/AddCommentForm';
 import useAuthStore from '../store/authStore';
@@ -101,6 +101,23 @@ const ReviewPage = () => {
       fetchComments();
     }
   }, [deliverableId, fetchDeliverable, fetchComments]);
+
+  // Handle file download
+  const handleDownload = async () => {
+    try {
+      const response = await downloadDeliverable(deliverableId);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${deliverable.deliverableType}_v${deliverable.version}.${deliverable.format}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Download failed:', err);
+    }
+  };
 
   // Handle comment added or updated
   const handleCommentUpdated = () => {
@@ -218,7 +235,7 @@ const ReviewPage = () => {
                 <div>
                   <h3 className="text-sm font-medium text-gray-700">Submitted At</h3>
                   <p className="text-gray-900 mt-1">
-                    {formatDate(deliverable.createdAt)}
+                    {formatDate(deliverable.submittedAt)}
                   </p>
                 </div>
 
@@ -265,6 +282,15 @@ const ReviewPage = () => {
                       <strong>Size:</strong> {(deliverable.fileSize / 1024 / 1024).toFixed(2)} MB
                     </p>
                   </div>
+                  <button
+                    onClick={handleDownload}
+                    className="mt-3 w-full px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 flex items-center justify-center gap-2"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Download File
+                  </button>
                 </div>
               </div>
             </div>
