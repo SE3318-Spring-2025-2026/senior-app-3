@@ -8,6 +8,7 @@ const {
   logout,
   changePassword,
   initiateGithubOAuth,
+  initiateGithubLoginOAuth,
   githubOAuthCallback,
   requestPasswordReset,
   validatePasswordResetToken,
@@ -24,6 +25,7 @@ router.post('/login', loginWithPassword);
 router.post('/register', registerStudent);
 router.post('/refresh', refreshAccessToken);
 router.get('/github/oauth/callback', githubOAuthCallback);
+router.post('/github/oauth/login', initiateGithubLoginOAuth);
 router.post('/password-reset/request', requestPasswordReset);
 router.post('/password-reset/validate-token', validatePasswordResetToken);
 router.post('/password-reset/confirm', confirmPasswordReset);

@@ -438,24 +438,32 @@ const Step3 = ({ onNext, onBack, urlToken }) => {
 // ─────────────────────────────────────────────
 // Step 4: Link GitHub (optional)
 // ─────────────────────────────────────────────
-const Step4 = ({ onFinish, onBack }) => {
+const Step4 = ({ onFinish, onBack, autoStartGithub }) => {
   const { setStepComplete } = useOnboardingStore();
   const { user } = useAuthStore();
+  const [autoStarted, setAutoStarted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState('');
 
-  const handleLinkGithub = async () => {
+  const handleLinkGithub = useCallback(async () => {
     setLoading(true);
     setApiError('');
     try {
       const { initiateGithubOAuth } = await import('../../api/authService');
-      const data = await initiateGithubOAuth(window.location.origin + '/auth/github/oauth/callback');
+      const data = await initiateGithubOAuth(window.location.origin + '/auth/github/callback');
       window.location.href = data.authorizationUrl;
     } catch (err) {
       setApiError(err.response?.data?.message || 'Failed to initiate GitHub OAuth');
       setLoading(false);
     }
-  };
+  }, [setApiError, setLoading]);
+
+  useEffect(() => {
+    if (autoStartGithub && !autoStarted) {
+      setAutoStarted(true);
+      handleLinkGithub();
+    }
+  }, [autoStartGithub, autoStarted, handleLinkGithub]);
 
   const handleSkip = async () => {
     setLoading(true);
@@ -511,6 +519,7 @@ const OnboardingStepper = () => {
   const { user } = useAuthStore();
 
   const urlToken = searchParams.get('step') === 'verify-email' ? searchParams.get('token') : null;
+  const autoStartGithub = searchParams.get('connectGithub') === 'true';
 
   // Handle email verification deep-link: /onboarding?step=verify-email&token=xxx
   useEffect(() => {
@@ -551,7 +560,7 @@ const OnboardingStepper = () => {
       case 3:
         return <Step3 onNext={nextStep} onBack={previousStep} urlToken={urlToken} />;
       case 4:
-        return <Step4 onFinish={handleCompleteAndFinish} onBack={previousStep} />;
+        return <Step4 onFinish={handleCompleteAndFinish} onBack={previousStep} autoStartGithub={autoStartGithub} />;
       default:
         return null;
     }

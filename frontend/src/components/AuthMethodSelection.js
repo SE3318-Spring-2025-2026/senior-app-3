@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { initiateGithubLogin } from '../api/authService';
 import './AuthMethodSelection.css';
 
 /**
@@ -11,8 +12,10 @@ const AuthMethodSelection = () => {
   const [searchParams] = useSearchParams();
   const isRegistration = searchParams.get('register') === 'true';
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleLocalAuth = () => {
+    setError('');
     if (isRegistration) {
       navigate('/onboarding');
     } else {
@@ -20,11 +23,21 @@ const AuthMethodSelection = () => {
     }
   };
 
-  const handleGithubOAuth = () => {
+  const handleGithubOAuth = async () => {
+    setError('');
+    if (isRegistration) {
+      navigate('/onboarding?connectGithub=true');
+      return;
+    }
+
     setLoading(true);
-    // TODO: Implement GitHub OAuth flow
-    // For now, navigate to a placeholder
-    navigate('/auth/github-oauth');
+    try {
+      const data = await initiateGithubLogin();
+      window.location.href = data.authorizationUrl;
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to start GitHub sign-in');
+      setLoading(false);
+    }
   };
 
   return (
@@ -35,6 +48,8 @@ const AuthMethodSelection = () => {
           <p className="subtitle">
             {isRegistration ? 'Create your account' : 'Sign in to your account'}
           </p>
+
+          {error && <div className="alert alert-error">{error}</div>}
 
           <div className="auth-methods">
             {/* Local Authentication */}
