@@ -139,8 +139,10 @@ const useAuthStore = create(
         isAuthenticated: state.isAuthenticated,
         requiresPasswordChange: state.requiresPasswordChange,
       }),
-      onRehydrateStorage: () => (state, action) => {
-        // Set isLoading to false after hydration is complete
+      onRehydrateStorage: () => (state) => {
+        // Direct mutation works here: set(stateFromStorage, true) stores stateFromStorage
+        // by reference as Zustand's internal state, so mutating it updates live state
+        // before any React component renders (hydration is synchronous via toThenable).
         if (state) {
           state.isLoading = false;
         }

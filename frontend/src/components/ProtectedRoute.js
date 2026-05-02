@@ -8,7 +8,12 @@ import useAuthStore from '../store/authStore';
  * Can also enforce specific roles
  */
 const ProtectedRoute = ({ component: Component, requiredRoles = [] }) => {
-  const { isAuthenticated, user } = useAuthStore();
+  const { isAuthenticated, isLoading, user } = useAuthStore();
+
+  // Wait for auth state to be restored from storage before making redirect decisions
+  if (isLoading) {
+    return null;
+  }
 
   // Check if user is authenticated
   if (!isAuthenticated) {
