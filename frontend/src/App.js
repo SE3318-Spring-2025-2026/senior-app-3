@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import useAuthStore from './store/authStore';
 import ProtectedRoute from './components/ProtectedRoute';
+import RootRoute from './components/RootRoute';
 import AuthMethodSelection from './components/AuthMethodSelection';
 import LoginForm from './components/LoginForm';
 import OnboardingStepper from './components/onboarding/OnboardingStepper';
@@ -62,7 +63,7 @@ function App() {
         </div>
         <div className="app-layout-content" style={{ marginLeft: isAuthenticated ? '250px' : '0' }}>
           <Routes>
-            <Route path="/" element={<Navigate to="/auth/method-selection" replace />} />
+            <Route path="/" element={<RootRoute />} />
             <Route path="/auth/method-selection" element={<AuthMethodSelection />} />
             <Route path="/auth/login" element={<LoginForm />} />
             {/* Student sign-up uses the full onboarding wizard; keep /auth/register as a stable alias */}
