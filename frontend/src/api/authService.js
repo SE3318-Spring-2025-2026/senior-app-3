@@ -59,6 +59,14 @@ export const initiateGithubOAuth = async (redirectUri) => {
 };
 
 /**
+ * Initiate GitHub OAuth login (public)
+ */
+export const initiateGithubLogin = async () => {
+  const response = await apiClient.post('/auth/github/oauth/login');
+  return response.data;
+};
+
+/**
  * Get account information
  */
 export const getAccount = async (userId) => {
@@ -153,6 +161,7 @@ const authService = {
   refreshAccessToken,
   logoutUser,
   initiateGithubOAuth,
+  initiateGithubLogin,
   getAccount,
   updateAccount,
   validatePasswordResetToken,

@@ -34,6 +34,18 @@ const ERROR_MESSAGES = {
     title: 'GitHub API Error',
     message: 'Could not retrieve your GitHub profile. GitHub may be temporarily unavailable. Please try again.',
   },
+  GITHUB_NOT_LINKED: {
+    title: 'GitHub Account Not Linked',
+    message: 'No account is linked to this GitHub profile. Please register first or link GitHub from your account settings.',
+  },
+  ACCOUNT_LOCKED: {
+    title: 'Account Locked',
+    message: 'Your account is temporarily locked. Please try again later or use password login.',
+  },
+  ACCOUNT_SUSPENDED: {
+    title: 'Account Suspended',
+    message: 'Your account is suspended. Please contact support for help.',
+  },
   USER_NOT_FOUND: {
     title: 'Session Error',
     message: 'Your session could not be found. Please log in again and retry.',
@@ -46,6 +58,10 @@ const ERROR_MESSAGES = {
     title: 'Server Error',
     message: 'An unexpected server error occurred. Please try again in a moment.',
   },
+  GITHUB_CONFIG_MISSING: {
+    title: 'GitHub OAuth Not Configured',
+    message: 'GitHub login is not configured on the server. Please contact support.',
+  },
 };
 
 const FALLBACK_ERROR = {
@@ -56,7 +72,7 @@ const FALLBACK_ERROR = {
 const GitHubCallbackHandler = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { user, setUser } = useAuthStore();
+  const { user, setUser, setAuth, setRequiresPasswordChange } = useAuthStore();
   const { setStepComplete } = useOnboardingStore();
 
   const [phase, setPhase] = useState('loading'); // 'loading' | 'success' | 'error'
@@ -68,6 +84,48 @@ const GitHubCallbackHandler = () => {
     const status = searchParams.get('status');
     const username = searchParams.get('githubUsername');
     const errorCode = searchParams.get('error');
+
+    if (status === 'logged_in') {
+      const accessToken = searchParams.get('accessToken');
+      const refreshToken = searchParams.get('refreshToken');
+      const userId = searchParams.get('userId');
+      const email = searchParams.get('email');
+      const role = searchParams.get('role');
+      const groupId = searchParams.get('groupId') || null;
+      const emailVerified = searchParams.get('emailVerified') === 'true';
+      const accountStatus = searchParams.get('accountStatus');
+      const requiresPasswordChange = searchParams.get('requiresPasswordChange') === 'true';
+
+      if (!accessToken || !refreshToken || !userId || !email || !role) {
+        setErrorInfo(ERROR_MESSAGES.MISSING_PARAMS || FALLBACK_ERROR);
+        setPhase('error');
+        return;
+      }
+
+      setAuth(
+        {
+          userId,
+          email,
+          role,
+          groupId,
+          emailVerified,
+          accountStatus,
+        },
+        accessToken,
+        refreshToken
+      );
+
+      if (requiresPasswordChange) {
+        setRequiresPasswordChange(true);
+        if (role === 'professor') {
+          navigate('/professor/setup', { replace: true });
+          return;
+        }
+      }
+
+      navigate('/dashboard', { replace: true });
+      return;
+    }
 
     if (status === 'linked' && username) {
       setGithubUsername(username);

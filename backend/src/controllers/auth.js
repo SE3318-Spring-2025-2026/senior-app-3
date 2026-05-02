@@ -22,6 +22,24 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000).unref();
 
+const getGithubConfigError = () => {
+  if (!process.env.GITHUB_CLIENT_ID) return 'GITHUB_CLIENT_ID';
+  if (!process.env.GITHUB_CLIENT_SECRET) return 'GITHUB_CLIENT_SECRET';
+  if (!process.env.GITHUB_REDIRECT_URI) return 'GITHUB_REDIRECT_URI';
+  return null;
+};
+
+const buildGithubAuthorizationUrl = (state) => {
+  const redirectUri = process.env.GITHUB_REDIRECT_URI;
+  return (
+    `https://github.com/login/oauth/authorize` +
+    `?client_id=${process.env.GITHUB_CLIENT_ID}` +
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&state=${state}` +
+    `&scope=read:user`
+  );
+};
+
 /**
  * Login with email and password
  */
@@ -267,9 +285,21 @@ const registerStudent = async (req, res) => {
 
     // Add GitHub OAuth URL if requested
     if (connectGithub) {
-      const state = crypto.randomBytes(16).toString('hex');
-      // Store state in session or cache (TODO: implement)
-      response.githubOauthUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.GITHUB_CLIENT_ID}&redirect_uri=${process.env.GITHUB_REDIRECT_URI}&state=${state}&scope=user`;
+      const configError = getGithubConfigError();
+      if (configError) {
+        return res.status(500).json({
+          code: 'GITHUB_CONFIG_MISSING',
+          message: `GitHub OAuth is not configured. Missing ${configError}.`,
+        });
+      }
+
+      const state = crypto.randomBytes(32).toString('hex');
+      oauthStateStore.set(state, {
+        userId: user.userId,
+        mode: 'link',
+        expiresAt: Date.now() + 10 * 60 * 1000,
+      });
+      response.githubOauthUrl = buildGithubAuthorizationUrl(state);
     }
 
     return res.status(201).json(response);
@@ -412,20 +442,23 @@ const logout = async (req, res) => {
  */
 const initiateGithubOAuth = async (req, res) => {
   try {
+    const configError = getGithubConfigError();
+    if (configError) {
+      return res.status(500).json({
+        code: 'GITHUB_CONFIG_MISSING',
+        message: `GitHub OAuth is not configured. Missing ${configError}.`,
+      });
+    }
+
     const state = crypto.randomBytes(32).toString('hex');
 
     oauthStateStore.set(state, {
       userId: req.user.userId,
+      mode: 'link',
       expiresAt: Date.now() + 10 * 60 * 1000,
     });
 
-    const redirectUri = process.env.GITHUB_REDIRECT_URI;
-    const authorizationUrl =
-      `https://github.com/login/oauth/authorize` +
-      `?client_id=${process.env.GITHUB_CLIENT_ID}` +
-      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      `&state=${state}` +
-      `&scope=read:user`;
+    const authorizationUrl = buildGithubAuthorizationUrl(state);
 
     return res.status(200).json({ authorizationUrl, state });
   } catch (error) {
@@ -433,6 +466,39 @@ const initiateGithubOAuth = async (req, res) => {
     res.status(500).json({
       code: 'SERVER_ERROR',
       message: 'Failed to initiate GitHub OAuth',
+    });
+  }
+};
+
+/**
+ * Initiate GitHub OAuth login (public)
+ * Returns the GitHub authorization URL for sign-in.
+ */
+const initiateGithubLoginOAuth = async (req, res) => {
+  try {
+    const configError = getGithubConfigError();
+    if (configError) {
+      return res.status(500).json({
+        code: 'GITHUB_CONFIG_MISSING',
+        message: `GitHub OAuth is not configured. Missing ${configError}.`,
+      });
+    }
+
+    const state = crypto.randomBytes(32).toString('hex');
+
+    oauthStateStore.set(state, {
+      mode: 'login',
+      expiresAt: Date.now() + 10 * 60 * 1000,
+    });
+
+    const authorizationUrl = buildGithubAuthorizationUrl(state);
+
+    return res.status(200).json({ authorizationUrl, state });
+  } catch (error) {
+    console.error('GitHub OAuth login initiation error:', error);
+    res.status(500).json({
+      code: 'SERVER_ERROR',
+      message: 'Failed to initiate GitHub OAuth login',
     });
   }
 };
@@ -470,6 +536,8 @@ const githubOAuthCallback = async (req, res) => {
       return redirectError('INVALID_STATE');
     }
 
+    const mode = stateData.mode || 'link';
+
     // Consume state (one-time use)
     const { userId } = stateData;
     oauthStateStore.delete(state);
@@ -477,6 +545,11 @@ const githubOAuthCallback = async (req, res) => {
     // Exchange authorization code for GitHub access token
     let githubAccessToken;
     try {
+      const configError = getGithubConfigError();
+      if (configError) {
+        return redirectError('GITHUB_CONFIG_MISSING');
+      }
+
       const tokenResponse = await axios.post(
         'https://github.com/login/oauth/access_token',
         {
@@ -520,7 +593,61 @@ const githubOAuthCallback = async (req, res) => {
       return redirectError('GITHUB_API_FAILED');
     }
 
-    // Load the authenticated user who initiated the OAuth flow
+    if (mode === 'login') {
+      const user = await User.findOne({ githubId });
+      if (!user) {
+        return redirectError('GITHUB_NOT_LINKED');
+      }
+
+      if (user.lockedUntil && user.lockedUntil > new Date()) {
+        return redirectError('ACCOUNT_LOCKED');
+      }
+
+      if (user.accountStatus === 'suspended') {
+        return redirectError('ACCOUNT_SUSPENDED');
+      }
+
+      user.loginAttempts = 0;
+      user.lockedUntil = null;
+      user.lastLogin = new Date();
+      await user.save();
+
+      const tokens = generateTokenPair(user.userId, user.role);
+
+      let groupId = null;
+      if (user.role === 'student') {
+        groupId = await resolveStudentAffiliatedGroupId(user.userId, {
+          statusIn: ['active', 'pending_validation'],
+        });
+      }
+
+      const refreshTokenDoc = new RefreshToken({
+        userId: user.userId,
+        token: tokens.refreshToken,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        userAgent: req.headers['user-agent'],
+        ipAddress: req.ip,
+        lastUsedAt: new Date(),
+      });
+      await refreshTokenDoc.save();
+
+      const query = new URLSearchParams({
+        status: 'logged_in',
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        userId: user.userId,
+        email: user.email,
+        role: user.role,
+        emailVerified: String(user.emailVerified),
+        accountStatus: user.accountStatus,
+        requiresPasswordChange: String(user.requiresPasswordChange || false),
+        ...(groupId ? { groupId } : {}),
+      });
+
+      return res.redirect(`${callbackBase}?${query.toString()}`);
+    }
+
+    // Linking flow
     const user = await User.findOne({ userId });
     if (!user) {
       return redirectError('USER_NOT_FOUND');
@@ -1131,6 +1258,7 @@ module.exports = {
   logout,
   changePassword,
   initiateGithubOAuth,
+  initiateGithubLoginOAuth,
   githubOAuthCallback,
   requestPasswordReset,
   validatePasswordResetToken,
