@@ -1,8 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import useAuthStore from './store/authStore';
 import ProtectedRoute from './components/ProtectedRoute';
-import RootRoute from './components/RootRoute';
 import AuthMethodSelection from './components/AuthMethodSelection';
 import LoginForm from './components/LoginForm';
 import OnboardingStepper from './components/onboarding/OnboardingStepper';
@@ -40,6 +39,7 @@ import CoordinatorFinalGradePublishPanel from './pages/CoordinatorFinalGradePubl
 import ProfessorGradeReviewEntry from './pages/ProfessorGradeReviewEntry.jsx';
 import CoordinatorAdvisorInbox from './pages/CoordinatorAdvisorInbox.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
+import RootRoute from './components/RootRoute';
 const Unauthorized = () => (
   <div className="page error" data-testid="unauthorized-page">
     403 Forbidden - Coordinator access required
@@ -49,6 +49,7 @@ const NotFound = () => <div className="page error">Page Not Found</div>;
 
 function App() {
   const { isAuthenticated } = useAuthStore();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
     <Router
@@ -59,9 +60,15 @@ function App() {
     >
       <div className="app-layout">
         <div className="app-layout-sidebar">
-          <Sidebar />
+          <Sidebar isCollapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(prev => !prev)} />
         </div>
-        <div className="app-layout-content" style={{ marginLeft: isAuthenticated ? '250px' : '0' }}>
+        <div
+          className="app-layout-content"
+          style={{
+            marginLeft: isAuthenticated ? (sidebarCollapsed ? '80px' : '260px') : '0',
+            transition: 'margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          }}
+        >
           <Routes>
             <Route path="/" element={<RootRoute />} />
             <Route path="/auth/method-selection" element={<AuthMethodSelection />} />
