@@ -37,6 +37,10 @@ const deliverableSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    sprintIds: {
+      type: [String],
+      default: undefined,
+    },
     submittedBy: {
       type: String,
       required: true,

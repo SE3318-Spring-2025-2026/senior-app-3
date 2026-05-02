@@ -64,6 +64,25 @@ export const submitDeliverable = async (groupId, formData) => {
 };
 
 /**
+ * Fetch available sprints for a group (used to populate the sprint multi-select).
+ * @param {string} groupId
+ * @returns {Promise<{ sprints: Array<{ sprintId: string, status: string }>, total: number }>}
+ */
+export const getGroupSprints = async (groupId) => {
+  const safeGroupId = normalizeGroupId(groupId);
+  if (!safeGroupId) return { sprints: [], total: 0 };
+  try {
+    const response = await apiClient.get(`/groups/${safeGroupId}/sprints`);
+    return response.data;
+  } catch (error) {
+    if (error.response?.status === 403 || error.response?.status === 404) {
+      return { sprints: [], total: 0 };
+    }
+    throw error;
+  }
+};
+
+/**
  * Fetch existing deliverables for a group.
  * @param {string} groupId
  * @returns {Promise<object>}

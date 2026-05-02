@@ -11,9 +11,10 @@ const FileUploadWidget = ({
   validationToken,
   groupId,
   deliverableType,
-  sprintId,
+  sprintIds,
   description,
 }) => {
+  const primarySprintId = sprintIds?.[0] ?? '';
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
   const dragOverRef = useRef(false);
@@ -121,7 +122,7 @@ const FileUploadWidget = ({
       const formData = new FormData();
       formData.append('groupId', groupId);
       formData.append('deliverableType', deliverableType);
-      formData.append('sprintId', sprintId);
+      sprintIds.forEach((id) => formData.append('sprintIds', id));
       formData.append('file', file);
       if (description) formData.append('description', description);
 
@@ -138,7 +139,7 @@ const FileUploadWidget = ({
 
       activeStep = 3;
       setCurrentStep(3);
-      await validateDeadline(submitResponse.stagingId, sprintId, validationToken);
+      await validateDeadline(submitResponse.stagingId, primarySprintId, validationToken);
       setUploadProgress(75);
       setCompletedSteps([1, 2, 3]);
 
@@ -181,7 +182,7 @@ const FileUploadWidget = ({
 
         if (activeStep === 3) {
           setCurrentStep(3);
-          await validateDeadline(stagingId, sprintId, validationToken);
+          await validateDeadline(stagingId, primarySprintId, validationToken);
           setCompletedSteps([1, 2, 3]);
           setUploadProgress(75);
           activeStep = 4;
@@ -301,8 +302,8 @@ const FileUploadWidget = ({
                 <span className="text-indigo-600">{deliverableType.replace(/_/g, ' ')}</span>
               </div>
               <div>
-                <span className="text-slate-400 block mb-1">Sprint</span>
-                <span className="text-indigo-600">{sprintId}</span>
+                <span className="text-slate-400 block mb-1">Sprint(s)</span>
+                <span className="text-indigo-600">{sprintIds?.join(', ')}</span>
               </div>
             </div>
           </div>

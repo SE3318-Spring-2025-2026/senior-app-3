@@ -193,7 +193,19 @@ const validateGroup = async (req, res) => {
  */
 const submitDeliverable = async (req, res) => {
   const userId = req.user?.userId;
-  const { groupId, deliverableType, sprintId, description } = req.body;
+  const { groupId, deliverableType, sprintId: rawSprintId, sprintIds: rawSprintIds, description } = req.body;
+
+  // Normalise sprint selection: multer gives a string for one value, array for many.
+  // Also fall back to legacy sprintId field.
+  let sprintIds = null;
+  if (Array.isArray(rawSprintIds) && rawSprintIds.length) {
+    sprintIds = rawSprintIds;
+  } else if (typeof rawSprintIds === 'string' && rawSprintIds) {
+    sprintIds = [rawSprintIds];
+  } else if (rawSprintId) {
+    sprintIds = [rawSprintId];
+  }
+  const sprintId = sprintIds?.[0] ?? null; // primary sprint used for deadline validation
 
   // 1. File must be present (multer handles 413/415 before this point)
   if (!req.file) {
@@ -207,7 +219,7 @@ const submitDeliverable = async (req, res) => {
   if (!groupId || !deliverableType || !sprintId) {
     return res.status(400).json({
       code: 'INVALID_REQUEST',
-      message: 'groupId, deliverableType, and sprintId are required',
+      message: 'groupId, deliverableType, and at least one sprintId are required',
     });
   }
 
@@ -285,6 +297,7 @@ const submitDeliverable = async (req, res) => {
       groupId,
       deliverableType,
       sprintId,
+      sprintIds,
       submittedBy: userId,
       description: description || null,
       tempFilePath: req.file.path,
