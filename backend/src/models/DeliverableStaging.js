@@ -33,6 +33,10 @@ const deliverableStagingSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    sprintIds: {
+      type: [String],
+      default: undefined,
+    },
     submittedBy: {
       type: String,
       required: true,

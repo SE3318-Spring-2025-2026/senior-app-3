@@ -18,7 +18,8 @@ const {
   createMemberRequest,
   decideMemberRequest,
   coordinatorOverride,
-  transferAdvisor
+  transferAdvisor,
+  getGroupSprints,
 } = require('../controllers/groups');
 
 const { 
@@ -85,6 +86,9 @@ router.get('/:groupId', authMiddleware, getGroup);
  * GET /api/v1/groups/:groupId/committee-status — Committee status lookup (From your branch)
  */
 router.get('/:groupId/committee-status', authMiddleware, getGroupCommitteeStatus);
+
+// GET /api/v1/groups/:groupId/sprints — list available sprints for deliverable submission
+router.get('/:groupId/sprints', authMiddleware, getGroupSprints);
 
 // GET /api/v1/groups/:groupId/sprints/:sprintId/contributions — read-only Process 7.x summary
 router.get(

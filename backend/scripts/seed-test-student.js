@@ -27,7 +27,7 @@ const Group          = require('../src/models/Group');
 const Committee      = require('../src/models/Committee');
 const ScheduleWindow = require('../src/models/ScheduleWindow');
 const SprintConfig   = require('../src/models/SprintConfig');
-const Deliverable    = require('../src/models/Deliverable');
+const SprintRecord   = require('../src/models/SprintRecord');
 const { hashPassword }        = require('../src/utils/password');
 const { generateAccessToken } = require('../src/utils/jwt');
 
@@ -47,8 +47,8 @@ async function run() {
   await Group.deleteOne({ groupName: 'Test Group' });
   await Committee.deleteOne({ committeeName: 'Test Committee' });
   await ScheduleWindow.deleteMany({ createdBy: 'seed-test-student' });
-  await SprintConfig.deleteMany({ sprintId: 'sprint_1' });
-  await Deliverable.deleteMany({ groupId: /^grp_test_/ });
+  await SprintConfig.deleteMany({ sprintId: { $in: ['sprint_1', 'sprint_2'] } });
+  await SprintRecord.deleteMany({ groupId: /^grp_test_/ });
 
   // ── Create student user ───────────────────────────────────────────────────
   const userId = `usr_${uuidv4().split('-')[0]}`;
@@ -100,53 +100,18 @@ async function run() {
     });
   }
 
-  // ── Seed SprintConfig (D8) — future deadline for Process 5.4 ────────────
+  // ── Seed SprintConfig (D8) — future deadlines for Process 5.4 ───────────
   const deadlineDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days from now
-  await SprintConfig.create({
-    sprintId: 'sprint_1',
-    deliverableType: 'proposal',
-    deadline: deadlineDate,
-    description: 'Test sprint — seeded for local dev',
-  });
+  for (const sprintId of ['sprint_1', 'sprint_2']) {
+    for (const deliverableType of ['proposal', 'statement_of_work', 'demo', 'interim_report', 'final_report']) {
+      await SprintConfig.create({ sprintId, deliverableType, deadline: deadlineDate, description: 'Test sprint — seeded for local dev' });
+    }
+  }
 
-  // ── Seed test Deliverable records (D4) for GET endpoints ─────────────────
-  const deliverableId1 = `DEL-test-${uuidv4().split('-')[0]}`;
-  const deliverableId2 = `DEL-test-${uuidv4().split('-')[0]}`;
-
-  await Deliverable.create([
-    {
-      deliverableId: deliverableId1,
-      committeeId,
-      groupId,
-      studentId: userId,
-      type: 'proposal',
-      sprintId: 'sprint_1',
-      version: 1,
-      storageRef: '/uploads/permanent/test-proposal.pdf',
-      status: 'accepted',
-      submittedAt: new Date(),
-      validationHistory: [
-        { step: 'format_validation',   passed: true,  checkedAt: new Date(), failureReasons: [] },
-        { step: 'deadline_validation', passed: true,  checkedAt: new Date(), failureReasons: [] },
-        { step: 'storage',             passed: true,  checkedAt: new Date(), failureReasons: [] },
-      ],
-    },
-    {
-      deliverableId: deliverableId2,
-      committeeId,
-      groupId,
-      studentId: userId,
-      type: 'proposal',
-      sprintId: 'sprint_1',
-      version: 2,
-      storageRef: '/uploads/permanent/test-proposal-v2.pdf',
-      status: 'submitted',
-      submittedAt: new Date(),
-      validationHistory: [
-        { step: 'format_validation',   passed: true,  checkedAt: new Date(), failureReasons: [] },
-        { step: 'deadline_validation', passed: true,  checkedAt: new Date(), failureReasons: [] },
-      ],
-    },
+  // ── Seed SprintRecords (D6) — populates the sprint multi-select dropdown ──
+  await SprintRecord.create([
+    { sprintId: 'sprint_1', groupId, status: 'in_progress' },
+    { sprintId: 'sprint_2', groupId, status: 'pending' },
   ]);
 
   // ── Coordinator JWT for retract endpoint ──────────────────────────────────
@@ -166,8 +131,7 @@ async function run() {
   console.log(`  password : ${TEST_PASSWORD}`);
   console.log(`  userId   : ${userId}`);
   console.log(`  groupId       : ${groupId}`);
-  console.log(`  deliverableId1: ${deliverableId1}  (status: accepted — use this to test retract)`);
-  console.log(`  deliverableId2: ${deliverableId2}  (status: submitted)`);
+  console.log(`  sprints       : sprint_1 (in_progress), sprint_2 (pending)`);
   console.log(`  JWT (student) : ${token}`);
   console.log(`  JWT (coord)   : ${coordToken}`);
   console.log('─────────────────────────────────────────────────────────────');

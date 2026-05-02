@@ -122,7 +122,7 @@ const persistDeliverableFile = (stagingRecord) => {
  * @returns {Promise<import('../models/Deliverable').default>} Created Deliverable document
  */
 const createFinalRecord = async (stagingRecord, savedPath, session) => {
-  const { groupId, deliverableType, sprintId, submittedBy, description, fileHash, fileSize } = stagingRecord;
+  const { groupId, deliverableType, sprintId, sprintIds, submittedBy, description, fileHash, fileSize } = stagingRecord;
 
   const priorCount = await Deliverable.countDocuments({ groupId, deliverableType }).session(session ?? null);
   const version = priorCount + 1;
@@ -136,6 +136,7 @@ const createFinalRecord = async (stagingRecord, savedPath, session) => {
         groupId,
         deliverableType,
         sprintId: sprintId || null,
+        sprintIds: sprintIds?.length ? sprintIds : undefined,
         submittedBy,
         description: description || null,
         filePath: savedPath,

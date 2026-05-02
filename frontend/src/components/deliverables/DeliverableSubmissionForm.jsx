@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import useAuthStore from '../../store/authStore';
-import { validateGroupForSubmission } from '../../api/deliverableService';
+import { validateGroupForSubmission, getGroupSprints } from '../../api/deliverableService';
 import { normalizeGroupId } from '../../utils/groupId';
 
 /**
@@ -12,8 +12,15 @@ const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
 
   // Form inputs
   const [deliverableType, setDeliverableType] = useState('');
-  const [sprintId, setSprintId] = useState('');
+  const [selectedSprints, setSelectedSprints] = useState([]);
   const [description, setDescription] = useState('');
+
+  // Sprint dropdown data
+  const [availableSprints, setAvailableSprints] = useState([]);
+  const [sprintsLoading, setSprintsLoading] = useState(false);
+  const [sprintsError, setSprintsError] = useState(null);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
 
   // Form state management
   const [formState, setFormState] = useState('initial'); // initial, loading, token_received, error
@@ -26,12 +33,40 @@ const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
   // Field-level error tracking
   const [fieldErrors, setFieldErrors] = useState({});
 
+  // Fetch available sprints for this group on mount
+  useEffect(() => {
+    if (!groupId) return;
+    setSprintsLoading(true);
+    setSprintsError(null);
+    getGroupSprints(groupId)
+      .then(({ sprints }) => setAvailableSprints(sprints || []))
+      .catch(() => setSprintsError('Failed to load sprints'))
+      .finally(() => setSprintsLoading(false));
+  }, [groupId]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleSprintToggle = (sprintId) => {
+    setSelectedSprints((prev) =>
+      prev.includes(sprintId) ? prev.filter((s) => s !== sprintId) : [...prev, sprintId]
+    );
+  };
+
   /**
    * Determine if submit button should be disabled
    */
   const isSubmitDisabled =
     !deliverableType ||
-    !sprintId ||
+    selectedSprints.length === 0 ||
     (Boolean(lockedReason) && !devBypass) ||
     formState === 'loading' ||
     formState === 'token_received';
@@ -49,7 +84,7 @@ const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
     // Validate required fields
     const errors = {};
     if (!deliverableType) errors.deliverableType = 'Deliverable type is required';
-    if (!sprintId) errors.sprintId = 'Sprint ID is required';
+    if (selectedSprints.length === 0) errors.sprintId = 'At least one sprint is required';
     if (description && (description.length < 10 || description.length > 500)) {
       errors.description = 'Description must be between 10 and 500 characters';
     }
@@ -107,6 +142,15 @@ const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
     setError(null);
   };
 
+  // Compute sprint trigger button label
+  let triggerLabel = 'Select sprint(s)...';
+  if (sprintsLoading) triggerLabel = 'Loading sprints...';
+  else if (sprintsError) triggerLabel = 'Failed to load sprints';
+  else if (availableSprints.length === 0) triggerLabel = 'No sprints available';
+  else if (selectedSprints.length === 1) triggerLabel = selectedSprints[0];
+  else if (selectedSprints.length > 1) triggerLabel = `${selectedSprints.length} sprints selected`;
+  const triggerIsPlaceholder = selectedSprints.length === 0;
+
   if (formState === 'token_received' && FileUploadWidget && validationToken) {
     return (
       <div className="w-full">
@@ -114,7 +158,7 @@ const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
           validationToken={validationToken}
           groupId={groupId}
           deliverableType={deliverableType}
-          sprintId={sprintId}
+          sprintIds={selectedSprints}
           description={description}
         />
       </div>
@@ -196,38 +240,64 @@ const DeliverableSubmissionForm = ({ FileUploadWidget }) => {
             )}
           </div>
 
-          {/* SPRINT ID */}
+          {/* SPRINT(S) */}
           <div className="gap-2 flex flex-col items-start">
-            <label
-              htmlFor="sprint-id"
-              className="text-start mb-[6px] font-semibold text-[#333] text-sm"
-            >
-              SPRINT ID <span className="text-red-500">*</span>
-            </label>
+            <span className="text-start mb-[6px] font-semibold text-[#333] text-sm">
+              SPRINT(S) <span className="text-red-500">*</span>
+            </span>
 
-            <input
-              id="sprint-id"
-              type="text"
-              value={sprintId}
-              onChange={(e) => setSprintId(e.target.value)}
-              placeholder="e.g. Sprint-01"
-              className={`w-full px-[14px] py-[11px] border-2 rounded-md text-[0.95rem] font-medium transition-colors duration-200 focus:outline-none
-      ${fieldErrors.sprintId
-                  ? "border-[#e74c3c] focus:ring-4 focus:ring-[rgba(231,76,60,0.1)]"
-                  : "border-[#e0e0e0] focus:border-[#667eea] focus:ring-4 focus:ring-[rgba(102,126,234,0.12)]"
-                }`}
-            />
+            <div className="w-full relative" ref={dropdownRef}>
+              {/* Trigger button */}
+              <button
+                type="button"
+                onClick={() => setDropdownOpen((prev) => !prev)}
+                disabled={sprintsLoading || !!sprintsError || availableSprints.length === 0}
+                className={`w-full px-[14px] py-[11px] border-2 rounded-md text-[0.95rem] font-medium transition-colors duration-200 focus:outline-none text-left flex items-center justify-between
+                  ${fieldErrors.sprintId
+                    ? 'border-[#e74c3c] focus:ring-4 focus:ring-[rgba(231,76,60,0.1)]'
+                    : 'border-[#e0e0e0] focus:border-[#667eea] focus:ring-4 focus:ring-[rgba(102,126,234,0.12)]'}
+                  ${(sprintsLoading || !!sprintsError || availableSprints.length === 0) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+              >
+                <span className={triggerIsPlaceholder ? 'text-slate-400' : 'text-slate-700'}>
+                  {triggerLabel}
+                </span>
+                <svg
+                  className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`}
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {/* Dropdown panel */}
+              {dropdownOpen && availableSprints.length > 0 && (
+                <div className="absolute z-10 w-full mt-1 bg-white border-2 border-[#e0e0e0] rounded-md shadow-lg overflow-hidden">
+                  {availableSprints.map((sprint) => (
+                    <label
+                      key={sprint.sprintId}
+                      className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-slate-50 transition-colors border-b border-slate-100 last:border-b-0"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedSprints.includes(sprint.sprintId)}
+                        onChange={() => handleSprintToggle(sprint.sprintId)}
+                        className="w-4 h-4 accent-[#667eea]"
+                      />
+                      <span className="text-[0.95rem] font-medium text-slate-700">
+                        {sprint.sprintId}
+                      </span>
+                      <span className="ml-auto text-xs text-slate-400 uppercase tracking-wider">
+                        {sprint.status}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {fieldErrors.sprintId && (
-              <p className="text-xs text-red-500 font-bold">
-                {fieldErrors.sprintId}
-              </p>
+              <p className="text-xs text-red-500 font-bold">{fieldErrors.sprintId}</p>
             )}
-            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-              Use the same <code className="text-slate-700">sprintId</code> as in Coordinator Sprint Dashboard / DB (e.g.{' '}
-              <code className="text-slate-700">sprint_1_1</code> from general seed or <code className="text-slate-700">sprint_1</code> from test scripts).
-              See <code className="text-slate-700">TEST-DATA-CHEATSHEET.md</code> § Deliverables.
-            </p>
           </div>
 
           {/* DESCRIPTION */}

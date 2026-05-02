@@ -1824,6 +1824,35 @@ const createAdvisorRequest = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/v1/groups/:groupId/sprints
+ *
+ * Returns the list of sprints available for a group, sourced from SprintRecord (D6).
+ * Used to populate the sprint multi-select dropdown on the deliverable submission form.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+const getGroupSprints = async (req, res) => {
+  const { groupId } = req.params;
+
+  let sprints;
+  try {
+    sprints = await SprintRecord.find({ groupId })
+      .select('sprintId status createdAt')
+      .sort({ createdAt: 1 })
+      .lean();
+  } catch (err) {
+    console.error('[getGroupSprints] DB error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Database query failed' });
+  }
+
+  return res.status(200).json({
+    sprints: sprints.map((s) => ({ sprintId: s.sprintId, status: s.status })),
+    total: sprints.length,
+  });
+};
+
 module.exports = {
   forwardApprovalResults,
   createGroup,
@@ -1836,4 +1865,5 @@ module.exports = {
   createAdvisorRequest,
   getSprintContributionSummary,
   getGroupCommitteeStatus,
+  getGroupSprints,
 };
