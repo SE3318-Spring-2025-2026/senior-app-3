@@ -18,7 +18,6 @@ const {
   createMemberRequest,
   decideMemberRequest,
   coordinatorOverride,
-  transferAdvisor,
   getGroupSprints,
 } = require('../controllers/groups');
 
@@ -46,8 +45,7 @@ const { coordinatorAdminOrGroupMember } = require('../middleware/groupIntegratio
 
 // Integrated Controllers from both branches
 const { submitDeliverableHandler } = require('../controllers/deliverables'); // From main
-const { releaseAdvisor } = require('../controllers/advisorAssociation'); // From main
-const { advisorSanitization } = require('../controllers/sanitizationController'); // From main
+const { releaseAdvisor, transferAdvisor, advisorSanitization } = require('../controllers/advisorAssociation'); // From main
 const { bootstrapSprint } = require('../controllers/coordinatorSprintBootstrap');
 
 // ============================================================================

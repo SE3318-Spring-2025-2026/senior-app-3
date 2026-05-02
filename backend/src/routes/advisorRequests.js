@@ -33,14 +33,14 @@ router.get(
 router.get(
   '/mine',
   authMiddleware,
-  roleMiddleware(['professor']),
+  roleMiddleware(['professor', 'advisor']),
   listProfessorAdvisorRequests
 );
 
 router.get(
   '/pending',
   authMiddleware,
-  roleMiddleware(['professor']),
+  roleMiddleware(['professor', 'advisor']),
   listProfessorPendingRequests
 );
 
@@ -55,7 +55,7 @@ router.post(
 router.patch(
   '/:requestId',
   authMiddleware,
-  roleMiddleware(['professor', 'coordinator', 'admin']),
+  roleMiddleware(['professor', 'advisor', 'coordinator', 'admin']),
   advisorDecisionScheduleGuard,
   processAdvisorRequest
 );
