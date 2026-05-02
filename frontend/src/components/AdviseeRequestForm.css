@@ -23,31 +23,28 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+.form-header {
+  border-bottom: 1px solid #e5e7eb;
+  margin-bottom: 32px;
+  padding-bottom: 28px;
+  text-align: center;
+}
+
 .form-header h1 {
   color: #333;
   font-size: 2.15rem;
   font-weight: 700;
   margin: 0 0 8px;
   line-height: 1.35;
-  text-align: left;
+  text-align: center;
 }
 
 .form-header p {
   color: #4b5563;
   font-size: 1rem;
   line-height: 1.55;
-  margin: 0 0 28px;
+  margin: 0;
   text-align: center;
-}
-
-.form-header {
-  align-items: flex-start;
-  border-bottom: 1px solid #e5e7eb;
-  display: grid;
-  gap: 28px;
-  grid-template-columns: 0.85fr 1.35fr;
-  margin-bottom: 32px;
-  padding-bottom: 28px;
 }
 
 .warning-banner {
