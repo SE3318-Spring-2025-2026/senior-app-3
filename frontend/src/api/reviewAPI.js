@@ -142,6 +142,19 @@ export const getCommitteeCandidates = async () => {
   return response.data;
 };
 
+/**
+ * GET /api/v1/deliverables/:deliverableId/download
+ * Download the stored file for a deliverable
+ * @param {string} deliverableId
+ * @returns {Promise<AxiosResponse>} Response with blob data
+ */
+export const downloadDeliverable = async (deliverableId) => {
+  const response = await apiClient.get(`/deliverables/${deliverableId}/download`, {
+    responseType: 'blob',
+  });
+  return response;
+};
+
 export default {
   getDeliverableDetails,
   getComments,
@@ -153,4 +166,5 @@ export default {
   assignReview,
   getReviews,
   getCommitteeCandidates,
+  downloadDeliverable,
 };

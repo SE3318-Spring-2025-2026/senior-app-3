@@ -175,7 +175,7 @@ function App() {
             />
             <Route
               path="/dashboard/reviews/:deliverableId"
-              element={<ProtectedRoute component={ReviewPage} requiredRoles={['professor', 'coordinator', 'committee_member', 'admin']} />}
+              element={<ProtectedRoute component={ReviewPage} requiredRoles={['student', 'professor', 'coordinator', 'committee_member', 'admin']} />}
             />
             <Route
               path="/dashboard/reviews"
