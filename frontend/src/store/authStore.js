@@ -32,7 +32,7 @@ const useAuthStore = create(
       refreshToken: null,
       isAuthenticated: false,
       requiresPasswordChange: false,
-      isLoading: false,
+      isLoading: true,
       error: null,
 
       // Actions
@@ -139,6 +139,12 @@ const useAuthStore = create(
         isAuthenticated: state.isAuthenticated,
         requiresPasswordChange: state.requiresPasswordChange,
       }),
+      onRehydrateStorage: () => (state, action) => {
+        // Set isLoading to false after hydration is complete
+        if (state) {
+          state.isLoading = false;
+        }
+      },
       storage: {
         // Use sessionStorage for more security; alternatively use localStorage
         getItem: (name) => {

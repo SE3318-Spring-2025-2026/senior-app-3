@@ -15,6 +15,7 @@ const {
   getDeliverableHandler,
   retractDeliverableHandler,
   notifyDeliverableHandler,
+  downloadDeliverableHandler,
 } = require('../controllers/deliverableController');
 const { updateCommentHandler, replyToCommentHandler } = require('../controllers/reviewController');
 const { addComment, getComments } = require('../controllers/reviewController');
@@ -35,6 +36,13 @@ router.get('/', listDeliverablesHandler);
  * Students can only view deliverables belonging to their own group.
  */
 router.get('/:deliverableId', getDeliverableHandler);
+
+/**
+ * GET /api/deliverables/:deliverableId/download
+ * Stream the stored file to the requester.
+ * Students may only download deliverables belonging to their own group.
+ */
+router.get('/:deliverableId/download', downloadDeliverableHandler);
 
 /**
  * POST /api/deliverables/validate-group
