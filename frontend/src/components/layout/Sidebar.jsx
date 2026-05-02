@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import useAuthStore from '../../store/authStore';
 import { normalizeGroupId } from '../../utils/groupId';
@@ -11,8 +11,7 @@ const isLikelyConcreteGroupId = (value) => {
   return true;
 };
 
-const Sidebar = () => {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+const Sidebar = ({ isCollapsed, onToggle }) => {
   const { user, isAuthenticated, clearAuth } = useAuthStore();
   const navigate = useNavigate();
   const location = useLocation();
@@ -238,7 +237,7 @@ const Sidebar = () => {
           <div className="mx-auto h-8 w-8 bg-indigo-500 rounded-lg flex items-center justify-center text-white font-bold">S</div>
         )}
         <button
-          onClick={() => setIsCollapsed(!isCollapsed)}
+          onClick={onToggle}
           className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-500 hover:text-white transition-colors"
         >
           <svg className={`h-5 w-5 transition-transform duration-300 ${isCollapsed ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
