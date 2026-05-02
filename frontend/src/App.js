@@ -39,10 +39,7 @@ import CoordinatorFinalGradePublishPanel from './pages/CoordinatorFinalGradePubl
 import ProfessorGradeReviewEntry from './pages/ProfessorGradeReviewEntry.jsx';
 import CoordinatorAdvisorInbox from './pages/CoordinatorAdvisorInbox.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
-const RootRoute = () => {
-  const { isAuthenticated } = useAuthStore();
-  return <Navigate to={isAuthenticated ? '/dashboard' : '/auth/method-selection'} replace />;
-};
+import RootRoute from './components/RootRoute';
 const Unauthorized = () => (
   <div className="page error" data-testid="unauthorized-page">
     403 Forbidden - Coordinator access required

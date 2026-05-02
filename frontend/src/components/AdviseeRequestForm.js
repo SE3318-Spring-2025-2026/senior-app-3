@@ -306,9 +306,9 @@ const AdviseeRequestForm = () => {
   return (
     <div className="advisee-request-page">
       <div className="form-container">
-        <header className="form-header" style={{ display: 'block', textAlign: 'center' }}>
-          <h1 style={{ textAlign: 'center' }}>Request Advisor</h1>
-          <p style={{ textAlign: 'center' }}>Select a professor to request as an advisor for your group.</p>
+        <header className="form-header">
+          <h1>Request Advisor</h1>
+          <p>Select a professor to request as an advisor for your group.</p>
         </header>
 
         {!windowInfo.open && windowInfo.open !== null && (
