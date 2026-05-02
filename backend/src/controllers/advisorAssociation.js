@@ -568,8 +568,22 @@ const transferAdvisor = async (req, res) => {
  */
 const advisorSanitization = async (req, res) => {
   try {
+    const now = new Date();
     const active = await isActiveSanitizationWindow();
     const future = await hasFutureSanitizationWindow();
+    const latestAdvisorAssociationWindow = await ScheduleWindow.findOne({
+      operationType: OT.ADVISOR_ASSOCIATION,
+      isActive: true,
+    })
+      .sort({ endsAt: -1 })
+      .lean();
+
+    if (!active && latestAdvisorAssociationWindow && now < latestAdvisorAssociationWindow.endsAt) {
+      return res.status(409).json({
+        code: 'DEADLINE_NOT_REACHED',
+        message: `Advisor association window is still active. Deadline: ${latestAdvisorAssociationWindow.endsAt.toISOString()}`,
+      });
+    }
 
     if (!active && future) {
       return res.status(409).json({
@@ -578,7 +592,7 @@ const advisorSanitization = async (req, res) => {
       });
     }
 
-    if (!active) {
+    if (!active && !latestAdvisorAssociationWindow) {
       return res.status(422).json({
         code: 'OUTSIDE_SCHEDULE_WINDOW',
         message: 'Operation not available outside the configured schedule window',
@@ -591,9 +605,45 @@ const advisorSanitization = async (req, res) => {
     }).lean();
 
     const disbandedGroups = [];
+    const notificationFailures = [];
     for (const g of candidates) {
       disbandedGroups.push(g.groupId);
-      await notificationService.dispatchGroupDisbandNotification({ groupId: g.groupId });
+
+      const acceptedMembers = (g.members || [])
+        .filter((m) => m && m.status === 'accepted' && m.userId)
+        .map((m) => m.userId);
+      const members = acceptedMembers.length > 0
+        ? acceptedMembers
+        : (g.leaderId ? [g.leaderId] : []);
+
+      // Keep backward-compatible side effect expected by existing tests and integrations.
+      await notificationService.dispatchGroupDisbandNotification({
+        groupId: g.groupId,
+        reason: 'advisor_sanitization',
+      }).catch(() => {});
+
+      const notifyResult = await retryNotificationWithBackoff(
+        () =>
+          notificationService.dispatchDisbandNotification({
+            type: 'disband_notice',
+            groupId: g.groupId,
+            groupName: g.groupName,
+            members,
+            reason: 'advisor_sanitization',
+          }),
+        {
+          maxAttempts: 3,
+          identifier: g.groupId,
+          identifierType: 'groupId',
+        }
+      );
+      if (!notifyResult.success) {
+        notificationFailures.push({
+          groupId: g.groupId,
+          error: notifyResult.error?.message || 'notification_dispatch_failed',
+        });
+      }
+
       await createAuditLog({
         action: 'group_disbanded',
         actorId: req.user.userId,
@@ -609,7 +659,13 @@ const advisorSanitization = async (req, res) => {
       );
     }
 
-    return res.status(200).json({ disbandedGroups });
+    return res.status(200).json({
+      success: true,
+      count: disbandedGroups.length,
+      disbandedGroups,
+      notificationFailures,
+      checkedAt: new Date().toISOString(),
+    });
   } catch (err) {
     console.error('advisorSanitization error:', err);
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred.' });
