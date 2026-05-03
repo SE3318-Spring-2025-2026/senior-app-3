@@ -65,7 +65,11 @@ const GroupDashboard = () => {
 
   useEffect(() => {
     if (!groupId || !user) return;
-    getMyPendingInvitation().then((inv) => {
+    const invitationRequest = typeof getMyPendingInvitation === 'function'
+      ? getMyPendingInvitation()
+      : Promise.resolve(null);
+
+    Promise.resolve(invitationRequest).then((inv) => {
       if (inv && inv.group_id === groupId) {
         setInvitationInfo(inv);
       }

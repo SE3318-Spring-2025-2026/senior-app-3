@@ -41,7 +41,7 @@ describe('AdviseeRequestForm', () => {
     render(<AdviseeRequestForm />);
 
     await waitFor(() => expect(getGroup).toHaveBeenCalledWith('grp_test'));
-    await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: /Select Professor/i })).toBeInTheDocument());
     expect(screen.getByRole('button', { name: /Submit Request/i })).toBeDisabled();
   });
 
@@ -50,7 +50,7 @@ describe('AdviseeRequestForm', () => {
 
     render(<AdviseeRequestForm />);
 
-    await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: /Select Professor/i })).toBeInTheDocument());
 
     const form = document.querySelector('form.advisor-form');
     await act(async () => {
@@ -66,9 +66,10 @@ describe('AdviseeRequestForm', () => {
 
     render(<AdviseeRequestForm />);
 
-    await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: /Select Professor/i })).toBeInTheDocument());
 
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'usr_prof_1');
+    await userEvent.click(screen.getByRole('button', { name: /Select Professor/i }));
+    await userEvent.click(screen.getByRole('option', { name: /Dr\. Ada Lovelace/i }));
     await userEvent.type(screen.getByLabelText(/Message \(Optional\)/i), 'We would love your guidance.');
 
     await act(async () => {
@@ -91,7 +92,7 @@ describe('AdviseeRequestForm', () => {
     render(<AdviseeRequestForm />);
 
     await waitFor(() => expect(screen.getByText(/association window is closed/i)).toBeInTheDocument());
-    expect(screen.getByRole('combobox')).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Select Professor/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Submit Request/i })).toBeDisabled();
   });
 
@@ -101,8 +102,9 @@ describe('AdviseeRequestForm', () => {
 
     render(<AdviseeRequestForm />);
 
-    await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument());
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'usr_prof_1');
+    await waitFor(() => expect(screen.getByRole('button', { name: /Select Professor/i })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /Select Professor/i }));
+    await userEvent.click(screen.getByRole('option', { name: /Dr\. Ada Lovelace/i }));
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /Submit Request/i }));
     });
@@ -111,6 +113,6 @@ describe('AdviseeRequestForm', () => {
       expect(screen.getByText(/The advisor request window is currently closed./i)).toBeInTheDocument();
     });
     expect(screen.getByRole('button', { name: /Submit Request/i })).toBeDisabled();
-    expect(screen.getByRole('combobox')).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Select Professor/i })).toBeDisabled();
   });
 });

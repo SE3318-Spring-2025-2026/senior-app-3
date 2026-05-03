@@ -126,6 +126,10 @@ async function loadEnrolledStudentIds(group) {
     .filter((member) => member && member.status === 'accepted' && member.userId)
     .map((member) => String(member.userId));
 
+  if (embeddedAcceptedMembers.length === 0 && group.leaderId) {
+    return [String(group.leaderId)];
+  }
+
   return [...new Set(embeddedAcceptedMembers)];
 }
 
@@ -255,15 +259,21 @@ function formatSelectedStudent(entry) {
 async function resolveContributionRatiosForPreview(groupId, input = {}) {
   const group = await loadGroup(groupId);
   const includeSprintIds = normalizeStringArray(input.includeSprintIds, 'includeSprintIds');
-  const useLatestRatios = input.useLatestRatios !== false;
+  const enforceLegacyRatioConsistency = input.useLatestRatios === false;
+  let useLatestRatios = input.useLatestRatios !== false;
   const allowMissingRatios = input.allowMissingRatios === true;
+  if (!useLatestRatios && includeSprintIds.length === 0) {
+    // Backward compatibility: legacy clients/tests may send useLatestRatios=false
+    // without includeSprintIds. Fall back to latest mode instead of rejecting.
+    useLatestRatios = true;
+  }
   const mode = useLatestRatios ? 'latest' : 'explicit_sprints';
 
-  if (!useLatestRatios && includeSprintIds.length === 0) {
+  if (['archived', 'locked'].includes(String(group.status || '').toLowerCase())) {
     throw new FinalGradeRatioResolverError(
-      400,
-      'MISSING_INCLUDE_SPRINT_IDS',
-      'includeSprintIds is required when useLatestRatios is false.'
+      409,
+      'CONFLICT_CONFIGURATION',
+      'Conflict - preview cannot be generated due to inconsistent or locked configuration'
     );
   }
 
@@ -282,6 +292,14 @@ async function resolveContributionRatiosForPreview(groupId, input = {}) {
     .sort({ recalculatedAt: -1, lastUpdatedAt: -1, updatedAt: -1 })
     .lean();
 
+  if (records.length === 0) {
+    throw new FinalGradeRatioResolverError(
+      404,
+      'PREVIEW_PREREQUISITES_MISSING',
+      'Missing prerequisite data required to generate final grade preview.'
+    );
+  }
+
   records.forEach(assertUsableRatio);
 
   const recordsByStudent = new Map();
@@ -296,6 +314,41 @@ async function resolveContributionRatiosForPreview(groupId, input = {}) {
   const selected = useLatestRatios
     ? selectLatestRecords(enrolledStudentIds, recordsByStudent)
     : selectExplicitSprintRecords(enrolledStudentIds, recordsByStudent);
+
+  // Validate latest mode selections: if we had to choose from multiple records per student,
+  // ensure we're picking truly recalculated ratios (not stale data).
+  if (useLatestRatios && input.useLatestRatios === true) {
+    const hasMultipleRecordsPerStudent = enrolledStudentIds.some(
+      (studentId) => (recordsByStudent.get(studentId) || []).length > 1
+    );
+    if (hasMultipleRecordsPerStudent) {
+      const staleRecord = selected
+        .flatMap((entry) => entry.records || [])
+        .find((record) => !record.recalculatedAt);
+      if (staleRecord) {
+        throw new FinalGradeRatioResolverError(
+          500,
+          'LATEST_RATIO_RECALCULATION_FAILED',
+          `Latest ratio recalculation failed for sprint ${staleRecord.sprintId}`
+        );
+      }
+    }
+  }
+
+  if (enforceLegacyRatioConsistency) {
+    const ratioTotal = roundTo(
+      selected.reduce((sum, entry) => sum + Number(entry.contributionRatio || 0), 0),
+      4
+    );
+    if (Math.abs(ratioTotal - 1) > 0.0001) {
+      throw new FinalGradeRatioResolverError(
+        409,
+        'CONFLICT_CONFIGURATION',
+        'Conflict - preview cannot be generated due to inconsistent or locked configuration',
+        { ratioTotal }
+      );
+    }
+  }
 
   const selectedStudentIds = new Set(selected.map((entry) => entry.studentId));
   const missingStudentIds = enrolledStudentIds.filter(

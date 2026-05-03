@@ -34,12 +34,12 @@ const trySecurityAuditOnDeny = async (req, statusCode, reason) => {
  * Middleware to verify JWT access token in Authorization header
  * Adds user info to req.user
  */
-const authMiddleware = async (req, res, next) => {
+const authMiddleware = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      await trySecurityAuditOnDeny(req, 401, 'missing_or_invalid_authorization_header');
+      trySecurityAuditOnDeny(req, 401, 'missing_or_invalid_authorization_header').catch(() => {});
       return res.status(401).json({
         code: 'UNAUTHORIZED',
         message: 'Missing or invalid authorization header',
@@ -53,7 +53,7 @@ const authMiddleware = async (req, res, next) => {
       req.user = decoded;
       next();
     } catch (tokenError) {
-      await trySecurityAuditOnDeny(req, 401, 'invalid_or_expired_token');
+      trySecurityAuditOnDeny(req, 401, 'invalid_or_expired_token').catch(() => {});
       return res.status(401).json({
         code: 'INVALID_TOKEN',
         message: 'Invalid or expired token',
@@ -72,9 +72,9 @@ const authMiddleware = async (req, res, next) => {
  * Usage: roleMiddleware(['admin', 'professor'])
  */
 const roleMiddleware = (allowedRoles) => {
-  return async (req, res, next) => {
+  return (req, res, next) => {
     if (!req.user) {
-      await trySecurityAuditOnDeny(req, 401, 'user_not_authenticated');
+      trySecurityAuditOnDeny(req, 401, 'user_not_authenticated').catch(() => {});
       return res.status(401).json({
         code: 'UNAUTHORIZED',
         message: 'User not authenticated',
@@ -82,7 +82,7 @@ const roleMiddleware = (allowedRoles) => {
     }
 
     if (!allowedRoles.includes(req.user.role)) {
-      await trySecurityAuditOnDeny(req, 403, 'role_not_permitted');
+      trySecurityAuditOnDeny(req, 403, 'role_not_permitted').catch(() => {});
       return res.status(403).json({
         code: 'FORBIDDEN',
         message: 'You do not have permission to access this resource',

@@ -1,13 +1,15 @@
 const { resolveContributionRatiosForPreview } = require('./finalGradeContributionRatioService');
 const { FinalGradeCalculationService } = require('./finalGradeCalculationService');
+const Evaluation = require('../models/Evaluation');
 
 class PreviewError extends Error {
-  constructor(message, statusCode = 500, code = 'PREVIEW_ERROR') {
+  constructor(message, statusCode = 500, code = 'PREVIEW_ERROR', details = null) {
     super(message);
     this.name = 'PreviewError';
     this.statusCode = statusCode;
     this.status = statusCode;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -46,11 +48,17 @@ async function buildFinalGradesPreview(groupId, input = {}) {
     allowMissingRatios,
   } = input;
 
-  // Process 8.1 placeholder: until D4/D5 aggregation service is wired,
-  // default to a neutral base group score that keeps preview deterministic.
-  const baseGroupScore = Number.isFinite(Number(explicitBaseGroupScore))
-    ? Number(explicitBaseGroupScore)
-    : 100;
+  let baseGroupScore;
+  if (Number.isFinite(Number(explicitBaseGroupScore))) {
+    baseGroupScore = Number(explicitBaseGroupScore);
+  } else {
+    const latestEvaluation = await Evaluation.findOne({ groupId, status: 'completed' })
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .lean();
+    baseGroupScore = Number.isFinite(Number(latestEvaluation?.score))
+      ? Number(latestEvaluation.score)
+      : 100;
+  }
 
   const ratioResolution = await resolveContributionRatiosForPreview(groupId, {
     includeSprintIds,
@@ -98,7 +106,12 @@ async function generatePreview(groupId, input = {}) {
     if (error instanceof PreviewError) {
       throw error;
     }
-    throw new PreviewError(error.message || 'Failed to generate preview', error.status || 500);
+    throw new PreviewError(
+      error.message || 'Failed to generate preview',
+      error.status || error.statusCode || 500,
+      error.code || 'PREVIEW_ERROR',
+      error.details || null
+    );
   }
 }
 
