@@ -5,6 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const Deliverable = require('../models/Deliverable');
 const DeliverableStaging = require('../models/DeliverableStaging');
+const Group = require('../models/Group');
 
 /**
  * Custom error class for storage operations
@@ -226,15 +227,15 @@ const deleteStagingRecord = async (stagingId) => {
  *
  * @param {string} stagingId - Staging record ID
  * @param {string} permanentDir - Destination permanent directory
- * @param {string} committeeId - Committee ID (defaults to 'com_test_001' for backward compatibility)
+ * @param {string} [committeeId] - Committee ID; if omitted, resolved from the group record
  * @returns {Promise<object>} Object with deliverable and permanentPath
  * @throws {StorageError} With appropriate status codes
  *   - 404: Staging record not found
- *   - 400: Invalid status, checksum mismatch
+ *   - 400: Invalid status, checksum mismatch, no committee assigned
  *   - 507: Disk full
  *   - 500: Other storage/database errors
  */
-const storeDeliverable = async (stagingId, permanentDir, committeeId = 'com_test_001') => {
+const storeDeliverable = async (stagingId, permanentDir, committeeId) => {
   // Fetch staging record
   let stagingRecord;
   try {
@@ -253,6 +254,28 @@ const storeDeliverable = async (stagingId, permanentDir, committeeId = 'com_test
       404,
       'STAGING_NOT_FOUND'
     );
+  }
+
+  // Resolve committeeId from group if not provided by caller
+  if (!committeeId) {
+    let groupDoc;
+    try {
+      groupDoc = await Group.findOne({ groupId: stagingRecord.groupId }).select('committeeId').lean();
+    } catch (err) {
+      throw new StorageError(
+        `Database query failed looking up committeeId: ${err.message}`,
+        500,
+        'DATABASE_ERROR'
+      );
+    }
+    committeeId = groupDoc?.committeeId;
+    if (!committeeId) {
+      throw new StorageError(
+        `Group ${stagingRecord.groupId} has no committee assigned — coordinator must assign a committee before storing deliverables`,
+        400,
+        'NO_COMMITTEE_ASSIGNED'
+      );
+    }
   }
 
   // Validate staging status
