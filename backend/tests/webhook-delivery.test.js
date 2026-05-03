@@ -23,7 +23,6 @@
 
 const request = require('supertest');
 const mongoose = require('mongoose');
-const { expect } = require('chai');
 const crypto = require('crypto');
 
 // ISSUE #241: Import Issue #241 components

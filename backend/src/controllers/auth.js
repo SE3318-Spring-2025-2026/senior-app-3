@@ -175,7 +175,7 @@ const registerStudent = async (req, res) => {
     // Verify and decode validation token
     let tokenPayload;
     try {
-      tokenPayload = jwt.verify(validationToken, process.env.JWT_SECRET || 'your-secret-key');
+      tokenPayload = jwt.verify(validationToken, process.env.JWT_SECRET);
     } catch (error) {
       return res.status(401).json({
         code: 'INVALID_TOKEN',

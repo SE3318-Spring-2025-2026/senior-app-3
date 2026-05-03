@@ -15,6 +15,9 @@
  * Run: npm test -- security-validation.test.js
  */
 
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'security-validation-test-jwt-secret';
+process.env.JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'security-validation-test-jwt-refresh-secret';
+
 // Mock email service before imports
 jest.mock('../src/services/emailService', () => ({
   sendPasswordResetEmail: jest.fn().mockResolvedValue({ messageId: 'mock-id', status: 'sent' }),

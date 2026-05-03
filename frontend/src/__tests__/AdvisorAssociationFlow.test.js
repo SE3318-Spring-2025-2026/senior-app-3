@@ -63,9 +63,14 @@ describe('Advisor association flow', () => {
       </MemoryRouter>
     );
 
-    await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: /Choose a Professor/i })).toBeInTheDocument());
 
-    await user.selectOptions(screen.getByRole('combobox'), 'usr_prof_e2e');
+    // Open dropdown and select professor
+    const dropdownButton = screen.getByRole('button', { name: /Choose a Professor/i });
+    await user.click(dropdownButton);
+    
+    const professorOption = await screen.findByRole('option', { name: /\(usr_prof_e2e\)/i });
+    await user.click(professorOption);
     await user.type(screen.getByLabelText(/Message \(Optional\)/i), 'This project fits my area.');
     await user.click(screen.getByRole('button', { name: /Submit Request/i }));
 

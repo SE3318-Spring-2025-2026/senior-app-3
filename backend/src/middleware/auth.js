@@ -34,12 +34,12 @@ const trySecurityAuditOnDeny = async (req, statusCode, reason) => {
  * Middleware to verify JWT access token in Authorization header
  * Adds user info to req.user
  */
-const authMiddleware = async (req, res, next) => {
+const authMiddleware = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      await trySecurityAuditOnDeny(req, 401, 'missing_or_invalid_authorization_header');
+      trySecurityAuditOnDeny(req, 401, 'missing_or_invalid_authorization_header').catch(() => {});
       return res.status(401).json({
         code: 'UNAUTHORIZED',
         message: 'Missing or invalid authorization header',
@@ -53,7 +53,7 @@ const authMiddleware = async (req, res, next) => {
       req.user = decoded;
       next();
     } catch (tokenError) {
-      await trySecurityAuditOnDeny(req, 401, 'invalid_or_expired_token');
+      trySecurityAuditOnDeny(req, 401, 'invalid_or_expired_token').catch(() => {});
       return res.status(401).json({
         code: 'INVALID_TOKEN',
         message: 'Invalid or expired token',
@@ -72,9 +72,9 @@ const authMiddleware = async (req, res, next) => {
  * Usage: roleMiddleware(['admin', 'professor'])
  */
 const roleMiddleware = (allowedRoles) => {
-  return async (req, res, next) => {
+  return (req, res, next) => {
     if (!req.user) {
-      await trySecurityAuditOnDeny(req, 401, 'user_not_authenticated');
+      trySecurityAuditOnDeny(req, 401, 'user_not_authenticated').catch(() => {});
       return res.status(401).json({
         code: 'UNAUTHORIZED',
         message: 'User not authenticated',
@@ -82,7 +82,7 @@ const roleMiddleware = (allowedRoles) => {
     }
 
     if (!allowedRoles.includes(req.user.role)) {
-      await trySecurityAuditOnDeny(req, 403, 'role_not_permitted');
+      trySecurityAuditOnDeny(req, 403, 'role_not_permitted').catch(() => {});
       return res.status(403).json({
         code: 'FORBIDDEN',
         message: 'You do not have permission to access this resource',
@@ -187,9 +187,9 @@ const systemTokenMiddleware = (req, res, next) => {
   // Issue #67 Fix #4: Check for system/M2M authentication (service token)
   // Read X-Service-Auth header and compare with environment variable
   const serviceAuth = req.headers['x-service-auth'];
-  const expectedToken = process.env.SYSTEM_SERVICE_TOKEN || 'system';
+  const expectedToken = process.env.SYSTEM_SERVICE_TOKEN;
 
-  if (serviceAuth === expectedToken) {
+  if (expectedToken && serviceAuth === expectedToken) {
     // Issue #67 Fix #4: Service token matched - create synthetic user object
     // This allows service/scheduler calls to proceed with system identity
     req.isSystemCall = true; // Mark as system-initiated call
@@ -217,10 +217,10 @@ const systemTokenMiddleware = (req, res, next) => {
  * Allows: (1) SYSTEM_SERVICE_TOKEN via X-Service-Auth, or (2) valid JWT with coordinator/admin.
  */
 const flexibleSystemOrRoleAuth = (req, res, next) => {
-  const expectedToken = process.env.SYSTEM_SERVICE_TOKEN || 'system';
+  const expectedToken = process.env.SYSTEM_SERVICE_TOKEN;
   const serviceAuth = req.headers['x-service-auth'];
 
-  if (serviceAuth === expectedToken) {
+  if (expectedToken && serviceAuth === expectedToken) {
     req.isSystemCall = true;
     req.user = {
       userId: 'system',

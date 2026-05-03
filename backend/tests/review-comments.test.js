@@ -1032,11 +1032,11 @@ describe('Review Comments Endpoints', () => {
 
       expect(res.status).toBe(200);
 
-      // Verify Review status updated to in_progress (no more open clarifications)
+      // Verify Review status is marked completed once all clarifications are resolved
       const updatedReview = await Review.findOne({
         reviewId: review.reviewId,
       }).lean();
-      expect(updatedReview.status).toBe('in_progress');
+      expect(updatedReview.status).toBe('completed');
     });
 
     it('should return 403 when non-coordinator tries to resolve', async () => {

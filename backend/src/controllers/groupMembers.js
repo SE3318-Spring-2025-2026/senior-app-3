@@ -279,12 +279,18 @@ const getMembers = async (req, res) => {
 const dispatchNotification = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { recipients } = req.body;
+    const { recipients, invitee_id } = req.body;
+    const legacySingleRecipient = typeof invitee_id === 'string' && invitee_id.trim();
+    const recipientIds = Array.isArray(recipients) && recipients.length > 0
+      ? recipients
+      : legacySingleRecipient
+        ? [invitee_id]
+        : [];
 
-    if (!Array.isArray(recipients) || recipients.length === 0) {
+    if (recipientIds.length === 0) {
       return res.status(400).json({
-        code: 'MISSING_RECIPIENTS',
-        message: 'recipients must be a non-empty array of student IDs',
+        code: 'MISSING_INVITEE_ID',
+        message: 'invitee_id or recipients must be provided',
       });
     }
 
@@ -302,11 +308,19 @@ const dispatchNotification = async (req, res) => {
 
     // f19: Write pending member records to D2 for each recipient
     const validRecipients = [];
-    for (const rawId of recipients) {
+    for (const rawId of recipientIds) {
       const inviteeId = typeof rawId === 'string' ? rawId.trim() : '';
       if (!inviteeId) continue;
 
       let invitation = await MemberInvitation.findOne({ groupId, inviteeId });
+
+      if (legacySingleRecipient && !invitation) {
+        return res.status(404).json({
+          code: 'INVITATION_NOT_FOUND',
+          message: 'Pending invitation not found for invitee',
+        });
+      }
+
       if (!invitation) {
         invitation = await MemberInvitation.create({
           groupId,
@@ -330,17 +344,27 @@ const dispatchNotification = async (req, res) => {
       });
     }
 
-    // f07: Dispatch batch notification to Notification Service with retry
+    // f07: Dispatch notification(s) with retry
     let notifResult;
     let lastError;
+    const recipientList = validRecipients.map((r) => r.inviteeId);
+    const useLegacySingleNotification = legacySingleRecipient && recipientList.length === 1;
+
     for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
       try {
-        notifResult = await dispatchBatchInvitationNotification({
-          groupId,
-          groupName: group.groupName,
-          recipients: validRecipients.map((r) => r.inviteeId),
-          invitedBy: req.user.userId,
-        });
+        notifResult = useLegacySingleNotification
+          ? await dispatchInvitationNotification({
+              groupId,
+              groupName: group.groupName,
+              inviteeId: recipientList[0],
+              invitedBy: req.user.userId,
+            })
+          : await dispatchBatchInvitationNotification({
+              groupId,
+              groupName: group.groupName,
+              recipients: recipientList,
+              invitedBy: req.user.userId,
+            });
         lastError = null;
         break;
       } catch (err) {
@@ -370,6 +394,14 @@ const dispatchNotification = async (req, res) => {
       invitation.notificationId = notifResult.notification_id || null;
       await invitation.save();
       deliveredTo.push(inviteeId);
+    }
+
+    if (useLegacySingleNotification) {
+      return res.status(200).json({
+        notification_id: notifResult.notification_id,
+        invitee_id: recipientList[0],
+        notified_at: sentAt,
+      });
     }
 
     return res.status(201).json({
