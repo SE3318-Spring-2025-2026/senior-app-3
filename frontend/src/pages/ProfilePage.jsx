@@ -7,7 +7,6 @@ import './ProfilePage.css';
 const ProfilePage = () => {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
-  const clearAuth = useAuthStore((state) => state.clearAuth);
   const setUser = useAuthStore((state) => state.setUser);
   const [isEditing, setIsEditing] = useState(false);
   const [editedUser, setEditedUser] = useState(null);
@@ -19,11 +18,6 @@ const ProfilePage = () => {
       setEditedUser({ ...user });
     }
   }, [user]);
-
-  const handleLogout = () => {
-    clearAuth();
-    navigate('/auth/method-selection');
-  };
 
   const handleEditChange = (field, value) => {
     setEditedUser({
@@ -122,13 +116,10 @@ const ProfilePage = () => {
           <h1>My Profile</h1>
           <div className="profile-actions">
             <button
-              className="btn btn-secondary"
+              className="btn btn-primary"
               onClick={() => isEditing ? handleCancelEdit() : setIsEditing(true)}
             >
               {isEditing ? 'Cancel' : 'Edit Profile'}
-            </button>
-            <button className="btn btn-danger" onClick={handleLogout}>
-              Logout
             </button>
           </div>
         </div>

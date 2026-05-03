@@ -32,7 +32,6 @@ body:has(.advisor-association-container) {
 .panel-header {
   align-items: center;
   background: #ffffff;
-  border-left: 4px solid #667eea;
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(102, 126, 234, 0.08);
   display: flex;
@@ -80,6 +79,13 @@ body:has(.advisor-association-container) {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+.alert-warning {
+  background-color: #ffffff;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.07);
+  color: #92400e;
 }
 
 .alert-error {

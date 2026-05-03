@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './ProfessorInbox.css';
 import { getMyAdvisorRequests, decideOnAdvisorRequest, checkAdvisorWindow } from '../api/advisorService';
+import PageTitle from './PageTitle';
 
 const ProfessorInbox = () => {
   const [requests, setRequests] = useState([]);
@@ -143,36 +144,38 @@ const ProfessorInbox = () => {
 
   return (
     <div className="professor-inbox">
-      <div className="inbox-header">
-        <h1>Advisor Requests</h1>
-        <p>Manage advisee requests for group advisor assignment</p>
-      </div>
+      <div className="professor-inbox-inner">
+      <PageTitle
+        title="Advisor Requests"
+        subtitle="Manage advisee requests for group advisor assignment"
+      />
 
       {error && <div className="error-banner">{error}</div>}
 
-      <div className="filter-tabs">
-        {['all', 'pending', 'approved', 'rejected'].map((status) => (
-          <button
-            key={status}
-            className={`filter-tab ${filterStatus === status ? 'active' : ''}`}
-            onClick={() => {
-              setFilterStatus(status);
-              setError(null);
-            }}
-          >
-            {status.charAt(0).toUpperCase() + status.slice(1)}
-            <span className="count">{statusCounts[status]}</span>
-          </button>
-        ))}
-      </div>
-
-      {filteredRequests.length === 0 ? (
-        <div className="empty-state">
-          <p>No {filterStatus !== 'all' ? filterStatus : ''} requests</p>
+      <div className="inbox-panel">
+        <div className="filter-tabs">
+          {['all', 'pending', 'approved', 'rejected'].map((status) => (
+            <button
+              key={status}
+              className={`filter-tab ${filterStatus === status ? 'active' : ''}`}
+              onClick={() => {
+                setFilterStatus(status);
+                setError(null);
+              }}
+            >
+              {status.charAt(0).toUpperCase() + status.slice(1)}
+              <span className="count">{statusCounts[status]}</span>
+            </button>
+          ))}
         </div>
-      ) : (
-        <div className="requests-list">
-          {filteredRequests.map((request) => (
+
+        {filteredRequests.length === 0 ? (
+          <div className="empty-state">
+            <p>No {filterStatus !== 'all' ? filterStatus : ''} requests</p>
+          </div>
+        ) : (
+          <div className="requests-list">
+            {filteredRequests.map((request) => (
             <div
               key={request.requestId}
               className={`request-card ${request.status}`}
@@ -228,27 +231,26 @@ const ProfessorInbox = () => {
 
                   {request.status === 'pending' && (
                     <div className="action-section">
-                      <button
-                        className="btn btn-approve"
-                        onClick={() => handleApprove(request)}
+                      <textarea
+                        placeholder="Reason for rejection (required if rejecting)"
+                        value={rejectReason[request.requestId] || ''}
+                        onChange={(e) =>
+                          setRejectReason((prev) => ({
+                            ...prev,
+                            [request.requestId]: e.target.value,
+                          }))
+                        }
+                        className="reject-textarea"
                         disabled={decisionsDisabledFor(request)}
-                      >
-                        {processingId === request.requestId ? 'Processing...' : 'Approve'}
-                      </button>
-
-                      <div className="reject-section">
-                        <textarea
-                          placeholder="Reason for rejection (required)"
-                          value={rejectReason[request.requestId] || ''}
-                          onChange={(e) =>
-                            setRejectReason((prev) => ({
-                              ...prev,
-                              [request.requestId]: e.target.value,
-                            }))
-                          }
-                          className="reject-textarea"
+                      />
+                      <div className="action-buttons-row">
+                        <button
+                          className="btn btn-approve"
+                          onClick={() => handleApprove(request)}
                           disabled={decisionsDisabledFor(request)}
-                        />
+                        >
+                          {processingId === request.requestId ? 'Processing...' : 'Approve'}
+                        </button>
                         <button
                           className="btn btn-reject"
                           onClick={() => handleReject(request)}
@@ -275,9 +277,11 @@ const ProfessorInbox = () => {
                 </div>
               )}
             </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </div>
+      </div>
     </div>
   );
 };

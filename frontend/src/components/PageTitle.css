@@ -1,0 +1,68 @@
+/* PageTitle Component - Unified page header styling */
+
+.page-title {
+  align-items: center;
+  background: #ffffff;
+  border-left: 4px solid #667eea;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.08);
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  margin: 0 auto 22px;
+  max-width: 1080px;
+  padding: 24px 28px;
+}
+
+.page-title-content {
+  flex: 1;
+}
+
+.page-title-kicker {
+  color: #667eea;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+}
+
+.page-title-heading {
+  color: #111827;
+  font-size: 28px;
+  line-height: 1.2;
+  margin: 0;
+  font-weight: 700;
+}
+
+.page-title-subtitle {
+  color: #64748b;
+  font-size: 14px;
+  margin: 8px 0 0;
+}
+
+.page-title-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .page-title {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .page-title-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .page-title-heading {
+    font-size: 24px;
+  }
+}

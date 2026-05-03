@@ -17,6 +17,7 @@ const CommitteeCreationForm = () => {
   const [submitError, setSubmitError] = useState('');
   const [nameError, setNameError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [createdName, setCreatedName] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -41,7 +42,7 @@ const CommitteeCreationForm = () => {
         coordinatorId: user.userId,
         description: description.trim() || undefined,
       });
-      navigate('/coordinator');
+      setCreatedName(name);
     } catch (err) {
       const data = err.response?.data;
       if (data?.code === 'DUPLICATE_COMMITTEE_NAME' || data?.code === 'INVALID_INPUT') {
@@ -54,12 +55,32 @@ const CommitteeCreationForm = () => {
     }
   };
 
+  if (createdName) {
+    return (
+      <div className="committee-creation-page">
+        <div className="committee-creation-card">
+          <div className="committee-creation-alert success">
+            <strong>"{createdName}"</strong> was created successfully.
+          </div>
+          <div className="committee-creation-actions" style={{ marginTop: '8px' }}>
+            <button type="button" className="btn-secondary" onClick={() => setCreatedName('')}>
+              Add Another
+            </button>
+            <button type="button" className="btn-primary" onClick={() => navigate('/coordinator')}>
+              Coordinator Panel
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="committee-creation-page">
       <div className="committee-creation-card">
-        <h1 className="committee-creation-title">New committee</h1>
+        <h1 className="committee-creation-title">New Committee</h1>
         <p className="committee-creation-subtitle">
-          Process 4.1 — Create a draft. Assign advisors (4.2) and jury (4.3) from the coordinator panel.
+          Enter a name and an optional description to create a new committee.
         </p>
 
         {submitError && <div className="committee-creation-alert error">{submitError}</div>}
