@@ -229,10 +229,8 @@ async function recalculateSprintContributions(sprintId, groupId, options = {}) {
     const ratioCalculations = [];
     const ratioBulkOps = [];
     for (const record of contributionRecords) {
-      // PROCESS 7.4: Simple ratio calculation
-      // TODO: Use actual targetStoryPoints from D8 sprint configuration
-      const targetPoints = 10; // Placeholder
-      const ratio = record.storyPointsCompleted / targetPoints;
+      const targetPoints = record.targetStoryPoints;
+      const ratio = targetPoints > 0 ? record.storyPointsCompleted / targetPoints : 0;
 
       const contributionRatio = Math.min(ratio, 1.0); // Clamp to [0, 1]
       ratioBulkOps.push({

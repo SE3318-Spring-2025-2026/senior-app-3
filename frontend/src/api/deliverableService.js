@@ -47,7 +47,8 @@ export const submitDeliverableStaging = async (groupId, { deliverableType, sprin
 };
 
 /**
- * Legacy: Submit a deliverable for a group (old endpoint).
+ * @deprecated Use submitDeliverable from ../api/deliverableAPI instead.
+ * Retained for test-mock compatibility only. Do not add new callers.
  * @param {string} groupId
  * @param {FormData} formData
  * @returns {Promise<object>}
