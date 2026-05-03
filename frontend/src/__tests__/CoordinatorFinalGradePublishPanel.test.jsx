@@ -47,14 +47,14 @@ describe('CoordinatorFinalGradePublishPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: /Confirm & Publish/i }));
 
     expect(
-      await screen.findByText(/Seçilen dönem onaylanan kayıtlarla eşleşmiyor/i)
+      await screen.findByText(/The selected cycle does not match the approved records/i)
     ).toBeInTheDocument();
     expect(screen.getByText(/⚠️/)).toBeInTheDocument();
-    const warningContainer = screen.getByText(/Seçilen dönem onaylanan kayıtlarla eşleşmiyor/i).closest('div');
+    const warningContainer = screen.getByText(/The selected cycle does not match the approved records/i).closest('div');
     expect(warningContainer).toHaveClass('error-message');
     expect(warningContainer).toHaveClass('error-message-warning');
     expect(screen.getByRole('button', { name: /Confirm & Publish/i })).toBeInTheDocument();
-    expect(screen.queryByText(/zaten yayınlanmış/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/already been published for this cycle/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Published Summary/i)).not.toBeInTheDocument();
   });
 
@@ -76,10 +76,10 @@ describe('CoordinatorFinalGradePublishPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: /Confirm & Publish/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Bu notlar zaten yayınlanmış/i)).toBeInTheDocument();
+      expect(screen.getByText(/already been published for this cycle/i)).toBeInTheDocument();
     });
 
-    const generalErrorContainer = screen.getByText(/Bu notlar zaten yayınlanmış/i).closest('div');
+    const generalErrorContainer = screen.getByText(/already been published for this cycle/i).closest('div');
     expect(generalErrorContainer).toHaveClass('error-message');
     expect(generalErrorContainer).not.toHaveClass('error-message-warning');
     expect(screen.queryByText(/Published Summary/i)).not.toBeInTheDocument();
@@ -103,7 +103,7 @@ describe('CoordinatorFinalGradePublishPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: /Confirm & Publish/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Bir çakışma hatası oluştu/i)).toBeInTheDocument();
+      expect(screen.getByText(/A conflict error occurred/i)).toBeInTheDocument();
     });
     expect(screen.queryByText(/Published Summary/i)).not.toBeInTheDocument();
   });
@@ -136,7 +136,7 @@ describe('CoordinatorFinalGradePublishPanel', () => {
     const confirmButton = screen.getByRole('button', { name: /Confirm & Publish/i });
     await userEvent.click(confirmButton);
 
-    const firstError = await screen.findByText(/Seçilen dönem onaylanan kayıtlarla eşleşmiyor/i);
+    const firstError = await screen.findByText(/The selected cycle does not match the approved records/i);
     const firstContainer = firstError.closest('div');
     expect(firstContainer).toHaveClass('error-message-warning');
     expect(screen.getByText(/⚠️/)).toBeInTheDocument();

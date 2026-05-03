@@ -76,10 +76,10 @@ const CoordinatorFinalGradePublishPanel = () => {
       if (err?.response?.status === 409) {
         const errorCode = err?.response?.data?.code;
         const errorMap = {
-          ALREADY_PUBLISHED: 'Bu notlar zaten yayınlanmış. (Already published)',
+          ALREADY_PUBLISHED: 'These grades have already been published for this cycle.',
           INCONSISTENT_CYCLE:
-            'Hata: Seçilen dönem onaylanan kayıtlarla eşleşmiyor. Lütfen sayfayı yenileyip tekrar deneyin. (Inconsistent Cycle)',
-          DEFAULT: 'Bir çakışma hatası oluştu. Lütfen verileri kontrol edin.'
+            'The selected cycle does not match the approved records. Please refresh the page and try again.',
+          DEFAULT: 'A conflict error occurred. Please verify the data and try again.',
         };
 
         if (errorCode === 'INCONSISTENT_CYCLE') {
