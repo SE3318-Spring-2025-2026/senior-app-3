@@ -56,12 +56,16 @@ describe('[ISSUE #253] Final Grade Approval Workflow', () => {
   beforeAll(async () => {
 
     try {
+      const bcrypt = require('bcryptjs');
+      // Pre-generate hashed password for tests (bcryptjs hash of 'testpass123' with SALT_ROUNDS=12)
+      const testPasswordHash = '$2a$12$K9h/cIPz0gi.URNNX3kh2OPST9/PgBkqquzi.Ss7KIUgO2t0jKMm.';
+
       // ISSUE #253: Create test coordinator user
       coordinatorUser = await User.create({
         firstName: 'Coordinator',
         lastName: 'Test',
         email: 'coordinator@test.com',
-        password: 'testpass123',
+        hashedPassword: testPasswordHash,
         role: 'coordinator',
         emailVerified: true
       });
@@ -71,7 +75,7 @@ describe('[ISSUE #253] Final Grade Approval Workflow', () => {
         firstName: 'Student',
         lastName: 'One',
         email: 'student1@test.com',
-        password: 'testpass123',
+        hashedPassword: testPasswordHash,
         role: 'student',
         emailVerified: true,
         enrollmentYear: 2024
@@ -81,7 +85,7 @@ describe('[ISSUE #253] Final Grade Approval Workflow', () => {
         firstName: 'Student',
         lastName: 'Two',
         email: 'student2@test.com',
-        password: 'testpass123',
+        hashedPassword: testPasswordHash,
         role: 'student',
         emailVerified: true,
         enrollmentYear: 2024
