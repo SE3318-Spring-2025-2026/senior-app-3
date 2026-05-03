@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const Comment = require('../models/Comment');
 const Review = require('../models/Review');
@@ -59,6 +59,20 @@ exports.addComment = async (req, res, next) => {
       status: 'open',
     });
 
+    const commentResponse = {
+      commentId: comment.commentId,
+      deliverableId,
+      authorId: comment.authorId,
+      authorName: comment.authorName,
+      content: comment.content,
+      commentType: comment.commentType,
+      sectionNumber: comment.sectionNumber,
+      needsResponse: comment.needsResponse,
+      status: comment.status,
+      replies: comment.replies,
+      createdAt: comment.createdAt,
+    };
+
     // If this is a clarification_required comment with needsResponse, update Review status
     if (commentType === 'clarification_required' && needsResponse) {
       const review = await Review.findOne({ deliverableId });
@@ -68,6 +82,8 @@ exports.addComment = async (req, res, next) => {
       }
 
       // Dispatch notification
+      let notificationDispatched = false;
+      let notificationError = null;
       try {
         await dispatchClarificationRequiredNotification({
           reviewId: review?.reviewId,
@@ -75,8 +91,14 @@ exports.addComment = async (req, res, next) => {
           commentId: comment.commentId,
           content,
         });
-      } catch (notificationError) {
-        console.error('Notification dispatch error:', notificationError);
+        notificationDispatched = true;
+      } catch (err) {
+        console.error('Notification dispatch error:', err);
+        notificationError = err.message;
+      }
+      commentResponse.notificationDispatched = notificationDispatched;
+      if (notificationError) {
+        commentResponse.notificationError = notificationError;
       }
     }
 
@@ -91,19 +113,7 @@ exports.addComment = async (req, res, next) => {
       },
     });
 
-    res.status(201).json({
-      commentId: comment.commentId,
-      deliverableId,
-      authorId: comment.authorId,
-      authorName: comment.authorName,
-      content: comment.content,
-      commentType: comment.commentType,
-      sectionNumber: comment.sectionNumber,
-      needsResponse: comment.needsResponse,
-      status: comment.status,
-      replies: comment.replies,
-      createdAt: comment.createdAt,
-    });
+    res.status(201).json(commentResponse);
   } catch (error) {
     next(error);
   }
@@ -146,8 +156,8 @@ exports.getComments = async (req, res, next) => {
     const total = await Comment.countDocuments(query);
 
     // Get paginated comments
-    const pageNum = Math.max(1, parseInt(page, 10));
-    const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10)));
+    const pageNum = Math.max(1, Number.parseInt(page, 10));
+    const limitNum = Math.max(1, Math.min(100, Number.parseInt(limit, 10)));
     const skip = (pageNum - 1) * limitNum;
 
     const comments = await Comment.find(query)
@@ -378,3 +388,4 @@ exports.resolveComment = async (req, res, next) => {
     next(error);
   }
 };
+

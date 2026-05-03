@@ -23,6 +23,7 @@
  * ================================================================================
  */
 
+const axios = require('axios');
 const { WebhookDelivery, WEBHOOK_STATUS } = require('../models/WebhookDelivery');
 const { WebhookSignature } = require('../models/WebhookSignature');
 const AuditLog = require('../models/AuditLog');
@@ -421,27 +422,91 @@ async function executeWebhook(webhook, ctx) {
 }
 
 /**
- * ISSUE #241: Execute JIRA webhook (stub)
- * To be implemented with actual JIRA API calls
+ * ISSUE #241: Execute JIRA webhook
+ * POSTs payload to JIRA_WEBHOOK_URL. Requires JIRA_WEBHOOK_URL env var.
  */
 async function executeJiraWebhook(webhook, ctx) {
-  throw new Error('JIRA webhook execution not yet implemented');
+  const url = process.env.JIRA_WEBHOOK_URL;
+  if (!url) {
+    const err = new Error('JIRA_WEBHOOK_URL is not configured');
+    err.code = 'CONFIG_MISSING';
+    throw err;
+  }
+  try {
+    const response = await axios.post(url, webhook.payload, {
+      timeout: RETRY_CONFIG.REQUEST_TIMEOUT_MS,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(webhook.correlationId ? { 'x-correlation-id': webhook.correlationId } : {}),
+      },
+    });
+    return { statusCode: response.status, headers: response.headers, body: response.data };
+  } catch (err) {
+    if (err.response) {
+      const httpErr = new Error(`JIRA webhook failed: HTTP ${err.response.status}`);
+      httpErr.statusCode = err.response.status;
+      httpErr.code = err.code || null;
+      throw httpErr;
+    }
+    throw err;
+  }
 }
 
 /**
- * ISSUE #241: Execute GitHub webhook (stub)
- * To be implemented with actual GitHub API calls
+ * ISSUE #241: Execute GitHub webhook
+ * POSTs payload to GITHUB_WEBHOOK_URL. Requires GITHUB_WEBHOOK_URL env var.
  */
 async function executeGithubWebhook(webhook, ctx) {
-  throw new Error('GitHub webhook execution not yet implemented');
+  const url = process.env.GITHUB_WEBHOOK_URL;
+  if (!url) {
+    const err = new Error('GITHUB_WEBHOOK_URL is not configured');
+    err.code = 'CONFIG_MISSING';
+    throw err;
+  }
+  try {
+    const response = await axios.post(url, webhook.payload, {
+      timeout: RETRY_CONFIG.REQUEST_TIMEOUT_MS,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(webhook.correlationId ? { 'x-correlation-id': webhook.correlationId } : {}),
+      },
+    });
+    return { statusCode: response.status, headers: response.headers, body: response.data };
+  } catch (err) {
+    if (err.response) {
+      const httpErr = new Error(`GitHub webhook failed: HTTP ${err.response.status}`);
+      httpErr.statusCode = err.response.status;
+      httpErr.code = err.code || null;
+      throw httpErr;
+    }
+    throw err;
+  }
 }
 
 /**
- * ISSUE #241: Execute Notification webhook (stub)
- * To be implemented with actual notification dispatch
+ * ISSUE #241: Execute Notification webhook
+ * POSTs payload to the notification service.
  */
 async function executeNotificationWebhook(webhook, ctx) {
-  throw new Error('Notification webhook execution not yet implemented');
+  const url = `${process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:4000'}/api/notifications`;
+  try {
+    const response = await axios.post(url, webhook.payload, {
+      timeout: RETRY_CONFIG.REQUEST_TIMEOUT_MS,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(webhook.correlationId ? { 'x-correlation-id': webhook.correlationId } : {}),
+      },
+    });
+    return { statusCode: response.status, headers: response.headers, body: response.data };
+  } catch (err) {
+    if (err.response) {
+      const httpErr = new Error(`Notification webhook failed: HTTP ${err.response.status}`);
+      httpErr.statusCode = err.response.status;
+      httpErr.code = err.code || null;
+      throw httpErr;
+    }
+    throw err;
+  }
 }
 
 /**
