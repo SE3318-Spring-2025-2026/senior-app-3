@@ -31,6 +31,7 @@ const GroupDashboard = () => {
   const [decisionLoading, setDecisionLoading] = useState(false);
   const [decisionMsg, setDecisionMsg] = useState('');
   
+  const [invitationError, setInvitationError] = useState('');
   const [releaseModalOpen, setReleaseModalOpen] = useState(false);
   const [releaseReason, setReleaseReason] = useState('');
   const [releaseLoading, setReleaseLoading] = useState(false);
@@ -69,7 +70,12 @@ const GroupDashboard = () => {
       if (inv && inv.group_id === groupId) {
         setInvitationInfo(inv);
       }
-    }).catch(() => { });
+    }).catch((err) => {
+      const status = err?.response?.status;
+      if (status !== 401 && status !== 403) {
+        setInvitationError('Could not load your pending invitation. Please refresh the page.');
+      }
+    });
   }, [groupId, user]);
 
   const handleDecision = async (decision) => {
@@ -168,6 +174,13 @@ const GroupDashboard = () => {
           )}
         </div>
       </div>
+
+      {invitationError && (
+        <div className="error-container" role="alert">
+          <p className="error-title">Invitation Unavailable</p>
+          <p className="error-message">{invitationError}</p>
+        </div>
+      )}
 
       {invitationInfo && (
         <div className="invitation-banner">
