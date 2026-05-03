@@ -12,6 +12,9 @@
  * Run: npm test
  */
 
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'auth-test-jwt-secret';
+process.env.JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'auth-test-jwt-refresh-secret';
+
 const crypto = require('crypto');
 
 describe('Password Reset Flow (integration)', () => {
@@ -588,7 +591,7 @@ describe('Auth Middleware', () => {
   });
 
   it('returns 401 for an expired token', () => {
-    const secret = process.env.JWT_SECRET || 'your-secret-key';
+    const secret = process.env.JWT_SECRET;
     const expiredToken = jwt.sign(
       { userId, role, type: 'access' },
       secret,

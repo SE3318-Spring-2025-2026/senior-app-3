@@ -187,9 +187,9 @@ const systemTokenMiddleware = (req, res, next) => {
   // Issue #67 Fix #4: Check for system/M2M authentication (service token)
   // Read X-Service-Auth header and compare with environment variable
   const serviceAuth = req.headers['x-service-auth'];
-  const expectedToken = process.env.SYSTEM_SERVICE_TOKEN || 'system';
+  const expectedToken = process.env.SYSTEM_SERVICE_TOKEN;
 
-  if (serviceAuth === expectedToken) {
+  if (expectedToken && serviceAuth === expectedToken) {
     // Issue #67 Fix #4: Service token matched - create synthetic user object
     // This allows service/scheduler calls to proceed with system identity
     req.isSystemCall = true; // Mark as system-initiated call
@@ -217,10 +217,10 @@ const systemTokenMiddleware = (req, res, next) => {
  * Allows: (1) SYSTEM_SERVICE_TOKEN via X-Service-Auth, or (2) valid JWT with coordinator/admin.
  */
 const flexibleSystemOrRoleAuth = (req, res, next) => {
-  const expectedToken = process.env.SYSTEM_SERVICE_TOKEN || 'system';
+  const expectedToken = process.env.SYSTEM_SERVICE_TOKEN;
   const serviceAuth = req.headers['x-service-auth'];
 
-  if (serviceAuth === expectedToken) {
+  if (expectedToken && serviceAuth === expectedToken) {
     req.isSystemCall = true;
     req.user = {
       userId: 'system',

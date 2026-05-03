@@ -1,6 +1,21 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const router = express.Router();
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
+
+const loginRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    res.status(429).json({
+      code: 'RATE_LIMITED',
+      message: 'Too many login attempts from this IP. Please try again in 15 minutes.',
+    });
+  },
+});
+
 const {
   loginWithPassword,
   registerStudent,
@@ -21,7 +36,7 @@ const {
 } = require('../controllers/auth');
 
 // Public routes
-router.post('/login', loginWithPassword);
+router.post('/login', loginRateLimit, loginWithPassword);
 router.post('/register', registerStudent);
 router.post('/refresh', refreshAccessToken);
 router.get('/github/oauth/callback', githubOAuthCallback);
