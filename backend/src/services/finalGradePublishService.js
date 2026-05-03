@@ -90,11 +90,15 @@ const publishFinalGrades = async (
 
     const publishedCount = updateResult.modifiedCount || 0;
     if (publishedCount === 0) {
-      const alreadyPublished = await FinalGrade.exists({
+      const publishedProbe = FinalGrade.exists({
         groupId,
         publishCycle,
         status: FINAL_GRADE_STATUS.PUBLISHED
-      }).session(session);
+      });
+      const alreadyPublished =
+        publishedProbe && typeof publishedProbe.session === 'function'
+          ? await publishedProbe.session(session)
+          : await publishedProbe;
 
       if (alreadyPublished) {
         throw new FinalGradePublishError(

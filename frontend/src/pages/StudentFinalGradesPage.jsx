@@ -113,7 +113,7 @@ const StudentFinalGradesPage = () => {
         </div>
       )}
 
-      {!loading && (!hasPublishedGrades || error?.empty) && (
+      {!loading && (error?.empty || (!error && !hasPublishedGrades)) && (
         <div className="student-final-grades-empty" data-testid="student-final-grades-empty">
           <h2>Final grades are not published yet</h2>
           <p>Your final grades will appear here after the coordinator publishes them.</p>

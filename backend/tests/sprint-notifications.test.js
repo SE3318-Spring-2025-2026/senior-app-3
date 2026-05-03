@@ -25,7 +25,6 @@
  */
 
 const request = require('supertest');
-const { expect } = require('chai');
 const { v4: uuidv4 } = require('uuid');
 
 // ISSUE #238: Test utilities and fixtures

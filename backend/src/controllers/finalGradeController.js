@@ -15,6 +15,8 @@ const {
 
 const PREVIEW_FORBIDDEN_MESSAGE =
   'Forbidden - only the Coordinator role or authorized Professor/Advisor roles may preview final grades';
+const PREVIEW_GROUP_ACCESS_DENIED_MESSAGE =
+  'Access denied: You are not assigned as an advisor or professor for this group.';
 const APPROVAL_FORBIDDEN_MESSAGE =
   'Forbidden - only the Coordinator role may approve final grades';
 const PUBLISH_FORBIDDEN_MESSAGE =
@@ -80,6 +82,15 @@ const persistPreviewForApproval = async ({
 
   const now = new Date();
   const incomingStudentIds = students.map((student) => student.studentId);
+
+  // Refresh same-cycle pending snapshot by removing rows that are no longer
+  // part of the generated preview.
+  await FinalGrade.deleteMany({
+    groupId,
+    publishCycle,
+    status: FINAL_GRADE_STATUS.PENDING,
+    studentId: { $nin: incomingStudentIds }
+  });
 
   // Supersede prior non-published rows for the incoming students so that a
   // freshly generated preview snapshot represents the single active draft.
@@ -153,6 +164,7 @@ const previewFinalGradesHandler = async (req, res) => {
     const allowedRoles = ['coordinator', 'professor', 'advisor'];
     if (!req.user || !allowedRoles.includes(req.user.role)) {
       return res.status(403).json({
+        error: PREVIEW_FORBIDDEN_MESSAGE,
         message: PREVIEW_FORBIDDEN_MESSAGE,
         code: 'FORBIDDEN_PREVIEW_ACCESS'
       });
@@ -168,6 +180,7 @@ const previewFinalGradesHandler = async (req, res) => {
 
       if (!isAssigned) {
         return res.status(403).json({
+          error: PREVIEW_FORBIDDEN_MESSAGE,
           message: PREVIEW_FORBIDDEN_MESSAGE,
           code: 'FORBIDDEN_PREVIEW_ACCESS'
         });
@@ -186,8 +199,9 @@ const previewFinalGradesHandler = async (req, res) => {
 
     if (wantsApprovalSnapshot && !isCoordinator(req)) {
       return res.status(403).json({
-        message: APPROVAL_FORBIDDEN_MESSAGE,
-        code: 'UNAUTHORIZED_ROLE'
+        error: PREVIEW_FORBIDDEN_MESSAGE,
+        message: PREVIEW_FORBIDDEN_MESSAGE,
+        code: 'FORBIDDEN_PREVIEW_ACCESS'
       });
     }
     const previewOptions = {
@@ -220,6 +234,7 @@ const previewFinalGradesHandler = async (req, res) => {
       } catch (error) {
         if (error.statusCode) {
           return res.status(error.statusCode).json({
+            error: error.message,
             message: error.message,
             code: error.code || 'PREVIEW_PERSIST_FAILED'
           });
@@ -240,12 +255,15 @@ const previewFinalGradesHandler = async (req, res) => {
     
     if (error.name === 'PreviewError' || error.status === 400 || error.status === 409) {
       return res.status(error.status || error.statusCode || 400).json({ 
+        error: error.message,
         message: error.message,
-        code: error.code || 'PREVIEW_ERROR'
+        code: error.code || 'PREVIEW_ERROR',
+        ...(error.details ? { details: error.details } : {})
       });
     }
 
     return res.status(500).json({ 
+      error: 'Internal server error',
       message: 'Internal server error',
       code: 'INTERNAL_ERROR'
     });

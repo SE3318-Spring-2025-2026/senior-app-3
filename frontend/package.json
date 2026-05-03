@@ -15,6 +15,7 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
+    "test:regression": "react-scripts test --watchAll=false --runInBand --runTestsByPath src/tests/ProfilePage.test.jsx src/tests/GroupDashboard.test.jsx src/tests/StudentFinalGradesPage.test.jsx src/tests/SubmitDeliverablePage.test.jsx",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "eject": "react-scripts eject"
