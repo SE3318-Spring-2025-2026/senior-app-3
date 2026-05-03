@@ -78,6 +78,10 @@ const useOnboardingStore = create(
     }),
     {
       name: 'onboarding-storage',
+      partialize: (state) => {
+        const { password, ...persisted } = state;
+        return persisted;
+      },
       storage: {
         getItem: (name) => {
           const item = localStorage.getItem(name);
