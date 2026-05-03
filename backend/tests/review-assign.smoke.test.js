@@ -1,5 +1,5 @@
-/**
- * Smoke tests — Process 6.1: POST /api/v1/reviews/assign
+﻿/**
+ * Smoke tests â€” Process 6.1: POST /api/v1/reviews/assign
  *
  * Coverage:
  *   Auth guards
@@ -25,12 +25,12 @@
  *     400  selectedCommitteeMembers contains invalid member IDs
  *
  *   Happy path (201)
- *     201  correct response shape: deliverableId, reviewId, assignedCommitteeMembers, assignedCount, deadline, notificationsSent, instructions
+ *     201  correct response shape: deliverableId, reviewId, assignedCommitteeMembers, assignedCount, deadline, notificationDispatched, instructions
  *     201  assignedCommitteeMembers contains memberId, name, email, status: 'notified'
  *     201  deadline is approximately now + reviewDeadlineDays
  *     201  Review document created in DB with correct fields
  *     201  Deliverable status updated to 'under_review'
- *     201  selectedCommitteeMembers omitted → all committee members assigned automatically
+ *     201  selectedCommitteeMembers omitted â†’ all committee members assigned automatically
  *     201  instructions persisted when provided; null when omitted
  *     201  AuditLog record created with action REVIEW_ASSIGNED
  *
@@ -164,13 +164,13 @@ afterEach(async () => {
 // Auth guards
 // ===========================================================================
 describe('auth guards', () => {
-  it('401 — no Authorization header', async () => {
+  it('401 â€” no Authorization header', async () => {
     const res = await request(app).post(ENDPOINT).send({});
     expect(res.status).toBe(401);
     expect(res.body.code).toBe('UNAUTHORIZED');
   });
 
-  it('401 — malformed JWT', async () => {
+  it('401 â€” malformed JWT', async () => {
     const res = await request(app)
       .post(ENDPOINT)
       .set('Authorization', 'Bearer not.a.real.token')
@@ -179,7 +179,7 @@ describe('auth guards', () => {
     expect(res.body.code).toBe('INVALID_TOKEN');
   });
 
-  it('403 — student cannot assign review', async () => {
+  it('403 â€” student cannot assign review', async () => {
     const res = await request(app)
       .post(ENDPOINT)
       .set('Authorization', `Bearer ${token(unique('stu'), 'student')}`)
@@ -187,7 +187,7 @@ describe('auth guards', () => {
     expect(res.status).toBe(403);
   });
 
-  it('403 — committee_member cannot assign review', async () => {
+  it('403 â€” committee_member cannot assign review', async () => {
     const res = await request(app)
       .post(ENDPOINT)
       .set('Authorization', `Bearer ${token(unique('cm'), 'committee_member')}`)
@@ -195,7 +195,7 @@ describe('auth guards', () => {
     expect(res.status).toBe(403);
   });
 
-  it('403 — professor cannot assign review', async () => {
+  it('403 â€” professor cannot assign review', async () => {
     const res = await request(app)
       .post(ENDPOINT)
       .set('Authorization', `Bearer ${token(unique('prof'), 'professor')}`)
@@ -208,7 +208,7 @@ describe('auth guards', () => {
 // Body validation
 // ===========================================================================
 describe('body validation', () => {
-  it('400 — missing deliverableId', async () => {
+  it('400 â€” missing deliverableId', async () => {
     const { token: t } = coordToken();
     const res = await request(app)
       .post(ENDPOINT)
@@ -219,7 +219,7 @@ describe('body validation', () => {
     expect(res.body.message).toMatch(/deliverableId/i);
   });
 
-  it('400 — missing reviewDeadlineDays', async () => {
+  it('400 â€” missing reviewDeadlineDays', async () => {
     const { token: t } = coordToken();
     const res = await request(app)
       .post(ENDPOINT)
@@ -230,7 +230,7 @@ describe('body validation', () => {
     expect(res.body.message).toMatch(/reviewDeadlineDays/i);
   });
 
-  it('400 — reviewDeadlineDays = 0 (minimum is 1)', async () => {
+  it('400 â€” reviewDeadlineDays = 0 (minimum is 1)', async () => {
     const { token: t } = coordToken();
     const res = await request(app)
       .post(ENDPOINT)
@@ -240,7 +240,7 @@ describe('body validation', () => {
     expect(res.body.code).toBe('INVALID_REQUEST');
   });
 
-  it('400 — reviewDeadlineDays = 31 (maximum is 30)', async () => {
+  it('400 â€” reviewDeadlineDays = 31 (maximum is 30)', async () => {
     const { token: t } = coordToken();
     const res = await request(app)
       .post(ENDPOINT)
@@ -250,7 +250,7 @@ describe('body validation', () => {
     expect(res.body.code).toBe('INVALID_REQUEST');
   });
 
-  it('400 — reviewDeadlineDays is a float (not an integer)', async () => {
+  it('400 â€” reviewDeadlineDays is a float (not an integer)', async () => {
     const { token: t } = coordToken();
     const res = await request(app)
       .post(ENDPOINT)
@@ -265,7 +265,7 @@ describe('body validation', () => {
 // Resource checks
 // ===========================================================================
 describe('resource checks', () => {
-  it('404 — deliverable not found', async () => {
+  it('404 â€” deliverable not found', async () => {
     const { token: t } = coordToken();
     const res = await request(app)
       .post(ENDPOINT)
@@ -275,7 +275,7 @@ describe('resource checks', () => {
     expect(res.body.code).toBe('DELIVERABLE_NOT_FOUND');
   });
 
-  it('409 — review already exists for this deliverable', async () => {
+  it('409 â€” review already exists for this deliverable', async () => {
     const { committee, memberIds } = await seedCommittee(2);
     const { deliverableId, groupId } = await seedDeliverable(committee.committeeId);
     const { token: t } = coordToken();
@@ -296,7 +296,7 @@ describe('resource checks', () => {
     expect(res.body.code).toBe('REVIEW_ALREADY_EXISTS');
   });
 
-  it('400 — deliverable status is not accepted (under_review)', async () => {
+  it('400 â€” deliverable status is not accepted (under_review)', async () => {
     const { committee, memberIds } = await seedCommittee(1);
     const { deliverableId } = await seedDeliverable(committee.committeeId, 'under_review');
     const { token: t } = coordToken();
@@ -311,7 +311,7 @@ describe('resource checks', () => {
     expect(res.body.message).toMatch(/accepted/i);
   });
 
-  it('400 — deliverable status is awaiting_resubmission', async () => {
+  it('400 â€” deliverable status is awaiting_resubmission', async () => {
     const { committee, memberIds } = await seedCommittee(1);
     const { deliverableId } = await seedDeliverable(committee.committeeId, 'awaiting_resubmission');
     const { token: t } = coordToken();
@@ -330,7 +330,7 @@ describe('resource checks', () => {
 // Member validation
 // ===========================================================================
 describe('member validation', () => {
-  it('400 — selectedCommitteeMembers contains IDs not in committee', async () => {
+  it('400 â€” selectedCommitteeMembers contains IDs not in committee', async () => {
     const { committee, memberIds } = await seedCommittee(2);
     const { deliverableId } = await seedDeliverable(committee.committeeId);
     const { token: t } = coordToken();
@@ -351,7 +351,7 @@ describe('member validation', () => {
     expect(res.body.invalidMemberIds).not.toContain(memberIds[0]);
   });
 
-  it('400 — all selected member IDs are invalid', async () => {
+  it('400 â€” all selected member IDs are invalid', async () => {
     const { committee } = await seedCommittee(1);
     const { deliverableId } = await seedDeliverable(committee.committeeId);
     const { token: t } = coordToken();
@@ -374,7 +374,7 @@ describe('member validation', () => {
 // ===========================================================================
 // Happy path
 // ===========================================================================
-describe('happy path — 201', () => {
+describe('happy path â€” 201', () => {
   it('returns correct top-level response shape', async () => {
     const { committee, memberIds } = await seedCommittee(3);
     const { deliverableId } = await seedDeliverable(committee.committeeId);
@@ -398,7 +398,7 @@ describe('happy path — 201', () => {
     expect(res.body.assignedCount).toBe(selected.length);
     expect(typeof res.body.deadline).toBe('string');
     expect(new Date(res.body.deadline).toString()).not.toBe('Invalid Date');
-    expect(res.body.notificationsSent).toBe(selected.length);
+    expect(typeof res.body.notificationDispatched).toBe('boolean');
     expect(res.body.instructions).toBe('Focus on architecture section.');
   });
 
@@ -550,7 +550,7 @@ describe('happy path — 201', () => {
     expect(audit.payload.assignedMemberCount).toBe(memberIds.length);
   });
 
-  it('notificationsSent equals the number of assigned members', async () => {
+  it('notificationDispatched is a boolean in the response', async () => {
     const { committee, memberIds } = await seedCommittee(3);
     const { deliverableId } = await seedDeliverable(committee.committeeId);
     const { token: t } = coordToken();
@@ -562,6 +562,7 @@ describe('happy path — 201', () => {
       .send({ deliverableId, reviewDeadlineDays: 7, selectedCommitteeMembers: selected });
 
     expect(res.status).toBe(201);
-    expect(res.body.notificationsSent).toBe(selected.length);
+    expect(typeof res.body.notificationDispatched).toBe('boolean');
   });
 });
+

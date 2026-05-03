@@ -11,6 +11,7 @@ const Group = require('../models/Group');
 const Committee = require('../models/Committee');
 const { getCorrelationId } = require('../middleware/correlationId');
 const { studentBelongsToGroup } = require('../utils/studentGroupMembership');
+const { dispatchReviewAssignmentNotification } = require('../services/notificationService');
 
 const NOTIFICATION_SERVICE_URL = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:4000';
 
@@ -659,31 +660,17 @@ const assignReview = async (req, res) => {
     userAgent: req.headers['user-agent'] ?? null,
   }).catch((err) => console.error('[assignReview] audit log error:', err.message));
 
-  // Dispatch notifications (DFD f14: 6.1 → Notification Service)
+  // Dispatch notifications via service (DFD f14: 6.1 → Notification Service)
   // Awaited so callers can see whether dispatch succeeded or failed.
   let notificationDispatched = false;
   let notificationError = null;
   try {
-    await axios.post(
-      `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-      {
-        type: 'review_assignment',
-        reviewId: review.reviewId,
-        deliverableId,
-        groupId: deliverable.groupId,
-        recipients: membersToAssign,
-        instructions: instructions || null,
-        correlationId,
-        externalRequestId,
-      },
-      {
-        timeout: 5000,
-        headers: {
-          'x-correlation-id': correlationId,
-          ...(externalRequestId ? { 'x-external-request-id': externalRequestId } : {}),
-        },
-      }
-    );
+    await dispatchReviewAssignmentNotification({
+      reviewId: review.reviewId,
+      deliverableId,
+      membersToNotify: membersToAssign,
+      instructions,
+    });
     notificationDispatched = true;
   } catch (err) {
     console.error('[assignReview] notification dispatch error:', err.message);
@@ -696,7 +683,6 @@ const assignReview = async (req, res) => {
     assignedCommitteeMembers: memberDetails,
     assignedCount: memberDetails.length,
     deadline: review.deadline.toISOString(),
-    notificationsSent: membersToAssign.length,
     notificationDispatched,
     ...(notificationError ? { notificationError } : {}),
     instructions: review.instructions,
