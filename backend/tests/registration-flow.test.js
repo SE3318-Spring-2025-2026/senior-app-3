@@ -14,6 +14,9 @@
  * Run: npm test -- registration-flow.test.js
  */
 
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'registration-flow-test-jwt-secret';
+process.env.JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'registration-flow-test-jwt-refresh-secret';
+
 const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');

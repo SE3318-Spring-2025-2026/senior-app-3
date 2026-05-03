@@ -18,6 +18,9 @@
  * Run: npm test -- jwt-session-security.test.js
  */
 
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'jwt-session-test-jwt-secret';
+process.env.JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'jwt-session-test-jwt-refresh-secret';
+
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 
@@ -32,8 +35,8 @@ describe('JWT Generation & Token Management (Unit Tests)', () => {
   let verifyRefreshToken;
   let decodeToken;
 
-  const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
-  const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret';
+  const JWT_SECRET = process.env.JWT_SECRET;
+  const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
 
   beforeAll(async () => {
     ({
@@ -519,7 +522,7 @@ describe('Authentication Flow & Protected Routes (Integration Tests)', () => {
     it('returns 401 for expired token', async () => {
       const expiredToken = jwt.sign(
         { userId: 'user123', role: 'student', type: 'access' },
-        process.env.JWT_SECRET || 'your-secret-key',
+        process.env.JWT_SECRET,
         {
           expiresIn: '-1h', // Already expired
           issuer: 'senior-app',

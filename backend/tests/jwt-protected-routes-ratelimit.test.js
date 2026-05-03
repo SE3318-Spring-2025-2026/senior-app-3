@@ -23,6 +23,9 @@
  * Run: npm test -- jwt-protected-routes-ratelimit.test.js
  */
 
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'ratelimit-test-jwt-secret';
+process.env.JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'ratelimit-test-jwt-refresh-secret';
+
 const mongoose = require('mongoose');
 const User = require('../src/models/User');
 const RefreshToken = require('../src/models/RefreshToken');
@@ -156,7 +159,7 @@ describe('JWT Protected Endpoints & Rate Limiting (Unit Tests)', () => {
     it('401 INVALID_TOKEN with expired token', () => {
       const expiredToken = jwt.sign(
         { userId: studentUser.userId, role: 'student', type: 'access' },
-        process.env.JWT_SECRET || 'your-secret-key',
+        process.env.JWT_SECRET,
         {
           expiresIn: '-1h',
           issuer: 'senior-app',
