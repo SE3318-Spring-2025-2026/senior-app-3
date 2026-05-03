@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const Review = require('../models/Review');
 const Deliverable = require('../models/Deliverable');
@@ -109,6 +109,8 @@ exports.assignReview = async (req, res, next) => {
     });
 
     // Dispatch notifications
+    let notificationDispatched = false;
+    let notificationError = null;
     try {
       await dispatchReviewAssignmentNotification({
         reviewId: review.reviewId,
@@ -116,9 +118,10 @@ exports.assignReview = async (req, res, next) => {
         membersToNotify: assignedMembers.map((m) => m.memberId),
         instructions,
       });
-    } catch (notificationError) {
-      console.error('Notification dispatch error:', notificationError);
-      // Don't fail the request if notification fails
+      notificationDispatched = true;
+    } catch (err) {
+      console.error('Notification dispatch error:', err);
+      notificationError = err.message;
     }
 
     res.status(201).json({
@@ -129,6 +132,8 @@ exports.assignReview = async (req, res, next) => {
       assignedMembers: review.assignedMembers,
       deadline: review.deadline,
       instructions: review.instructions,
+      notificationDispatched,
+      ...(notificationError ? { notificationError } : {}),
     });
   } catch (error) {
     next(error);
@@ -137,7 +142,7 @@ exports.assignReview = async (req, res, next) => {
 
 /**
  * GET /api/v1/reviews/status
- * Process 6.3 — Coordinator dashboard: live overview of all reviews.
+ * Process 6.3 â€” Coordinator dashboard: live overview of all reviews.
  * Query params: status (pending|in_progress|needs_clarification|completed), page (default 1)
  */
 exports.getReviewStatus = async (req, res, next) => {
@@ -152,7 +157,7 @@ exports.getReviewStatus = async (req, res, next) => {
       });
     }
 
-    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
     const PAGE_SIZE = 20;
     const skip = (pageNum - 1) * PAGE_SIZE;
     const filter = status ? { status } : {};
@@ -219,3 +224,4 @@ exports.getReviewStatus = async (req, res, next) => {
     next(error);
   }
 };
+

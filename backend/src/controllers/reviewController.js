@@ -659,34 +659,36 @@ const assignReview = async (req, res) => {
     userAgent: req.headers['user-agent'] ?? null,
   }).catch((err) => console.error('[assignReview] audit log error:', err.message));
 
-  // Dispatch notifications async (DFD f14: 6.1 → Notification Service); does not block response
-  const notificationsSent = membersToAssign.length;
-  setImmediate(async () => {
-    try {
-      await axios.post(
-        `${NOTIFICATION_SERVICE_URL}/api/notifications`,
-        {
-          type: 'review_assignment',
-          reviewId: review.reviewId,
-          deliverableId,
-          groupId: deliverable.groupId,
-          recipients: membersToAssign,
-          instructions: instructions || null,
-          correlationId,
-          externalRequestId
+  // Dispatch notifications (DFD f14: 6.1 → Notification Service)
+  // Awaited so callers can see whether dispatch succeeded or failed.
+  let notificationDispatched = false;
+  let notificationError = null;
+  try {
+    await axios.post(
+      `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+      {
+        type: 'review_assignment',
+        reviewId: review.reviewId,
+        deliverableId,
+        groupId: deliverable.groupId,
+        recipients: membersToAssign,
+        instructions: instructions || null,
+        correlationId,
+        externalRequestId,
+      },
+      {
+        timeout: 5000,
+        headers: {
+          'x-correlation-id': correlationId,
+          ...(externalRequestId ? { 'x-external-request-id': externalRequestId } : {}),
         },
-        {
-          timeout: 5000,
-          headers: {
-            'x-correlation-id': correlationId,
-            ...(externalRequestId ? { 'x-external-request-id': externalRequestId } : {})
-          }
-        }
-      );
-    } catch (err) {
-      console.error('[assignReview] notification dispatch error:', err.message);
-    }
-  });
+      }
+    );
+    notificationDispatched = true;
+  } catch (err) {
+    console.error('[assignReview] notification dispatch error:', err.message);
+    notificationError = err.message;
+  }
 
   return res.status(201).json({
     deliverableId,
@@ -694,7 +696,9 @@ const assignReview = async (req, res) => {
     assignedCommitteeMembers: memberDetails,
     assignedCount: memberDetails.length,
     deadline: review.deadline.toISOString(),
-    notificationsSent,
+    notificationsSent: membersToAssign.length,
+    notificationDispatched,
+    ...(notificationError ? { notificationError } : {}),
     instructions: review.instructions,
   });
 };

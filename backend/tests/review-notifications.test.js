@@ -55,6 +55,13 @@ beforeEach(async () => {
     await collections[key].deleteMany({});
   }
   jest.clearAllMocks();
+  // dispatchReviewAssignmentNotification and dispatchClarificationRequiredNotification
+  // now make real axios calls — provide a default resolved value so unit tests don't crash.
+  // Use a counter so successive calls within one test get distinct notification IDs.
+  let callCount = 0;
+  axios.post.mockImplementation(() =>
+    Promise.resolve({ data: { notification_id: `notif_test_mock_${++callCount}` } })
+  );
 });
 
 describe('NotificationService - Dispatch Functions', () => {

@@ -294,22 +294,31 @@ const dispatchReviewAssignmentNotification = async ({
   membersToNotify,
   instructions,
 }) => {
-  try {
-    // TODO: Implement actual notification logic
-    // For now, just return success
-    return {
-      success: true,
-      notificationId: `notif_review_${Date.now()}`,
-    };
-  } catch (error) {
-    logError('Error dispatching review assignment notification', {
-      service_name: 'notification_dispatch',
-      correlationId: null,
-      externalRequestId: null,
-      error: error.message
-    });
-    throw error;
-  }
+  const response = await axios.post(
+    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+    {
+      type: 'review_assignment',
+      reviewId,
+      deliverableId,
+      recipients: membersToNotify,
+      instructions: instructions || null,
+    },
+    { timeout: 5000 }
+  );
+
+  logInfo('Review assignment notification dispatched', {
+    service_name: 'notification_dispatch',
+    correlationId: null,
+    externalRequestId: null,
+    reviewId,
+    deliverableId,
+    recipientCount: membersToNotify?.length ?? 0,
+  });
+
+  return {
+    success: true,
+    notificationId: response.data?.notification_id || response.data?.notificationId || `notif_review_${Date.now()}`,
+  };
 };
 
 /**
@@ -321,22 +330,31 @@ const dispatchClarificationRequiredNotification = async ({
   commentId,
   content,
 }) => {
-  try {
-    // TODO: Implement actual notification logic
-    // For now, just return success
-    return {
-      success: true,
-      notificationId: `notif_clarif_${Date.now()}`,
-    };
-  } catch (error) {
-    logError('Error dispatching clarification notification', {
-      service_name: 'notification_dispatch',
-      correlationId: null,
-      externalRequestId: null,
-      error: error.message
-    });
-    throw error;
-  }
+  const response = await axios.post(
+    `${NOTIFICATION_SERVICE_URL}/api/notifications`,
+    {
+      type: 'clarification_required',
+      reviewId,
+      deliverableId,
+      commentId,
+      content,
+    },
+    { timeout: 5000 }
+  );
+
+  logInfo('Clarification required notification dispatched', {
+    service_name: 'notification_dispatch',
+    correlationId: null,
+    externalRequestId: null,
+    reviewId,
+    deliverableId,
+    commentId,
+  });
+
+  return {
+    success: true,
+    notificationId: response.data?.notification_id || response.data?.notificationId || `notif_clarif_${Date.now()}`,
+  };
 };
 
 /**
