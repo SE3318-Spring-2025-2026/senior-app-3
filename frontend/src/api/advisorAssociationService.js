@@ -1,11 +1,14 @@
 /**
  * Advisor Association Service (API Wrapper)
- * 
- * Handles API calls for Issue #66 (Coordinator Panel - Advisor Association View)
- * Provides interfaces for:
- * - Retrieving all groups with advisor status
- * - Transferring advisors (Process 3.6)
- * - Triggering sanitization (Process 3.7)
+ *
+ * @deprecated All exports in this module are superseded by the active service
+ * modules and are no longer used in production components:
+ *   - getGroups / getGroupDetails → use getAllGroups / getGroup from ../api/groupService
+ *   - transferAdvisor            → use transferAdvisor from ../api/advisorService
+ *   - disbandUnassignedGroups    → use advisorSanitization from ../api/groupService
+ *   - getAvailableProfessors     → use searchProfessors from ../api/advisorService
+ *
+ * Retained for test-mock compatibility only. Do not add new callers.
  */
 
 import apiClient from './apiClient';
