@@ -18,6 +18,12 @@ const { getProfessors, submitAdvisorRequest, checkAdvisorWindow } = require('../
 const { getGroup } = require('../api/groupService');
 const { useParams, useNavigate } = require('react-router-dom');
 
+// Helper: open the custom dropdown and click the named option.
+const selectProfessor = async (professorName) => {
+  await userEvent.click(screen.getByRole('button', { name: /Select Professor/i }));
+  await userEvent.click(screen.getByRole('option', { name: new RegExp(professorName, 'i') }));
+};
+
 describe('AdviseeRequestForm', () => {
   const navigateMock = jest.fn();
 
@@ -41,7 +47,9 @@ describe('AdviseeRequestForm', () => {
     render(<AdviseeRequestForm />);
 
     await waitFor(() => expect(getGroup).toHaveBeenCalledWith('grp_test'));
-    await waitFor(() => expect(screen.getByRole('button', { name: /Select Professor/i })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Select Professor/i })).toBeInTheDocument()
+    );
     expect(screen.getByRole('button', { name: /Submit Request/i })).toBeDisabled();
   });
 
@@ -50,7 +58,9 @@ describe('AdviseeRequestForm', () => {
 
     render(<AdviseeRequestForm />);
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /Select Professor/i })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Select Professor/i })).toBeInTheDocument()
+    );
 
     const form = document.querySelector('form.advisor-form');
     await act(async () => {
@@ -66,10 +76,11 @@ describe('AdviseeRequestForm', () => {
 
     render(<AdviseeRequestForm />);
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /Select Professor/i })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Select Professor/i })).toBeInTheDocument()
+    );
 
-    await userEvent.click(screen.getByRole('button', { name: /Select Professor/i }));
-    await userEvent.click(screen.getByRole('option', { name: /Dr\. Ada Lovelace/i }));
+    await selectProfessor('Dr. Ada Lovelace');
     await userEvent.type(screen.getByLabelText(/Message \(Optional\)/i), 'We would love your guidance.');
 
     await act(async () => {
@@ -91,7 +102,9 @@ describe('AdviseeRequestForm', () => {
 
     render(<AdviseeRequestForm />);
 
-    await waitFor(() => expect(screen.getByText(/association window is closed/i)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText(/association window is closed/i)).toBeInTheDocument()
+    );
     expect(screen.getByRole('button', { name: /Select Professor/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Submit Request/i })).toBeDisabled();
   });
@@ -102,9 +115,10 @@ describe('AdviseeRequestForm', () => {
 
     render(<AdviseeRequestForm />);
 
-    await waitFor(() => expect(screen.getByRole('button', { name: /Select Professor/i })).toBeInTheDocument());
-    await userEvent.click(screen.getByRole('button', { name: /Select Professor/i }));
-    await userEvent.click(screen.getByRole('option', { name: /Dr\. Ada Lovelace/i }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Select Professor/i })).toBeInTheDocument()
+    );
+    await selectProfessor('Dr. Ada Lovelace');
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /Submit Request/i }));
     });
@@ -114,5 +128,58 @@ describe('AdviseeRequestForm', () => {
     });
     expect(screen.getByRole('button', { name: /Submit Request/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Select Professor/i })).toBeDisabled();
+  });
+
+  describe('DEV_BYPASS removed', () => {
+    beforeEach(() => {
+      localStorage.setItem('DEV_BYPASS', 'true');
+    });
+
+    afterEach(() => {
+      localStorage.clear();
+    });
+
+    it('never renders a DEV_BYPASS banner regardless of the localStorage flag', async () => {
+      checkAdvisorWindow.mockResolvedValue({ open: true });
+
+      render(<AdviseeRequestForm />);
+
+      await waitFor(() => expect(getGroup).toHaveBeenCalled());
+
+      expect(screen.queryByText(/DEV_BYPASS/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/bypass/i)).not.toBeInTheDocument();
+    });
+
+    it('keeps the closed window locked when DEV_BYPASS is in localStorage', async () => {
+      checkAdvisorWindow.mockResolvedValue({ open: false });
+
+      render(<AdviseeRequestForm />);
+
+      await waitFor(() =>
+        expect(screen.getByText(/association window is closed/i)).toBeInTheDocument()
+      );
+
+      expect(screen.getByRole('button', { name: /Submit Request/i })).toBeDisabled();
+    });
+
+    it('422 response shows the standard closed-window message, not a bypass-mode message', async () => {
+      checkAdvisorWindow.mockResolvedValue({ open: true });
+      submitAdvisorRequest.mockRejectedValue({ response: { status: 422 } });
+
+      render(<AdviseeRequestForm />);
+
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: /Select Professor/i })).toBeInTheDocument()
+      );
+      await selectProfessor('Dr. Ada Lovelace');
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Submit Request/i }));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText(/The advisor request window is currently closed\./i)).toBeInTheDocument();
+        expect(screen.queryByText(/bypass mode/i)).not.toBeInTheDocument();
+      });
+    });
   });
 });

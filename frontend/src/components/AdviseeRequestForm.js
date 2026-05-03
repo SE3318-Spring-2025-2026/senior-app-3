@@ -112,7 +112,6 @@ const AdviseeRequestForm = () => {
   const [scheduleBoundaryLocked, setScheduleBoundaryLocked] = useState(false);
   const [pendingConflict, setPendingConflict] = useState(null);
   const [isCancelling, setIsCancelling] = useState(false);
-  const devBypass = localStorage.getItem('DEV_BYPASS') === 'true';
 
   useEffect(() => {
     if (!groupId || !user?.userId || isReservedGroupRoute) return;
@@ -136,7 +135,7 @@ const AdviseeRequestForm = () => {
         ]);
         
         setProfessors(profList);
-        const effectiveOpen = Boolean(winStatus?.open) || devBypass;
+        const effectiveOpen = Boolean(winStatus?.open);
         setWindowInfo({ ...winStatus, open: effectiveOpen });
 
         if (!effectiveOpen) {
@@ -151,7 +150,7 @@ const AdviseeRequestForm = () => {
     };
 
     fetchData();
-  }, [groupId, user?.userId, navigate, devBypass, isReservedGroupRoute]);
+  }, [groupId, user?.userId, navigate, isReservedGroupRoute]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -186,12 +185,8 @@ const AdviseeRequestForm = () => {
       if (status === 403) {
         setError('You must be the team leader to perform this action.');
       } else if (status === 422) {
-        if (devBypass) {
-          setError('Schedule validation failed on server despite bypass mode. Ask coordinator to open advisor_association window.');
-        } else {
-          setError('The advisor request window is currently closed.');
-          setScheduleBoundaryLocked(true);
-        }
+        setError('The advisor request window is currently closed.');
+        setScheduleBoundaryLocked(true);
       } else if (status === 409) {
         const data = err.response?.data || {};
         const code = data.code;
@@ -319,12 +314,6 @@ const AdviseeRequestForm = () => {
             <span>The association window is closed. Submissions are temporarily disabled.</span>
           </div>
         )}
-        {devBypass && (
-          <div className="warning-banner">
-            <span>DEV_BYPASS is enabled. Frontend schedule lock is bypassed for testing.</span>
-          </div>
-        )}
-
         {error && (
           <div className="error-banner">
             <div>{error}</div>
@@ -355,7 +344,7 @@ const AdviseeRequestForm = () => {
               value={selectedProfessor}
               professors={professors}
               onChange={setSelectedProfessor}
-              disabled={(!windowInfo.open || scheduleBoundaryLocked) && !devBypass ? true : isSubmitting}
+              disabled={!windowInfo.open || scheduleBoundaryLocked || isSubmitting}
             />
           </div>
 
@@ -367,7 +356,7 @@ const AdviseeRequestForm = () => {
               onChange={(e) => setMessage(e.target.value)}
               placeholder="Explain your project goals or why you'd like this professor to advise you..."
               rows="4"
-              disabled={(!windowInfo.open || scheduleBoundaryLocked) && !devBypass ? true : isSubmitting}
+              disabled={!windowInfo.open || scheduleBoundaryLocked || isSubmitting}
             ></textarea>
           </div>
 
@@ -383,7 +372,7 @@ const AdviseeRequestForm = () => {
             <button
               type="submit"
               className="submit-btn"
-              disabled={(!windowInfo.open || scheduleBoundaryLocked) && !devBypass ? true : (!selectedProfessor || isSubmitting)}
+              disabled={!windowInfo.open || scheduleBoundaryLocked || !selectedProfessor || isSubmitting}
             >
               {isSubmitting ? 'Submitting...' : 'Submit Request'}
             </button>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { getDeliverableDetails, getComments, downloadDeliverable } from '../api/reviewAPI';
 import CommentThread from '../components/reviews/CommentThread';
 import AddCommentForm from '../components/reviews/AddCommentForm';
@@ -13,6 +13,7 @@ import './ReviewPage.css';
  */
 const ReviewPage = () => {
   const { deliverableId } = useParams();
+  const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
 
   // State management
@@ -153,12 +154,12 @@ const ReviewPage = () => {
           <div className="bg-red-50 border border-red-200 rounded-lg p-6">
             <h2 className="text-lg font-semibold text-red-900 mb-2">Error Loading Deliverable</h2>
             <p className="text-red-800 mb-4">{error}</p>
-            <a
-              href="/dashboard"
-              className="inline-block px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+            <button
+              onClick={() => navigate(-1)}
+              className="inline-block px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 cursor-pointer"
             >
-              ← Back to Dashboard
-            </a>
+              ← Back
+            </button>
           </div>
         </div>
       </div>
@@ -172,12 +173,12 @@ const ReviewPage = () => {
         <div className="max-w-4xl mx-auto p-8">
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 text-center">
             <p className="text-gray-600">Deliverable not found</p>
-            <a
-              href="/dashboard"
-              className="inline-block mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            <button
+              onClick={() => navigate(-1)}
+              className="inline-block mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 cursor-pointer"
             >
-              ← Back to Dashboard
-            </a>
+              ← Back
+            </button>
           </div>
         </div>
       </div>
@@ -189,9 +190,9 @@ const ReviewPage = () => {
       <div className="max-w-7xl mx-auto">
         {/* Page header */}
         <div className="mb-8">
-          <a href="/dashboard" className="text-blue-600 hover:text-blue-800 text-sm font-medium mb-4 inline-block">
-            ← Back to Dashboard
-          </a>
+          <button onClick={() => navigate(-1)} className="text-blue-600 hover:text-blue-800 text-sm font-medium mb-4 inline-block cursor-pointer bg-transparent border-none p-0">
+            ← Back
+          </button>
           <h1 className="text-3xl font-bold text-gray-900">
             Deliverable Review
           </h1>

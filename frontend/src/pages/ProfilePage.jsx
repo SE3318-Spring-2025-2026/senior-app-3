@@ -1,14 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
+import { updateProfile } from '../api/profileService';
 import './ProfilePage.css';
 
 const ProfilePage = () => {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
   const clearAuth = useAuthStore((state) => state.clearAuth);
+  const setUser = useAuthStore((state) => state.setUser);
   const [isEditing, setIsEditing] = useState(false);
   const [editedUser, setEditedUser] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState(null);
 
   useEffect(() => {
     if (user) {
@@ -28,9 +32,33 @@ const ProfilePage = () => {
     });
   };
 
-  const handleSaveChanges = () => {
-    // TODO: Implement API call to save profile changes
+  const handleSaveChanges = async () => {
+    const updates = {};
+    if (editedUser.githubUsername !== user.githubUsername) {
+      updates.githubUsername = editedUser.githubUsername || '';
+    }
+    if (Object.keys(updates).length === 0) {
+      setIsEditing(false);
+      return;
+    }
+    setIsSaving(true);
+    setSaveMessage(null);
+    try {
+      await updateProfile(user.userId, updates);
+      setUser(updates);
+      setSaveMessage({ type: 'success', text: 'Profile updated successfully.' });
+      setIsEditing(false);
+    } catch (err) {
+      setSaveMessage({ type: 'error', text: err.response?.data?.message || 'Failed to save changes.' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
     setIsEditing(false);
+    setEditedUser({ ...user });
+    setSaveMessage(null);
   };
 
   if (!user) {
@@ -95,7 +123,7 @@ const ProfilePage = () => {
           <div className="profile-actions">
             <button
               className="btn btn-secondary"
-              onClick={() => setIsEditing(!isEditing)}
+              onClick={() => isEditing ? handleCancelEdit() : setIsEditing(true)}
             >
               {isEditing ? 'Cancel' : 'Edit Profile'}
             </button>
@@ -104,6 +132,12 @@ const ProfilePage = () => {
             </button>
           </div>
         </div>
+
+        {saveMessage && (
+          <div className={`profile-save-message profile-save-message--${saveMessage.type}`}>
+            {saveMessage.text}
+          </div>
+        )}
 
         <div className="profile-content">
           {/* Primary Information Section */}
@@ -160,9 +194,17 @@ const ProfilePage = () => {
                 )}
 
                 {/* GitHub Username */}
-                {user.githubUsername && (
-                  <div className="info-field">
-                    <label className="info-label">GitHub Username</label>
+                <div className="info-field">
+                  <label className="info-label">GitHub Username</label>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      className="info-input"
+                      value={editedUser?.githubUsername || ''}
+                      onChange={(e) => handleEditChange('githubUsername', e.target.value)}
+                      placeholder="your-github-username"
+                    />
+                  ) : user.githubUsername ? (
                     <div className="info-value github-username">
                       <a
                         href={`https://github.com/${user.githubUsername}`}
@@ -172,8 +214,10 @@ const ProfilePage = () => {
                         @{user.githubUsername}
                       </a>
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <div className="info-value">Not linked</div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -244,12 +288,14 @@ const ProfilePage = () => {
               <button
                 className="btn btn-primary"
                 onClick={handleSaveChanges}
+                disabled={isSaving}
               >
-                Save Changes
+                {isSaving ? 'Saving...' : 'Save Changes'}
               </button>
               <button
                 className="btn btn-secondary"
-                onClick={() => setIsEditing(false)}
+                onClick={handleCancelEdit}
+                disabled={isSaving}
               >
                 Cancel
               </button>

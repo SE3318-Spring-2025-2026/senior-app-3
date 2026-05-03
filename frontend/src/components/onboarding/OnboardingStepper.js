@@ -112,7 +112,7 @@ const Step1 = ({ onNext, onBack }) => {
 // ─────────────────────────────────────────────
 const Step2 = ({ onNext, onBack }) => {
   const navigate = useNavigate();
-  const { validationToken, email, password, userId, setUserId, setStepComplete, setEmailLastSentAt } =
+  const { validationToken, email, password, userId, setUserId, setPassword, setStepComplete, setEmailLastSentAt } =
     useOnboardingStore();
   const { setAuth } = useAuthStore();
   const [loading, setLoading] = useState(false);
@@ -148,6 +148,7 @@ const Step2 = ({ onNext, onBack }) => {
       );
       setUserId(response.userId);
       setStepComplete('accountCreated');
+      setPassword(null);
       // Trigger verification email
       try {
         await sendVerificationEmail(response.userId);
@@ -164,6 +165,7 @@ const Step2 = ({ onNext, onBack }) => {
           // Already registered and still authenticated from a previous run — resume the flow
           setUserId(existingAuth.user.userId);
           setStepComplete('accountCreated');
+          setPassword(null);
           if (!existingAuth.user.emailVerified) {
             try {
               await sendVerificationEmail(existingAuth.user.userId);
