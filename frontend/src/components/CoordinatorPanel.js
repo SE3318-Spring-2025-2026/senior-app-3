@@ -9,7 +9,9 @@ import {
   transferAdvisor,
   getGroupStatus,
   transitionGroupStatus,
+  getGroupMembers,
 } from '../api/groupService';
+import { listProfessors } from '../api/authService';
 import useAuthStore from '../store/authStore';
 import { listCommittees } from '../api/committeeService';
 
@@ -50,6 +52,10 @@ const CoordinatorPanel = () => {
   const [committeesLoading, setCommitteesLoading] = useState(false);
   const [committeesError, setCommitteesError] = useState(null);
 
+  // Professors data
+  const [professors, setProfessors] = useState([]);
+  const [professorsLoading, setProfessorsLoading] = useState(false);
+
   // Schedule windows data
   const [windows, setWindows] = useState([]);
   const [windowsLoading, setWindowsLoading] = useState(true);
@@ -57,6 +63,8 @@ const CoordinatorPanel = () => {
 
   // Selected group for override actions
   const [selectedGroupId, setSelectedGroupId] = useState('');
+  const [groupMembers, setGroupMembers] = useState([]);
+  const [groupMembersLoading, setGroupMembersLoading] = useState(false);
 
   // Override form state
   const [overrideForm, setOverrideForm] = useState({
@@ -68,6 +76,8 @@ const CoordinatorPanel = () => {
   const [overrideError, setOverrideError] = useState(null);
   const [overrideSuccess, setOverrideSuccess] = useState(null);
   const [overrideSubmitting, setOverrideSubmitting] = useState(false);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [confirmDialogMessage, setConfirmDialogMessage] = useState('');
 
   // Advisor transfer form state
   const [transferForm, setTransferForm] = useState({
@@ -133,12 +143,40 @@ const CoordinatorPanel = () => {
     }
   }, []);
 
+  // Load professors
+  const loadProfessors = useCallback(async () => {
+    setProfessorsLoading(true);
+    try {
+      const data = await listProfessors();
+      setProfessors(data.professors || []);
+    } catch (err) {
+      console.error('Failed to load professors:', err);
+      setProfessors([]);
+    } finally {
+      setProfessorsLoading(false);
+    }
+  }, []);
+
   // Initial load
   useEffect(() => {
     loadGroups();
     loadWindows();
     loadCommittees();
-  }, [loadGroups, loadWindows, loadCommittees]);
+    loadProfessors();
+  }, [loadGroups, loadWindows, loadCommittees, loadProfessors]);
+
+  // Load members for selected group (used by Remove Member dropdown)
+  useEffect(() => {
+    if (!selectedGroupId) {
+      setGroupMembers([]);
+      return;
+    }
+    setGroupMembersLoading(true);
+    getGroupMembers(selectedGroupId)
+      .then((data) => setGroupMembers(data.members || []))
+      .catch(() => setGroupMembers([]))
+      .finally(() => setGroupMembersLoading(false));
+  }, [selectedGroupId]);
 
   // Handle override form change
   const handleOverrideFormChange = (e) => {
@@ -176,6 +214,22 @@ const CoordinatorPanel = () => {
       return;
     }
 
+    // Show confirmation dialog for remove_member action
+    if (overrideForm.action === 'remove_member') {
+      setConfirmDialogMessage(
+        `Are you sure you want to remove this student from the group? This action cannot be undone.`
+      );
+      setConfirmDialogOpen(true);
+      return;
+    }
+
+    // For other actions, proceed directly
+    await executeOverride();
+  };
+
+  // Execute the override action
+  const executeOverride = async () => {
+    setConfirmDialogOpen(false);
     setOverrideSubmitting(true);
     try {
       const payload = {
@@ -331,39 +385,38 @@ const CoordinatorPanel = () => {
   const inputStyle = { width: '100%', padding: '8px 12px', border: '1px solid #d1d5da', borderRadius: '6px', fontSize: '14px', boxSizing: 'border-box' };
   const tabButtonStyle = (isActive) => ({
     padding: '10px 16px',
-    backgroundColor: isActive ? '#0366d6' : '#fafbfc',
+    background: isActive ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : '#fafbfc',
     color: isActive ? 'white' : '#24292e',
     border: isActive ? 'none' : '1px solid #d1d5da',
     borderRadius: '6px',
     cursor: 'pointer',
-    marginRight: '8px',
     fontSize: '14px',
     fontWeight: '500',
+    flex: 1,
+    textAlign: 'center',
   });
 
   return (
     <div style={{ padding: '24px', minHeight: '100vh' }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-        <button
-          onClick={() => navigate(-1)}
-          style={{
-            padding: '8px 16px',
-            backgroundColor: '#e1e4e8',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            color: '#24292e',
-            fontSize: '14px',
-            marginBottom: '24px',
-          }}
-        >
-          ← Back
-        </button>
-
-        <h1 style={{ marginTop: 0, color: 'white' }}>Coordinator Panel</h1>
+        <div style={{
+          background: '#ffffff',
+          borderRadius: '12px',
+          boxShadow: '0 2px 8px rgba(102, 126, 234, 0.08)',
+          marginBottom: '22px',
+          padding: '24px 28px',
+          textAlign: 'center',
+        }}>
+          <h1 style={{ color: '#111827', fontSize: '28px', fontWeight: '700', lineHeight: '1.2', margin: 0 }}>
+            Coordinator Panel
+          </h1>
+          <p style={{ color: '#64748b', fontSize: '14px', margin: '8px 0 0' }}>
+            Manage groups, overrides, schedule windows and committees
+          </p>
+        </div>
 
         {/* Tab Navigation */}
-        <div style={{ marginBottom: '24px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <div style={{ background: '#ffffff', borderRadius: '12px', boxShadow: '0 2px 8px rgba(102, 126, 234, 0.07)', marginBottom: '16px', padding: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button style={tabButtonStyle(activeTab === 'groups')} onClick={() => setActiveTab('groups')}>
             Groups ({groups.length})
           </button>
@@ -540,17 +593,28 @@ const CoordinatorPanel = () => {
                 </div>
 
                 <div>
-                  <label htmlFor="tr-newProfessorId" style={labelStyle}>New Professor ID</label>
-                  <input
+                  <label htmlFor="tr-newProfessorId" style={labelStyle}>New Professor</label>
+                  <select
                     id="tr-newProfessorId"
                     name="newProfessorId"
-                    type="text"
                     value={transferForm.newProfessorId}
                     onChange={handleTransferFormChange}
-                    placeholder="usr_prof_xxx"
                     style={inputStyle}
                     required
-                  />
+                  >
+                    <option value="">-- Choose a professor --</option>
+                    {professors.length === 0 && !professorsLoading && (
+                      <option disabled>No professors available</option>
+                    )}
+                    {professorsLoading && (
+                      <option disabled>Loading professors…</option>
+                    )}
+                    {professors.map((prof, idx) => (
+                      <option key={`prof-${idx}-${prof.userId}`} value={prof.userId}>
+                        {prof.name || prof.email} ({prof.userId})
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -636,17 +700,47 @@ const CoordinatorPanel = () => {
 
               {(overrideForm.action === 'add_member' || overrideForm.action === 'remove_member') && (
                 <div style={{ marginBottom: '16px' }}>
-                  <label htmlFor="ov-student" style={labelStyle}>Student ID</label>
-                  <input
-                    id="ov-student"
-                    name="targetStudentId"
-                    type="text"
-                    value={overrideForm.targetStudentId}
-                    onChange={handleOverrideFormChange}
-                    placeholder="Enter student user ID"
-                    style={inputStyle}
-                    required={overrideForm.action === 'add_member' || overrideForm.action === 'remove_member'}
-                  />
+                  <label htmlFor="ov-student" style={labelStyle}>
+                    {overrideForm.action === 'remove_member' ? 'Student to Remove' : 'Student ID'}
+                  </label>
+                  {!selectedGroupId ? (
+                    <select disabled style={inputStyle}>
+                      <option>-- Select a group first --</option>
+                    </select>
+                  ) : overrideForm.action === 'remove_member' ? (
+                    <select
+                      id="ov-student"
+                      name="targetStudentId"
+                      value={overrideForm.targetStudentId}
+                      onChange={handleOverrideFormChange}
+                      style={inputStyle}
+                      required
+                      disabled={groupMembersLoading}
+                    >
+                      <option value="">
+                        {groupMembersLoading ? 'Loading members…' : '-- Choose a member --'}
+                      </option>
+                      {!groupMembersLoading && groupMembers.length === 0 && (
+                        <option disabled>No members found in this group</option>
+                      )}
+                      {groupMembers.map((member, idx) => (
+                        <option key={`member-${idx}-${member.userId}`} value={member.userId}>
+                          {member.userId}{member.email ? ` — ${member.email}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      id="ov-student"
+                      name="targetStudentId"
+                      type="text"
+                      value={overrideForm.targetStudentId}
+                      onChange={handleOverrideFormChange}
+                      placeholder="Enter student user ID"
+                      style={inputStyle}
+                      required
+                    />
+                  )}
                 </div>
               )}
 
@@ -1134,6 +1228,70 @@ const CoordinatorPanel = () => {
               </div>
             )}
           </section>
+        )}
+
+        {/* Confirmation Dialog */}
+        {confirmDialogOpen && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}>
+            <div style={{
+              backgroundColor: 'white',
+              borderRadius: '8px',
+              padding: '24px',
+              maxWidth: '400px',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+            }}>
+              <h3 style={{ marginTop: 0, marginBottom: '12px', fontSize: '18px', color: '#24292e' }}>
+                Confirm Removal
+              </h3>
+              <p style={{ color: '#586069', marginBottom: '24px' }}>
+                {confirmDialogMessage}
+              </p>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                <button
+                  onClick={() => setConfirmDialogOpen(false)}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#fafbfc',
+                    border: '1px solid #d1d5da',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    color: '#24292e',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={executeOverride}
+                  disabled={overrideSubmitting}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: overrideSubmitting ? '#ccc' : '#d73a49',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: overrideSubmitting ? 'not-allowed' : 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: 'white',
+                  }}
+                >
+                  {overrideSubmitting ? 'Removing…' : 'Remove Student'}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

@@ -1,19 +1,27 @@
 .professor-inbox {
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 32px 24px 48px;
-  background: #f8fafc;
-  min-height: 100vh;
   color: #1f2937;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  min-height: 100vh;
+  padding: 32px 24px 48px;
+}
+
+.professor-inbox-inner {
+  margin: 0 auto;
+  max-width: 1180px;
+}
+
+.professor-inbox-inner .page-title {
+  margin-left: 0;
+  margin-right: 0;
+  max-width: none;
 }
 
 .professor-inbox.loading {
-  display: flex;
   align-items: center;
-  justify-content: center;
+  display: flex;
   font-size: 15px;
   color: #6b7280;
+  justify-content: center;
 }
 
 .inbox-header {
@@ -48,15 +56,20 @@
   font-size: 14px;
 }
 
+.inbox-panel {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.07);
+  margin-top: 22px;
+  overflow: hidden;
+}
+
 .filter-tabs {
   display: flex;
   gap: 12px;
-  margin-bottom: 24px;
   border-bottom: 1px solid #e5e7eb;
-  background: #ffffff;
-  border-radius: 12px 12px 0 0;
   padding: 0 18px;
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.05);
 }
 
 .filter-tab {
@@ -98,20 +111,21 @@
 }
 
 .empty-state {
-  text-align: center;
-  padding: 48px 24px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
   color: #6b7280;
   font-size: 16px;
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.07);
+  padding: 48px 24px;
+  text-align: center;
 }
 
 .requests-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0;
+  padding: 16px;
+}
+
+.requests-list .request-card + .request-card {
+  margin-top: 12px;
 }
 
 .request-card {
@@ -233,10 +247,10 @@
   gap: 12px;
 }
 
-.reject-section {
+.action-buttons-row {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  align-items: center;
 }
 
 .reject-textarea {
@@ -284,7 +298,6 @@
 .btn-reject {
   background: #dc2626;
   color: white;
-  flex: 1;
 }
 
 .btn-reject:hover:not(:disabled) {

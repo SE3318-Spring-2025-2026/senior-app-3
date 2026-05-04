@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { getMyFinalGrades } from '../api/finalGradeService';
+import PageTitle from '../components/PageTitle';
 import './StudentFinalGradesPage.css';
 
 const formatNumber = (value, fractionDigits = 2) => {
@@ -82,118 +83,118 @@ const StudentFinalGradesPage = () => {
 
   return (
     <div className="student-final-grades-page" data-testid="student-final-grades-page">
-      <header className="student-final-grades-header">
-        <div>
-          <p className="student-final-grades-kicker">Student final grade</p>
-          <h1>Final Grades</h1>
-          <p className="student-final-grades-meta">
-            Published D7 records for your own student account.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="student-final-grades-button"
-          onClick={() => loadFinalGrades({ isRefresh: true })}
-          disabled={loading || refreshing}
-        >
-          {refreshing ? 'Refreshing' : 'Refresh'}
-        </button>
-      </header>
+      <div className="student-final-grades-inner">
+        <PageTitle
+          kicker="Student final grade"
+          title="Final Grades"
+          subtitle="Published D7 records for your own student account."
+          actions={
+            <button
+              type="button"
+              className="student-final-grades-button"
+              onClick={() => loadFinalGrades({ isRefresh: true })}
+              disabled={loading || refreshing}
+            >
+              {refreshing ? 'Refreshing' : 'Refresh'}
+            </button>
+          }
+        />
 
-      {loading && (
-        <div className="student-final-grades-state" role="status" data-testid="student-final-grades-loading">
-          Loading final grades
-        </div>
-      )}
+        {loading && (
+          <div className="student-final-grades-state" role="status" data-testid="student-final-grades-loading">
+            Loading final grades
+          </div>
+        )}
 
-      {!loading && error && !error.empty && (
-        <div className="student-final-grades-error" role="alert">
-          <h2>{error.title}</h2>
-          <p>{error.message}</p>
-        </div>
-      )}
+        {!loading && error && !error.empty && (
+          <div className="student-final-grades-error" role="alert">
+            <h2>{error.title}</h2>
+            <p>{error.message}</p>
+          </div>
+        )}
 
-      {!loading && (error?.empty || (!error && !hasPublishedGrades)) && (
-        <div className="student-final-grades-empty" data-testid="student-final-grades-empty">
-          <h2>Final grades are not published yet</h2>
-          <p>Your final grades will appear here after the coordinator publishes them.</p>
-        </div>
-      )}
+        {!loading && (!hasPublishedGrades || error?.empty) && (
+          <div className="student-final-grades-empty" data-testid="student-final-grades-empty">
+            <h2>Final grades are not published yet</h2>
+            <p>Your final grades will appear here after the coordinator publishes them.</p>
+          </div>
+        )}
 
-      {!loading && hasPublishedGrades && (
-        <>
-          <section
-            className="student-final-grades-summary"
-            aria-label="Published final grade summary"
-            data-testid="student-final-grade-summary"
-          >
-            <div className="student-final-grades-score">
-              <span>Final grade</span>
-              <strong>{formatNumber(latestGrade.finalGrade)}</strong>
-            </div>
-            <div className="student-final-grades-facts">
-              <div>
-                <span>Group</span>
-                <strong>{latestGrade.groupId || 'Not available'}</strong>
+        {!loading && hasPublishedGrades && (
+          <>
+            <section
+              className="student-final-grades-summary"
+              aria-label="Published final grade summary"
+              data-testid="student-final-grade-summary"
+            >
+              <div className="student-final-grades-score">
+                <span>Final grade</span>
+                <strong>{formatNumber(latestGrade.finalGrade)}</strong>
               </div>
-              <div>
-                <span>Published</span>
-                <strong>{formatDateTime(getPublishedAt(latestGrade))}</strong>
+              <div className="student-final-grades-facts">
+                <div>
+                  <span>Group</span>
+                  <strong>{latestGrade.groupId || 'Not available'}</strong>
+                </div>
+                <div>
+                  <span>Published</span>
+                  <strong>{formatDateTime(getPublishedAt(latestGrade))}</strong>
+                </div>
+                {latestGrade.baseGroupScore != null && (
+                  <div>
+                    <span>Base group score</span>
+                    <strong>{formatNumber(latestGrade.baseGroupScore)}</strong>
+                  </div>
+                )}
+                {latestGrade.individualRatio != null && (
+                  <div>
+                    <span>Contribution ratio</span>
+                    <strong>{formatNumber(latestGrade.individualRatio, 4)}</strong>
+                  </div>
+                )}
               </div>
-              {latestGrade.baseGroupScore != null && (
-                <div>
-                  <span>Base group score</span>
-                  <strong>{formatNumber(latestGrade.baseGroupScore)}</strong>
-                </div>
-              )}
-              {latestGrade.individualRatio != null && (
-                <div>
-                  <span>Contribution ratio</span>
-                  <strong>{formatNumber(latestGrade.individualRatio, 4)}</strong>
-                </div>
-              )}
-            </div>
-          </section>
+            </section>
 
-          <section className="student-final-grades-panel">
-            <div className="student-final-grades-panel-header">
-              <h2>Published grade history</h2>
-              <p>Only published records returned for your student account are shown.</p>
-            </div>
-            <div className="student-final-grades-table-wrap">
-              <table className="student-final-grades-table" data-testid="student-final-grades-table">
-                <thead>
-                  <tr>
-                    <th>Group</th>
-                    <th>Final grade</th>
-                    <th>Base score</th>
-                    <th>Ratio</th>
-                    <th>Published</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {publishedGrades.map((grade, index) => (
-                    <tr
-                      key={`${grade.groupId || 'group'}-${grade.studentId || 'student'}-${index}`}
-                      data-testid={`student-grade-row-${grade.studentId || 'unknown'}-${index}`}
-                    >
-                      <td>{grade.groupId || 'Not available'}</td>
-                      <td>{formatNumber(grade.finalGrade)}</td>
-                      <td>{grade.baseGroupScore == null ? 'Not available' : formatNumber(grade.baseGroupScore)}</td>
-                      <td>{grade.individualRatio == null ? 'Not available' : formatNumber(grade.individualRatio, 4)}</td>
-                      <td>{formatDateTime(getPublishedAt(grade))}</td>
-                      <td>
-                        <span className="student-final-grades-status">Published</span>
-                      </td>
+            <section className="student-final-grades-panel">
+              <div className="student-final-grades-panel-header">
+                <h2>Published grade history</h2>
+                <p>Only published records returned for your student account are shown.</p>
+              </div>
+              <div className="student-final-grades-table-wrap">
+                <table className="student-final-grades-table" data-testid="student-final-grades-table">
+                  <thead>
+                    <tr>
+                      <th>Group</th>
+                      <th>Final grade</th>
+                      <th>Base score</th>
+                      <th>Ratio</th>
+                      <th>Published</th>
+                      <th>Status</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </>
-      )}
+                  </thead>
+                  <tbody>
+                    {publishedGrades.map((grade, index) => (
+                      <tr
+                        key={`${grade.groupId || 'group'}-${grade.studentId || 'student'}-${index}`}
+                        data-testid={`student-grade-row-${grade.studentId || 'unknown'}-${index}`}
+                      >
+                        <td>{grade.groupId || 'Not available'}</td>
+                        <td>{formatNumber(grade.finalGrade)}</td>
+                        <td>{grade.baseGroupScore == null ? 'Not available' : formatNumber(grade.baseGroupScore)}</td>
+                        <td>{grade.individualRatio == null ? 'Not available' : formatNumber(grade.individualRatio, 4)}</td>
+                        <td>{formatDateTime(getPublishedAt(grade))}</td>
+                        <td>
+                          <span className="student-final-grades-status">Published</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </>
+        )}
+      </div>
     </div>
   );
 };

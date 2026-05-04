@@ -3,6 +3,7 @@ import {
   getCoordinatorPendingAdvisorRequests,
   decideOnAdvisorRequest,
 } from '../api/advisorService';
+import './CoordinatorAdvisorInbox.css';
 
 const formatDate = (iso) => {
   if (!iso) return '—';
@@ -187,31 +188,47 @@ const CoordinatorAdvisorInbox = () => {
   };
 
   return (
-    <div className="page bg-slate-50 min-h-screen p-6">
-      <div className="max-w-5xl mx-auto">
-        <header className="mb-6">
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">
-                Advisor requests inbox
-              </h1>
-              <p className="text-sm text-slate-600 mt-1">
-                Review pending association requests from team leaders. Approving binds
-                the group to the professor; rejecting requires a reason that is sent
-                to the team. Coordinator decisions bypass the advisor schedule window.
-              </p>
-            </div>
-            <button
-              type="button"
-              className="px-3 py-1.5 rounded-md border border-slate-300 text-sm text-slate-900 bg-white hover:bg-slate-100 disabled:opacity-50"
-              onClick={load}
-              disabled={loading}
-            >
-              {loading ? 'Refreshing…' : 'Refresh'}
-            </button>
+    <div className="min-h-screen p-6">
+      <div className="coordinator-advisor-inbox max-w-5xl mx-auto">
+        <div style={{
+          background: '#ffffff',
+          borderRadius: '12px',
+          boxShadow: '0 2px 8px rgba(102, 126, 234, 0.08)',
+          display: 'flex',
+          marginBottom: '28px',
+          overflow: 'hidden',
+        }}>
+          <div style={{ flex: 1, padding: '24px 28px', textAlign: 'center' }}>
+            <h1 style={{ color: '#111827', fontSize: '28px', fontWeight: '700', lineHeight: '1.2', margin: 0 }}>
+              Advisor Requests Inbox
+            </h1>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: '8px 0 0' }}>
+              Review pending association requests from team leaders. Coordinator decisions bypass the advisor schedule window.
+            </p>
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+          <button
+            type="button"
+            onClick={load}
+            disabled={loading}
+            style={{
+              alignItems: 'center',
+              background: '#ffffff',
+              border: 'none',
+              borderLeft: '1px solid #e5e7eb',
+              color: '#667eea',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              fontSize: '22px',
+              justifyContent: 'center',
+              opacity: loading ? 0.55 : 1,
+              padding: '24px 28px',
+            }}
+          >
+            🔄
+          </button>
+        </div>
+        <div className="mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="rounded-lg bg-white border border-slate-200 px-4 py-3">
               <p className="text-[11px] uppercase tracking-wide text-slate-500">
                 Pending total
@@ -247,7 +264,7 @@ const CoordinatorAdvisorInbox = () => {
               </p>
             </div>
           </div>
-        </header>
+        </div>
 
         {requests.length > 0 && (
           <input

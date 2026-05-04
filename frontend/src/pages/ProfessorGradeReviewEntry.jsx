@@ -1,18 +1,33 @@
-import React, { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
 import { normalizeGroupId } from '../utils/groupId';
+import { getMyAdvisorRequests } from '../api/advisorService';
 import './ProfessorGradeReviewEntry.css';
 
 /**
  * Professors/advisors often lack `groupId` on the JWT; the sidebar "Grade Review"
- * link is hidden. This page lets them paste a group id (e.g. from the coordinator)
- * and open the read-only final grade review route.
+ * link is hidden. This page lets them select from their assigned groups or paste
+ * a group id to open the read-only final grade review route.
  */
 const ProfessorGradeReviewEntry = () => {
   const user = useAuthStore((s) => s.user);
   const navigate = useNavigate();
   const [rawId, setRawId] = useState('');
+  const [assignedGroups, setAssignedGroups] = useState([]);
+  const [groupsLoading, setGroupsLoading] = useState(true);
+
+  useEffect(() => {
+    getMyAdvisorRequests()
+      .then((requests) => {
+        const approved = requests.filter(
+          (r) => r.status === 'approved' || r.decision === 'approve'
+        );
+        setAssignedGroups(approved);
+      })
+      .catch(() => setAssignedGroups([]))
+      .finally(() => setGroupsLoading(false));
+  }, []);
 
   const hintedGroupId = useMemo(() => {
     const candidates = [
@@ -26,9 +41,10 @@ const ProfessorGradeReviewEntry = () => {
 
   const normalized = normalizeGroupId(rawId.trim());
 
-  const go = () => {
-    if (!normalized) return;
-    navigate(`/groups/${normalized}/final-grades/review`);
+  const go = (groupId) => {
+    const id = normalizeGroupId(groupId || rawId.trim());
+    if (!id) return;
+    navigate(`/groups/${id}/final-grades/review`);
   };
 
   return (
@@ -39,19 +55,38 @@ const ProfessorGradeReviewEntry = () => {
           <p>
             Open the read-only snapshot for a group after the coordinator has generated a preview.
           </p>
-          <code>/groups/&lt;groupId&gt;/final-grades/review</code>
         </header>
 
-        {hintedGroupId && (
-          <div className="grade-review-linked-group">
-            <p>Linked group on your account</p>
-            <Link to={`/groups/${hintedGroupId}/final-grades/review`}>
-              {hintedGroupId}
-            </Link>
+        {!groupsLoading && assignedGroups.length > 0 && (
+          <div className="grade-review-assigned-groups">
+            <label htmlFor="grade-review-group-select">Your assigned groups</label>
+            <div className="grade-review-entry-actions">
+              <select
+                id="grade-review-group-select"
+                defaultValue=""
+                onChange={(e) => e.target.value && go(e.target.value)}
+              >
+                <option value="" disabled>-- Select a group --</option>
+                {assignedGroups.map((r) => (
+                  <option key={r.requestId} value={r.groupId}>
+                    {r.groupName || r.groupId}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         )}
 
-        <label htmlFor="grade-review-group">Group ID</label>
+        {hintedGroupId && !assignedGroups.find((r) => r.groupId === hintedGroupId) && (
+          <div className="grade-review-linked-group">
+            <p>Linked group on your account</p>
+            <button type="button" onClick={() => go(hintedGroupId)} className="grade-review-linked-btn">
+              {hintedGroupId}
+            </button>
+          </div>
+        )}
+
+        <label htmlFor="grade-review-group">Enter group ID manually</label>
         <div className="grade-review-entry-actions">
           <input
             id="grade-review-group"
@@ -64,7 +99,7 @@ const ProfessorGradeReviewEntry = () => {
           <button
             type="button"
             disabled={!normalized}
-            onClick={go}
+            onClick={() => go()}
           >
             Open review
           </button>

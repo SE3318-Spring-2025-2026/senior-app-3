@@ -1,0 +1,12 @@
+.coordinator-sprint-dashboard {
+  width: 100%;
+}
+
+.coordinator-sprint-dashboard .page-title {
+  border-left: none;
+  margin-bottom: 28px;
+  margin-left: 0;
+  margin-right: 0;
+  max-width: none;
+  text-align: center;
+}

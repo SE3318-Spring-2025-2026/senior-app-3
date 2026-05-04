@@ -15,6 +15,8 @@ import SprintSelector from '../components/coordinator-sprint/SprintSelector';
 import SyncActionButtons from '../components/coordinator-sprint/SyncActionButtons';
 import JobStatusPanel from '../components/coordinator-sprint/JobStatusPanel';
 import ContributionResultsTable from '../components/coordinator-sprint/ContributionResultsTable';
+import PageTitle from '../components/PageTitle';
+import './CoordinatorSprintDashboard.css';
 
 const CoordinatorSprintDashboard = () => {
   const user = useAuthStore((state) => state.user);
@@ -224,14 +226,12 @@ const CoordinatorSprintDashboard = () => {
   if (user?.role !== 'coordinator') return <Navigate to="/unauthorized" replace />;
 
   return (
-    <div className="page p-6 bg-slate-50 min-h-screen">
-      <div className="max-w-6xl mx-auto space-y-5">
-        <header>
-          <h1 className="text-2xl font-bold text-slate-900">Coordinator Sprint Tracking Dashboard</h1>
-          <p className="text-sm text-slate-600 mt-1">
-            Ingest (JIRA/GitHub) → Process (Recalculate) → Display (Contribution table)
-          </p>
-        </header>
+    <div className="p-6 min-h-screen">
+      <div className="coordinator-sprint-dashboard w-full max-w-6xl mx-auto space-y-5">
+        <PageTitle
+          title="Sprint Tracking Dashboard"
+          subtitle="Ingest (JIRA/GitHub) → Process (Recalculate) → Display (Contribution table)"
+        />
 
         {globalError && (
           <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

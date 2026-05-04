@@ -155,13 +155,6 @@ const Sidebar = ({ isCollapsed, onToggle }) => {
             </svg>
           ), requiredRoles: ['student']
         },
-        {
-          label: 'Group Coordinator', path: userGroupId ? `/groups/${userGroupId}/coordinator` : '/coordinator', icon: (
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-            </svg>
-          ), requiredRoles: ['coordinator', 'admin'], disabled: !userGroupId && !hasRole(['coordinator', 'admin'])
-        },
       ],
     },
     {
@@ -226,23 +219,20 @@ const Sidebar = ({ isCollapsed, onToggle }) => {
 
   return (
     <div
-      className={`fixed left-0 top-0 h-screen bg-[#0f172a] text-slate-300 transition-all duration-300 ease-in-out z-50 flex flex-col ${isCollapsed ? 'w-20' : 'w-[260px]'
+      className={`fixed left-0 top-0 h-screen bg-[#0f172a] text-slate-300 transition-all duration-300 ease-in-out z-50 flex flex-col overflow-hidden ${isCollapsed ? 'w-20' : 'w-[260px]'
         }`}
     >
       {/* Header */}
-      <div className="h-20 flex items-center justify-between px-6 border-b border-slate-800/50">
-        {!isCollapsed && (
-          <div className="flex items-center space-x-3">
-            <div className="h-8 w-8 bg-indigo-500 rounded-lg flex items-center justify-center text-white font-bold shadow-lg shadow-indigo-500/20">S</div>
-            <span className="text-xl font-serif italic text-white tracking-tight">SeniorApp</span>
-          </div>
-        )}
-        {isCollapsed && (
-          <div className="mx-auto h-8 w-8 bg-indigo-500 rounded-lg flex items-center justify-center text-white font-bold">S</div>
-        )}
+      <div className="h-20 flex items-center justify-between px-3 border-b border-slate-800/50 shrink-0">
+        <div className="flex items-center space-x-3 pl-1">
+          <div className="h-8 w-8 bg-indigo-500 rounded-lg flex items-center justify-center text-white font-bold shadow-lg shadow-indigo-500/20 shrink-0">S</div>
+          {!isCollapsed && (
+            <span className="text-xl font-serif italic text-white tracking-tight whitespace-nowrap">SeniorApp</span>
+          )}
+        </div>
         <button
           onClick={onToggle}
-          className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-500 hover:text-white transition-colors"
+          className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-500 hover:text-white transition-colors shrink-0"
         >
           <svg className={`h-5 w-5 transition-transform duration-300 ${isCollapsed ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />

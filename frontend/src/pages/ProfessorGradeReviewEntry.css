@@ -36,17 +36,7 @@
   color: #666;
   font-size: 0.9rem;
   line-height: 1.5;
-  margin: 0 0 14px;
-}
-
-.grade-review-entry-header code {
-  background: #f8fafc;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  color: #374151;
-  display: inline-block;
-  font-size: 0.8rem;
-  padding: 4px 8px;
+  margin: 0;
 }
 
 .grade-review-linked-group {
@@ -77,6 +67,7 @@
   font-size: 0.9rem;
   font-weight: 700;
   margin-bottom: 8px;
+  margin-top: 0;
   text-transform: uppercase;
 }
 
@@ -128,6 +119,41 @@
   color: #b45309;
   font-size: 0.82rem;
   margin: 8px 0 0;
+}
+
+.grade-review-assigned-groups {
+  margin-bottom: 24px;
+}
+
+.grade-review-entry-actions select {
+  border: 2px solid #e0e0e0;
+  border-radius: 6px;
+  color: #1f2937;
+  flex: 1;
+  font-family: inherit;
+  font-size: 0.95rem;
+  min-width: 0;
+  padding: 11px 14px;
+  background: #ffffff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.grade-review-entry-actions select:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.12);
+  outline: none;
+}
+
+.grade-review-linked-btn {
+  background: none;
+  border: none;
+  color: #047857;
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9rem;
+  font-weight: 700;
+  padding: 0;
+  text-decoration: underline;
 }
 
 @media (max-width: 620px) {
