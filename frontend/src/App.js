@@ -151,7 +151,7 @@ function App() {
             />
             <Route
               path="/groups/:group_id/advisor"
-              element={<ProtectedRoute component={AdvisorAssociationPanel} requiredRoles={['student']} />}
+              element={<ProtectedRoute component={AdvisorAssociationPanel} requiredRoles={['student', 'coordinator', 'admin']} />}
             />
             <Route
               path="/groups/:group_id/coordinator"

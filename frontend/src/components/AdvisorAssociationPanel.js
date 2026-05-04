@@ -102,7 +102,8 @@ const AdvisorAssociationPanel = () => {
     }
     try {
       const result = await advisorSanitization();
-      setSuccess(`Sanitization complete! ${result.disbandedGroups.length} groups disbanded.`);
+      const count = result?.disbandedGroups?.length ?? result?.count ?? 0;
+      setSuccess(`Sanitization complete! ${count} groups disbanded.`);
       setSanitizationConfirm(false);
       loadData();
     } catch (err) {
@@ -149,48 +150,121 @@ const AdvisorAssociationPanel = () => {
     return <span className={`badge ${config.class}`}>{config.label}</span>;
   };
 
-  if (loading) return <div className="loading-state">Syncing with D2 database...</div>;
+  if (loading) return <div className="loading-spinner">Syncing advisor data...</div>;
 
   // ═══════════════════════════════════════════
   // RENDER: COORDINATOR VIEW
   // ═══════════════════════════════════════════
   if (isCoordinator && !groupId) {
+    const selectedGroup = allGroups.find((g) => g.groupId === selectedGroupId);
+
     return (
       <div className="advisor-association-container">
         <header className="panel-header">
-          <h1>Coordinator Control: Advisor Association</h1>
-          <p>Global management of advisory relationships (Process 3.6 & 3.7)</p>
+          <div>
+            <h1>Coordinator Control: Advisor Association</h1>
+            <p>Global management of advisory relationships (Process 3.6 &amp; 3.7)</p>
+          </div>
         </header>
 
         {error && <div className="alert alert-error">✕ {error}</div>}
         {success && <div className="alert alert-success">✓ {success}</div>}
 
         <section className="section">
-          <table className="groups-table">
-            <thead>
-              <tr>
-                <th>Group Name</th>
-                <th>Advisor</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {allGroups.map((g) => (
-                <tr key={g.groupId}>
-                  <td><strong>{g.groupName}</strong></td>
-                  <td>{g.advisorName || 'Unassigned'}</td>
-                  <td>{renderStatusBadge(g.advisorStatus)}</td>
-                  <td>
-                    <button className="btn-transfer" onClick={() => { setSelectedGroupId(g.groupId); setTransferFormOpen(true); }}>
-                      Transfer
-                    </button>
-                  </td>
+          <div className="groups-table-wrapper">
+            <table className="groups-table">
+              <thead>
+                <tr>
+                  <th>Group Name</th>
+                  <th>Advisor</th>
+                  <th>Status</th>
+                  <th>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {allGroups.length === 0 && (
+                  <tr><td colSpan={4} className="empty-state">No groups found.</td></tr>
+                )}
+                {allGroups.map((g) => (
+                  <tr key={g.groupId}>
+                    <td className="group-name-cell">{g.groupName}</td>
+                    <td className="advisor-cell">{g.advisorName || '—'}</td>
+                    <td>{renderStatusBadge(g.advisorStatus)}</td>
+                    <td className="actions-cell">
+                      <button
+                        className="btn-transfer"
+                        onClick={() => {
+                          setSelectedGroupId(g.groupId);
+                          setTransferFormOpen(true);
+                          setNewProfessorId('');
+                          setTransferReason('');
+                        }}
+                      >
+                        Transfer
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
+
+        {transferFormOpen && selectedGroupId && (
+          <section className="section transfer-section">
+            <h3 className="section-title">
+              Transfer Advisor — {selectedGroup?.groupName || selectedGroupId}
+            </h3>
+            <form className="transfer-form" onSubmit={handleTransfer}>
+              <div className="form-group">
+                <label>New Professor</label>
+                <select
+                  className="form-control"
+                  value={newProfessorId}
+                  onChange={(e) => setNewProfessorId(e.target.value)}
+                  required
+                >
+                  <option value="">Select a professor</option>
+                  {professors.map((p) => (
+                    <option key={p.userId} value={p.userId}>{p.name || p.email}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Reason</label>
+                <textarea
+                  className="form-control"
+                  value={transferReason}
+                  onChange={(e) => setTransferReason(e.target.value)}
+                  placeholder="Reason for transfer..."
+                  rows={3}
+                  required
+                />
+              </div>
+              <div className="form-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setTransferFormOpen(false);
+                    setSelectedGroupId(null);
+                    setTransferReason('');
+                    setNewProfessorId('');
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={!newProfessorId || !transferReason.trim()}
+                >
+                  Confirm Transfer
+                </button>
+              </div>
+            </form>
+          </section>
+        )}
 
         <section className="sanitization-box">
           <h3>Post-Deadline Sanitization</h3>
@@ -198,10 +272,12 @@ const AdvisorAssociationPanel = () => {
           <button className={`btn ${sanitizationConfirm ? 'btn-danger' : 'btn-sanitize'}`} onClick={handleSanitize}>
             {sanitizationConfirm ? 'Confirm: DISBAND ALL UNASSIGNED' : 'Trigger Sanitization'}
           </button>
-          {sanitizationConfirm && <button className="btn-link" onClick={() => setSanitizationConfirm(false)}>Cancel</button>}
+          {sanitizationConfirm && (
+            <button className="btn btn-secondary" style={{ marginLeft: 12 }} onClick={() => setSanitizationConfirm(false)}>
+              Cancel
+            </button>
+          )}
         </section>
-
-        {/* Transfer Modal can be added here using transferFormOpen state */}
       </div>
     );
   }
