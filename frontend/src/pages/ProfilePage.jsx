@@ -1,23 +1,47 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import useAuthStore from '../store/authStore';
 import { updateProfile } from '../api/profileService';
+import { initiateGithubOAuth } from '../api/authService';
 import './ProfilePage.css';
 
 const ProfilePage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const user = useAuthStore((state) => state.user);
   const setUser = useAuthStore((state) => state.setUser);
   const [isEditing, setIsEditing] = useState(false);
   const [editedUser, setEditedUser] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState(null);
+  const [isConnectingGithub, setIsConnectingGithub] = useState(false);
+  const [githubError, setGithubError] = useState('');
 
   useEffect(() => {
     if (user) {
       setEditedUser({ ...user });
     }
   }, [user]);
+
+  useEffect(() => {
+    if (location.state?.githubLinked) {
+      setSaveMessage({ type: 'success', text: `GitHub account @${location.state.githubUsername} connected successfully.` });
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleConnectGithub = async () => {
+    setIsConnectingGithub(true);
+    setGithubError('');
+    try {
+      sessionStorage.setItem('githubReturnTo', '/profile');
+      const data = await initiateGithubOAuth(window.location.origin + '/auth/github/callback');
+      window.location.href = data.authorizationUrl;
+    } catch (err) {
+      setGithubError(err.response?.data?.message || 'Failed to initiate GitHub connection.');
+      setIsConnectingGithub(false);
+    }
+  };
 
   const handleEditChange = (field, value) => {
     setEditedUser({
@@ -28,9 +52,6 @@ const ProfilePage = () => {
 
   const handleSaveChanges = async () => {
     const updates = {};
-    if (editedUser.githubUsername !== user.githubUsername) {
-      updates.githubUsername = editedUser.githubUsername || '';
-    }
     if (Object.keys(updates).length === 0) {
       setIsEditing(false);
       return;
@@ -184,18 +205,10 @@ const ProfilePage = () => {
                   </div>
                 )}
 
-                {/* GitHub Username */}
+                {/* GitHub Account */}
                 <div className="info-field">
-                  <label className="info-label">GitHub Username</label>
-                  {isEditing ? (
-                    <input
-                      type="text"
-                      className="info-input"
-                      value={editedUser?.githubUsername || ''}
-                      onChange={(e) => handleEditChange('githubUsername', e.target.value)}
-                      placeholder="your-github-username"
-                    />
-                  ) : user.githubUsername ? (
+                  <label className="info-label">GitHub Account</label>
+                  {user.githubUsername ? (
                     <div className="info-value github-username">
                       <a
                         href={`https://github.com/${user.githubUsername}`}
@@ -206,7 +219,20 @@ const ProfilePage = () => {
                       </a>
                     </div>
                   ) : (
-                    <div className="info-value">Not linked</div>
+                    <div className="github-connect-wrapper">
+                      {githubError && (
+                        <div className="profile-save-message profile-save-message--error">
+                          {githubError}
+                        </div>
+                      )}
+                      <button
+                        className="btn btn-primary"
+                        onClick={handleConnectGithub}
+                        disabled={isConnectingGithub}
+                      >
+                        {isConnectingGithub ? 'Redirecting to GitHub...' : 'Connect GitHub Account'}
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
