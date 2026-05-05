@@ -36,7 +36,8 @@ const {
   approveGroupGradesHandler,
   getGroupApprovalSummaryHandler,
   getPublishedGroupFinalGradesHandler,
-  publishFinalGradesHandler
+  publishFinalGradesHandler,
+  getGradeReviewHandler,
 } = require('../controllers/finalGradeController');
 
 /**
@@ -117,6 +118,17 @@ router.post(
   authMiddleware,
   deprecatedApprovalRouteWarning,
   approveGroupGradesHandler
+);
+
+/**
+ * GET /groups/:groupId/final-grades/review
+ * Read-only grade snapshot for professor/advisor review.
+ */
+router.get(
+  '/:groupId/final-grades/review',
+  authMiddleware,
+  roleMiddleware(['coordinator', 'professor', 'advisor']),
+  getGradeReviewHandler
 );
 
 /**
