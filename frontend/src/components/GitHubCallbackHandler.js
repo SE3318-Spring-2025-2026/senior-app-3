@@ -128,12 +128,19 @@ const GitHubCallbackHandler = () => {
     }
 
     if (status === 'linked' && username) {
-      setGithubUsername(username);
-      // Merge githubUsername into the persisted user object
       if (user) {
         setUser({ ...user, githubUsername: username });
       }
       setStepComplete('githubLinked');
+
+      const returnTo = sessionStorage.getItem('githubReturnTo');
+      if (returnTo) {
+        sessionStorage.removeItem('githubReturnTo');
+        navigate(returnTo, { replace: true, state: { githubLinked: true, githubUsername: username } });
+        return;
+      }
+
+      setGithubUsername(username);
       setPhase('success');
     } else if (errorCode) {
       setErrorInfo(ERROR_MESSAGES[errorCode] || FALLBACK_ERROR);

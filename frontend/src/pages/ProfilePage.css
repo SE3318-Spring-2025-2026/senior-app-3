@@ -156,6 +156,12 @@
   color: #991b1b;
 }
 
+.github-connect-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .github-username a {
   color: #667eea;
   text-decoration: none;
