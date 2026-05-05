@@ -5,6 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const Deliverable = require('../models/Deliverable');
+const Group = require('../models/Group');
 
 const PERMANENT_BASE = path.join(process.cwd(), 'uploads', 'deliverables');
 
@@ -124,6 +125,17 @@ const persistDeliverableFile = (stagingRecord) => {
 const createFinalRecord = async (stagingRecord, savedPath, session) => {
   const { groupId, deliverableType, sprintId, sprintIds, submittedBy, description, fileHash, fileSize } = stagingRecord;
 
+  // Resolve committeeId from D2 so the deliverable is linked to the real committee
+  let committeeId = null;
+  try {
+    const committeeQuery = Group.findOne({ groupId }).select('committeeId').lean();
+    if (session) committeeQuery.session(session);
+    const groupDoc = await committeeQuery;
+    committeeId = groupDoc?.committeeId ?? null;
+  } catch (err) {
+    console.warn('[storageService] committeeId lookup failed for group', groupId, ':', err.message);
+  }
+
   const priorCount = await Deliverable.countDocuments({ groupId, deliverableType }).session(session ?? null);
   const version = priorCount + 1;
 
@@ -133,6 +145,7 @@ const createFinalRecord = async (stagingRecord, savedPath, session) => {
   const [deliverable] = await Deliverable.create(
     [
       {
+        committeeId,
         groupId,
         deliverableType,
         sprintId: sprintId || null,

@@ -11,6 +11,7 @@ const {
   validateFormatHandler,
   validateDeadlineHandler,
   storeDeliverableHandler,
+  submitFinalizeHandler,
   listDeliverablesHandler,
   getDeliverableHandler,
   retractDeliverableHandler,
@@ -88,17 +89,14 @@ router.post(
 
 /**
  * POST /api/deliverables/:stagingId/submit
+ * Process 5.2–5.5 combined — runs format validation, deadline validation, and
+ * permanent storage in a single call for an already-staged deliverable.
  * Accepted role: student
- * Parses multipart upload (field: "file") before reaching the controller.
- * Kept as a stub for middleware testing (MIME-type filter, role guard).
  */
 router.post(
   '/:stagingId/submit',
   roleMiddleware(['student']),
-  uploadSingle('file'),
-  (_req, res) => {
-    res.status(501).json({ code: 'NOT_IMPLEMENTED', message: 'Submit endpoint not yet implemented' });
-  }
+  submitFinalizeHandler
 );
 
 /**

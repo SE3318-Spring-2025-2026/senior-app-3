@@ -768,6 +768,133 @@ const notifyDeliverableHandler = async (req, res) => {
 };
 
 /**
+ * POST /api/deliverables/:stagingId/submit
+ *
+ * Process 5.2–5.5 combined — execute the remaining pipeline steps for an
+ * already-staged deliverable in a single call:
+ *   1. Format validation (if staging.status === 'staging')
+ *   2. Deadline validation (if staging.status === 'format_validated')
+ *   3. Permanent storage (if staging.status === 'requirements_validated')
+ *
+ * Prerequisites:
+ *   1. JWT (student role) — enforced by route middleware
+ *   2. Staging record must exist and not be expired
+ *   3. Student must belong to the group in the staging record
+ *
+ * Returns 201 on success with the final deliverable record.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+const submitFinalizeHandler = async (req, res) => {
+  const { stagingId } = req.params;
+  const actorId = req.user?.userId;
+
+  let staging;
+  try {
+    staging = await DeliverableStaging.findOne({ stagingId });
+  } catch (err) {
+    console.error('[submitFinalizeHandler] DB lookup error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Database query failed' });
+  }
+
+  if (!staging) {
+    return res.status(404).json({ code: 'STAGING_NOT_FOUND', message: 'Staging record not found' });
+  }
+
+  if (staging.expiresAt < new Date()) {
+    return res.status(404).json({ code: 'STAGING_EXPIRED', message: 'Staging record has expired' });
+  }
+
+  const ok = await studentBelongsToGroup(actorId, staging.groupId);
+  if (!ok) {
+    return res.status(403).json({ code: 'FORBIDDEN', message: 'You do not belong to this group' });
+  }
+
+  // Run format validation if staging record is still in initial state
+  if (staging.status === 'staging') {
+    const { status, body } = await runFormatValidation(stagingId, actorId);
+    if (status !== 200) return res.status(status).json(body);
+    try {
+      staging = await DeliverableStaging.findOne({ stagingId });
+    } catch (err) {
+      console.error('[submitFinalizeHandler] reload after format validation error:', err);
+      return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Database query failed' });
+    }
+  }
+
+  // Run deadline validation after format validation passes
+  if (staging.status === 'format_validated') {
+    const { status, body } = await runDeadlineValidation(stagingId, null, actorId);
+    if (status !== 200) return res.status(status).json(body);
+    try {
+      staging = await DeliverableStaging.findOne({ stagingId });
+    } catch (err) {
+      console.error('[submitFinalizeHandler] reload after deadline validation error:', err);
+      return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Database query failed' });
+    }
+  }
+
+  if (staging.status !== 'requirements_validated') {
+    return res.status(400).json({
+      code: 'INVALID_STAGING_STATUS',
+      message: `Cannot finalize: staging record is in '${staging.status}' status`,
+    });
+  }
+
+  let fileInfo;
+  try {
+    fileInfo = persistDeliverableFile(staging);
+  } catch (err) {
+    if (err.statusCode === 507 || err.code === 'DISK_FULL') {
+      return res.status(507).json({ code: 'DISK_FULL', message: 'Insufficient disk space — please retry later' });
+    }
+    if (err.statusCode === 400 && err.code === 'CHECKSUM_MISMATCH') {
+      return res.status(400).json({ code: 'CHECKSUM_MISMATCH', message: err.message });
+    }
+    if (err.statusCode === 404 && err.code === 'FILE_NOT_FOUND') {
+      return res.status(404).json({ code: 'STAGING_FILE_NOT_FOUND', message: err.message });
+    }
+    console.error('[submitFinalizeHandler] File persist error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Failed to store deliverable' });
+  }
+
+  let deliverable;
+  try {
+    deliverable = await createFinalRecord(staging, fileInfo.savedPath);
+    await DeliverableStaging.deleteOne({ stagingId });
+  } catch (err) {
+    console.error('[submitFinalizeHandler] DB error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'Failed to store deliverable' });
+  }
+
+  AuditLog.create({
+    action: 'DELIVERABLE_STORED',
+    actorId,
+    groupId: staging.groupId,
+    payload: { stagingId, deliverableId: deliverable.deliverableId },
+    ipAddress: req.ip || null,
+    userAgent: req.headers['user-agent'] || null,
+  }).catch((err) => {
+    console.error('[submitFinalizeHandler] Audit log error:', err.message);
+  });
+
+  const sizeMb = parseFloat((deliverable.fileSize / (1024 * 1024)).toFixed(2));
+
+  return res.status(201).json({
+    deliverableId: deliverable.deliverableId,
+    groupId: deliverable.groupId,
+    deliverableType: deliverable.deliverableType,
+    status: deliverable.status,
+    fileHash: deliverable.fileHash,
+    sizeMb,
+    format: deliverable.format,
+    version: deliverable.version,
+    submittedAt: deliverable.submittedAt.toISOString(),
+  });
+};
+
+/**
  * GET /api/deliverables/:deliverableId/download
  *
  * Stream the stored file to the requester.
@@ -825,6 +952,7 @@ module.exports = {
   validateFormatHandler,
   validateDeadlineHandler,
   storeDeliverableHandler,
+  submitFinalizeHandler,
   listDeliverablesHandler,
   getDeliverableHandler,
   retractDeliverableHandler,
