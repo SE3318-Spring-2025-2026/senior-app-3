@@ -582,11 +582,157 @@ const publishFinalGradesHandler = async (req, res) => {
   }
 };
 
+/**
+ * GET /groups/:groupId/final-grades/review
+ * Read-only snapshot for professor/advisor review.
+ * Auto-generates and persists a preview if none exists yet.
+ */
+const getGradeReviewHandler = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const requester = req.user;
+
+    const allowedRoles = ['coordinator', 'professor', 'advisor'];
+    if (!requester || !allowedRoles.includes(requester.role)) {
+      return res.status(403).json({ message: PREVIEW_FORBIDDEN_MESSAGE, code: 'FORBIDDEN' });
+    }
+
+    if (!isCoordinator(req)) {
+      const group = await Group.findOne({ groupId }).select('advisorId professorId').lean();
+      const isAssigned =
+        (requester.role === 'advisor' && group?.advisorId === requester.userId) ||
+        (requester.role === 'professor' && group?.professorId === requester.userId);
+      if (!isAssigned) {
+        return res.status(403).json({ message: PREVIEW_GROUP_ACCESS_DENIED_MESSAGE, code: 'FORBIDDEN' });
+      }
+    }
+
+    // Find the latest publish cycle that has pending or approved grades
+    let latestRecord = await FinalGrade.findOne({
+      groupId,
+      status: { $in: [FINAL_GRADE_STATUS.PENDING, FINAL_GRADE_STATUS.APPROVED] },
+    })
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .lean();
+
+    // Auto-generate and persist a preview if none exists
+    if (!latestRecord) {
+      let autoPreview;
+      try {
+        autoPreview = await generatePreview(groupId, { allowMissingRatios: true });
+      } catch (previewError) {
+        // Fall back to equal-ratio distribution from the group's member list
+        const groupDoc = await Group.findOne({ groupId }).lean();
+        const memberIds = (groupDoc?.members || [])
+          .filter((m) => m.status === 'accepted' && m.userId)
+          .map((m) => m.userId);
+        if (memberIds.length === 0 && groupDoc?.leaderId) memberIds.push(groupDoc.leaderId);
+
+        if (memberIds.length === 0) {
+          return res.status(404).json({ message: 'No grade preview has been generated for this group yet.', code: 'NO_PREVIEW' });
+        }
+
+        const equalRatio = Math.round((1 / memberIds.length) * 10000) / 10000;
+        const baseGroupScore = 100;
+        autoPreview = {
+          groupId,
+          baseGroupScore,
+          createdAt: new Date(),
+          students: memberIds.map((studentId) => ({
+            studentId,
+            contributionRatio: equalRatio,
+            computedFinalGrade: Math.round(baseGroupScore * equalRatio * 100) / 100,
+            deliverableScoreBreakdown: {},
+          })),
+        };
+      }
+
+      if (!Array.isArray(autoPreview?.students) || autoPreview.students.length === 0) {
+        return res.status(404).json({ message: 'No grade preview has been generated for this group yet.', code: 'NO_PREVIEW' });
+      }
+
+      const publishCycle = buildPublishCycle(groupId);
+      try {
+        await persistPreviewForApproval({
+          groupId,
+          preview: autoPreview,
+          publishCycle,
+          coordinatorId: 'system_auto',
+        });
+      } catch (persistError) {
+        console.warn('[GradeReview] Auto-persist failed:', persistError.message);
+        return res.status(404).json({ message: 'No grade preview has been generated for this group yet.', code: 'NO_PREVIEW' });
+      }
+
+      latestRecord = await FinalGrade.findOne({
+        groupId,
+        status: FINAL_GRADE_STATUS.PENDING,
+      })
+        .sort({ updatedAt: -1, createdAt: -1 })
+        .lean();
+
+      if (!latestRecord) {
+        return res.status(404).json({ message: 'No grade preview has been generated for this group yet.', code: 'NO_PREVIEW' });
+      }
+    }
+
+    const { publishCycle } = latestRecord;
+
+    const gradeRecords = await FinalGrade.find({
+      groupId,
+      publishCycle,
+      status: { $in: [FINAL_GRADE_STATUS.PENDING, FINAL_GRADE_STATUS.APPROVED] },
+    }).lean();
+
+    const students = gradeRecords.map((g) => ({
+      studentId: g.studentId,
+      contributionRatio: g.individualRatio,
+      computedFinalGrade: g.computedFinalGrade,
+      deliverableScoreBreakdown: {},
+    }));
+
+    const approvedRecord = gradeRecords.find((g) => g.status === FINAL_GRADE_STATUS.APPROVED);
+    const overrideEntries = gradeRecords
+      .filter((g) => g.overrideApplied && g.overriddenFinalGrade != null)
+      .map((g) => ({
+        studentId: g.studentId,
+        overriddenFinalGrade: g.overriddenFinalGrade,
+        comment: g.overrideComment || null,
+      }));
+
+    const approval = approvedRecord
+      ? {
+          decision: 'approved',
+          coordinatorId: approvedRecord.approvedBy,
+          approvedAt: approvedRecord.approvedAt,
+          overridesApplied: overrideEntries.length > 0,
+          overrideEntries,
+        }
+      : null;
+
+    return res.status(200).json({
+      status: approval ? 'approved' : 'preview_ready',
+      preview: {
+        groupId,
+        publishCycle,
+        baseGroupScore: latestRecord.baseGroupScore,
+        createdAt: latestRecord.createdAt,
+        students,
+      },
+      approval,
+    });
+  } catch (error) {
+    console.error('[GradeReview] Error:', error);
+    return res.status(500).json({ message: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
 module.exports = {
   previewFinalGradesHandler,
   approveGroupGradesHandler,
   getGroupApprovalSummaryHandler,
   getPublishedGroupFinalGradesHandler,
   getMyPublishedFinalGradesHandler,
-  publishFinalGradesHandler
+  publishFinalGradesHandler,
+  getGradeReviewHandler,
 };

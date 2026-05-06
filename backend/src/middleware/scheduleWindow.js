@@ -16,6 +16,13 @@ const assertRegisteredScheduleOperationType = (operationType) =>
  * - group_creation / member_addition: 403 (Forbidden)
  * - advisor_association (Issue #70): 422 (Unprocessable Entity)
  */
+function isDemoWindowsOpen() {
+  return (
+    process.env.DEMO_OPEN_SCHEDULE_WINDOWS === 'true' &&
+    process.env.NODE_ENV !== 'production'
+  );
+}
+
 const checkScheduleWindow = (operationType, options = {}) => async (req, res, next) => {
   try {
     if (!assertRegisteredScheduleOperationType(operationType)) {
@@ -24,6 +31,8 @@ const checkScheduleWindow = (operationType, options = {}) => async (req, res, ne
         message: 'Invalid schedule operation type configured in route.',
       });
     }
+
+    if (isDemoWindowsOpen()) return next();
 
     const now = new Date();
     const activeWindow = await ScheduleWindow.findOne({
@@ -72,6 +81,8 @@ const checkScheduleWindow = (operationType, options = {}) => async (req, res, ne
  */
 const checkAdvisorOperationWindow = (operationType = 'advisor_association') => async (req, res, next) => {
   try {
+    if (isDemoWindowsOpen()) return next();
+
     const now = new Date();
     const activeWindow = await ScheduleWindow.findOne({
       operationType,
