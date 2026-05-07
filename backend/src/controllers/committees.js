@@ -472,6 +472,48 @@ const getCommitteeById = async (req, res) => {
   }
 };
 
+/**
+ * Get published committees where the authenticated user is a jury member.
+ * GET /api/v1/committees/my-jury
+ */
+const getMyJuryCommittees = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Authentication required',
+      });
+    }
+
+    const committees = await Committee.find({ juryIds: userId, status: 'published' })
+      .sort({ publishedAt: -1 })
+      .lean();
+
+    return res.status(200).json({
+      committees: committees.map((committee) => ({
+        committeeId: committee.committeeId,
+        committeeName: committee.committeeName,
+        description: committee.description || null,
+        status: committee.status,
+        advisorIds: Array.isArray(committee.advisorIds) ? committee.advisorIds : [],
+        juryIds: Array.isArray(committee.juryIds) ? committee.juryIds : [],
+        publishedAt: committee.publishedAt,
+        createdAt: committee.createdAt,
+        updatedAt: committee.updatedAt,
+      })),
+      total: committees.length,
+    });
+  } catch (err) {
+    console.error('getMyJuryCommittees error:', err);
+    return res.status(500).json({
+      code: 'INTERNAL_ERROR',
+      message: 'Failed to load jury committees',
+    });
+  }
+};
+
 module.exports = {
   createCommittee,
   publishCommittee,
@@ -479,5 +521,6 @@ module.exports = {
   assignAdvisorsHandler,
   assignJuryHandler,
   listCommittees,
-  getCommitteeById
+  getCommitteeById,
+  getMyJuryCommittees,
 };
