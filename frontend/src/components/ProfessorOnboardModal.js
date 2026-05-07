@@ -179,9 +179,7 @@ const ProfessorOnboardModal = () => {
 
 const styles = {
   overlay: {
-    position: 'fixed',
-    inset: 0,
-    zIndex: 9999,
+    minHeight: '100vh',
     background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
     display: 'flex',
     alignItems: 'center',
