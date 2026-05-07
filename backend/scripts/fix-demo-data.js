@@ -18,7 +18,7 @@
  * It does NOT delete or overwrite anything that already exists.
  */
 
-require('dotenv').config();
+require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 const mongoose = require('mongoose');
 
 const ScheduleWindow = require('../src/models/ScheduleWindow');
