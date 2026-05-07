@@ -111,6 +111,7 @@ const AdviseeRequestForm = () => {
   const [windowInfo, setWindowInfo] = useState({ open: null });
   const [scheduleBoundaryLocked, setScheduleBoundaryLocked] = useState(false);
   const [pendingConflict, setPendingConflict] = useState(null);
+  const [assignedConflict, setAssignedConflict] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
 
   useEffect(() => {
@@ -150,6 +151,7 @@ const AdviseeRequestForm = () => {
               ? `This group already has an assigned advisor (${profLabel}).`
               : 'This group already has an assigned advisor.'
           );
+          setAssignedConflict(true);
         } else if (group.advisorStatus === 'pending' && group.advisorRequest?.status === 'pending') {
           const req = group.advisorRequest;
           const profLabel = req.professorName || req.professorId;
@@ -396,7 +398,7 @@ const AdviseeRequestForm = () => {
             <button
               type="submit"
               className="submit-btn"
-              disabled={!windowInfo.open || scheduleBoundaryLocked || !selectedProfessor || isSubmitting || !!pendingConflict}
+              disabled={!windowInfo.open || scheduleBoundaryLocked || !selectedProfessor || isSubmitting || !!pendingConflict || assignedConflict}
             >
               {isSubmitting ? 'Submitting...' : 'Submit Request'}
             </button>
