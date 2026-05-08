@@ -1,5 +1,5 @@
 import React from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
@@ -11,16 +11,15 @@ jest.mock('../api/finalGradeService', () => ({
   publishFinalGrades: jest.fn(),
 }));
 
-jest.mock('react-router-dom', () => ({
-  ...jest.requireActual('react-router-dom'),
-  useParams: () => ({ groupId: 'group-1' }),
-  useNavigate: () => jest.fn(),
-}));
-
-const renderPanel = () =>
+const renderPanel = (initialEntries = ['/groups/group-1/final-grades/publish']) =>
   render(
-    <MemoryRouter>
-      <CoordinatorFinalGradePublishPanel />
+    <MemoryRouter initialEntries={initialEntries}>
+      <Routes>
+        <Route
+          path="/groups/:groupId/final-grades/publish"
+          element={<CoordinatorFinalGradePublishPanel />}
+        />
+      </Routes>
     </MemoryRouter>
   );
 
@@ -158,5 +157,94 @@ describe('CoordinatorFinalGradePublishPanel', () => {
     expect(secondContainer).toHaveClass('error-message');
     expect(secondContainer).not.toHaveClass('error-message-warning');
     expect(screen.queryByText(/Grades Published/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('Wizard Flow and UI State', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('shows "Go to Review & Approve" when not published', async () => {
+    getGroupApprovalSummary.mockResolvedValue({
+      summary: [
+        { _id: 'approved', count: 0 },
+        { _id: 'published', count: 0 },
+        { _id: 'pending', count: 3 },
+      ],
+      activePublishCycle: 'Fall2026',
+    });
+
+    renderPanel();
+
+    await screen.findByRole('button', { name: /Publish Final Grades/i });
+    expect(screen.getByText(/Step 2 of 2/i)).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: /Review & Approve/i }).length).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: /Go to Review & Approve/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Back to Approval/i })).toBeInTheDocument();
+  });
+
+  it('hides "Go to Review & Approve" when already published', async () => {
+    getGroupApprovalSummary.mockResolvedValue({
+      summary: [
+        { _id: 'approved', count: 0 },
+        { _id: 'published', count: 2 },
+        { _id: 'pending', count: 0 },
+      ],
+      activePublishCycle: 'Fall2026',
+    });
+
+    renderPanel();
+
+    await screen.findByRole('button', { name: /Publish Final Grades/i });
+    expect(screen.getByText(/Step 2 of 2/i)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Go to Review & Approve/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/These grades are already published for this cycle/i)).toBeInTheDocument();
+  });
+
+  it('renders step indicators and completes publish success flow', async () => {
+    getGroupApprovalSummary.mockResolvedValueOnce({
+      summary: [
+        { _id: 'approved', count: 2 },
+        { _id: 'published', count: 0 },
+        { _id: 'pending', count: 1 },
+      ],
+      activePublishCycle: 'Fall2026',
+    });
+    getGroupApprovalSummary.mockResolvedValueOnce({
+      summary: [
+        { _id: 'approved', count: 0 },
+        { _id: 'published', count: 2 },
+        { _id: 'pending', count: 0 },
+      ],
+      activePublishCycle: 'Fall2026',
+    });
+    publishFinalGrades.mockResolvedValue({
+      groupId: 'group-1',
+      publishCycle: 'Fall2026',
+      publishedCount: 2,
+      publishedAt: '2026-05-08T10:00:00.000Z',
+      notificationStatus: {
+        email: true,
+        sms: false,
+        push: true,
+      },
+    });
+
+    renderPanel();
+
+    const publishButton = await screen.findByRole('button', { name: /Publish Final Grades/i });
+    expect(screen.getByText(/Step 2 of 2/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Review & Approve/i })).toBeInTheDocument();
+    expect(screen.getByText(/Publish Grades/i)).toBeInTheDocument();
+
+    await userEvent.click(publishButton);
+    expect(screen.getByRole('dialog', { name: /Confirm Publication/i })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /Confirm & Publish/i }));
+    expect(publishFinalGrades).toHaveBeenCalledWith('group-1', expect.any(Object));
+
+    expect(await screen.findByRole('heading', { name: /Grades Published/i })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: /Confirm Publication/i })).not.toBeInTheDocument();
   });
 });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { getGroupApprovalSummary, publishFinalGrades } from '../api/finalGradeService';
 import './CoordinatorFinalGradePublishPanel.css';
@@ -21,6 +21,10 @@ const CoordinatorFinalGradePublishPanel = () => {
   const [publishResult, setPublishResult] = useState(null);
   const [publishError, setPublishError] = useState(null);
   const [publishErrorType, setPublishErrorType] = useState('general');
+  const publishButtonRef = useRef(null);
+  const modalContentRef = useRef(null);
+  const publishingRef = useRef(publishing);
+  const prevShowModalRef = useRef(showModal);
 
   useEffect(() => {
     loadSummary();
@@ -47,13 +51,85 @@ const CoordinatorFinalGradePublishPanel = () => {
 
   const canPublish = approvedCount > 0 && publishedCount === 0 && Boolean(publishCycle);
   const publishBlockedReason =
-    approvedCount === 0
-      ? 'No approved grades found yet. First generate a preview and approve grades.'
-      : publishedCount > 0
-        ? 'These grades are already published for this cycle.'
+    publishedCount > 0
+      ? 'These grades are already published for this cycle.'
+      : approvedCount === 0
+        ? 'No approved grades found yet. First generate a preview and approve grades.'
         : !publishCycle
-          ? 'Publish cycle is missing. Refresh the page and re-open from the approval flow.'
+          ? ''
           : 'A valid approval snapshot is required before publishing.';
+
+  useEffect(() => {
+    publishingRef.current = publishing;
+  }, [publishing]);
+
+  useEffect(() => {
+    if (!showModal) return undefined;
+
+    const modalElement = modalContentRef.current;
+    if (!modalElement) return undefined;
+
+    const getFocusable = () =>
+      modalElement.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+
+    const focusableElements = getFocusable();
+    if (focusableElements.length > 0) {
+      focusableElements[0].focus();
+    } else {
+      modalElement.focus();
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (!publishingRef.current) {
+          setShowModal(false);
+          setPublishError(null);
+        }
+        return;
+      }
+
+      if (event.key !== 'Tab') return;
+
+      const updatedFocusable = getFocusable();
+      if (updatedFocusable.length === 0) {
+        event.preventDefault();
+        return;
+      }
+
+      const first = updatedFocusable[0];
+      const last = updatedFocusable[updatedFocusable.length - 1];
+      const active = document.activeElement;
+
+      if (!modalElement.contains(active)) {
+        event.preventDefault();
+        first.focus();
+        return;
+      }
+
+      if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showModal]);
+
+  useEffect(() => {
+    if (prevShowModalRef.current && !showModal) {
+      publishButtonRef.current?.focus();
+    }
+    prevShowModalRef.current = showModal;
+  }, [showModal]);
 
   const handlePublish = async () => {
     setPublishing(true);
@@ -208,6 +284,7 @@ const CoordinatorFinalGradePublishPanel = () => {
 
           <div className="publish-actions">
             <button
+              ref={publishButtonRef}
               className={`btn-publish${!canPublish ? ' disabled' : ''}`}
               onClick={() => setShowModal(true)}
               disabled={!canPublish}
@@ -241,7 +318,7 @@ const CoordinatorFinalGradePublishPanel = () => {
           aria-modal="true"
           aria-labelledby="modal-title"
         >
-          <div className="modal-content">
+          <div className="modal-content" ref={modalContentRef} tabIndex={-1}>
             <h2 id="modal-title">Confirm Publication</h2>
             <p>
               You are about to publish <strong>{approvedCount}</strong> approved grades for group{' '}
