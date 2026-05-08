@@ -1212,10 +1212,10 @@ const decideMemberRequest = async (req, res) => {
  */
 const getAllGroups = async (req, res) => {
   try {
-    if (req.user.role !== 'coordinator') {
+    if (!['coordinator', 'admin'].includes(req.user.role)) {
       return res.status(403).json({
         code: 'FORBIDDEN',
-        message: 'This action requires coordinator role',
+        message: 'This action requires coordinator or admin role',
       });
     }
 
