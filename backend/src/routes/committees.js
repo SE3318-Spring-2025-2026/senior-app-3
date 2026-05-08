@@ -31,7 +31,7 @@ router.post('/:committeeId/advisors', authMiddleware, roleMiddleware(['coordinat
  * Process 4.3: Assign Jury Members
  * POST /api/v1/committees/:committeeId/jury
  */
-router.post('/:committeeId/jury', authMiddleware, roleMiddleware(['coordinator']), assignJuryHandler);
+router.post('/:committeeId/jury', authMiddleware, roleMiddleware(['coordinator', 'admin']), assignJuryHandler);
 
 /**
  * Process 4.4: Validate Committee

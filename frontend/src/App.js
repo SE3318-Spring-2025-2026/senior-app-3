@@ -122,7 +122,7 @@ function App() {
             />
             <Route
               path="/coordinator/committees/:committeeId/jury"
-              element={<ProtectedRoute component={JuryAssignmentForm} requiredRoles={['coordinator']} />}
+              element={<ProtectedRoute component={JuryAssignmentForm} requiredRoles={['coordinator', 'admin']} />}
             />
 
             <Route
