@@ -111,6 +111,7 @@ const AdviseeRequestForm = () => {
   const [windowInfo, setWindowInfo] = useState({ open: null });
   const [scheduleBoundaryLocked, setScheduleBoundaryLocked] = useState(false);
   const [pendingConflict, setPendingConflict] = useState(null);
+  const [assignedConflict, setAssignedConflict] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
 
   useEffect(() => {
@@ -133,13 +134,38 @@ const AdviseeRequestForm = () => {
           getProfessors(),
           checkAdvisorWindow(),
         ]);
-        
+
         setProfessors(profList);
         const effectiveOpen = Boolean(winStatus?.open);
         setWindowInfo({ ...winStatus, open: effectiveOpen });
 
         if (!effectiveOpen) {
           setError('The advisor association window is currently closed.');
+        }
+
+        // 3. Block form if a pending request or assigned advisor already exists
+        if (group.advisorStatus === 'assigned') {
+          const profLabel = group.advisorName || group.professorId;
+          setError(
+            profLabel
+              ? `This group already has an assigned advisor (${profLabel}).`
+              : 'This group already has an assigned advisor.'
+          );
+          setAssignedConflict(true);
+        } else if (group.advisorStatus === 'pending' && group.advisorRequest?.status === 'pending') {
+          const req = group.advisorRequest;
+          const profLabel = req.professorName || req.professorId;
+          setError(
+            profLabel
+              ? `A pending advisor request already exists for ${profLabel}. Wait for their decision or cancel it below to send a new one.`
+              : 'A pending advisor request already exists. Wait for a decision or cancel it below before submitting another.'
+          );
+          setPendingConflict({
+            requestId: req.requestId,
+            professorId: req.professorId,
+            professorLabel: profLabel || null,
+            createdAt: req.createdAt || null,
+          });
         }
       } catch (err) {
         console.error('Failed to fetch data:', err);
@@ -372,7 +398,7 @@ const AdviseeRequestForm = () => {
             <button
               type="submit"
               className="submit-btn"
-              disabled={!windowInfo.open || scheduleBoundaryLocked || !selectedProfessor || isSubmitting}
+              disabled={!windowInfo.open || scheduleBoundaryLocked || !selectedProfessor || isSubmitting || !!pendingConflict || assignedConflict}
             >
               {isSubmitting ? 'Submitting...' : 'Submit Request'}
             </button>
