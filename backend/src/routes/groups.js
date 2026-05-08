@@ -74,8 +74,8 @@ router.post(
   advisorSanitization
 );
 
-// GET /api/v1/groups — Coordinator dashboard list
-router.get('/', authMiddleware, roleMiddleware(['coordinator']), getAllGroups);
+// GET /api/v1/groups — Coordinator/admin dashboard list
+router.get('/', authMiddleware, roleMiddleware(['coordinator', 'admin']), getAllGroups);
 
 // GET /api/v1/groups/:groupId — Detailed group record
 router.get('/:groupId', authMiddleware, getGroup);

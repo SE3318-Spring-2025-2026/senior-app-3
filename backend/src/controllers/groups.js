@@ -1212,13 +1212,6 @@ const decideMemberRequest = async (req, res) => {
  */
 const getAllGroups = async (req, res) => {
   try {
-    if (req.user.role !== 'coordinator') {
-      return res.status(403).json({
-        code: 'FORBIDDEN',
-        message: 'This action requires coordinator role',
-      });
-    }
-
     // Get all groups, sorted by createdAt (newest first)
     const groups = await Group.find().sort({ createdAt: -1 }).lean();
 
