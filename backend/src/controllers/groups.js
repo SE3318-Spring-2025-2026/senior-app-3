@@ -1252,6 +1252,9 @@ const getAllGroups = async (req, res) => {
           groupName: group.groupName,
           leaderId: group.leaderId,
           status: group.status,
+          advisorId: group.advisorId ?? null,
+          professorId: group.professorId ?? null,
+          advisorStatus: group.advisorStatus ?? null,
           memberCount: members.length,
           members: members.map((m) => ({
             userId: m.userId,

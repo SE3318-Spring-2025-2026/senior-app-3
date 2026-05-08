@@ -538,11 +538,11 @@ const transferAdvisor = async (req, res) => {
     group.advisorUpdatedAt = new Date();
     await group.save();
 
-    await notificationService.dispatchAdvisorTransferNotification({
+    notificationService.dispatchAdvisorTransferNotification({
       groupId,
       oldProfessorId,
       newProfessorId: resolvedProfessorId,
-    });
+    }).catch((notifErr) => console.warn('transferAdvisor: notification dispatch failed (non-fatal):', notifErr.message));
 
     await createAuditLog({
       action: 'advisor_transferred',

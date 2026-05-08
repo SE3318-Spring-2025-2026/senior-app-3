@@ -29,6 +29,7 @@ const TEST_USERS = {
   student2: { email: 'bob.student@example.edu.tr', password: 'Test@1234' },
   student3: { email: 'charlie.student@example.edu.tr', password: 'Test@1234' },
   professor: { email: 'prof.advisor@example.edu.tr', password: 'Test@1234' },
+  professor2: { email: 'prof.transfer@example.edu.tr', password: 'Test@1234' },
   coordinator: { email: 'coord.admin@example.edu.tr', password: 'Test@1234' },
   admin: { email: 'system.admin@example.edu.tr', password: 'Test@1234' },
 };
@@ -44,9 +45,9 @@ async function seedUsers() {
 
   const users = {};
   for (const [role, creds] of Object.entries(TEST_USERS)) {
-    const userRole = role.includes('student') ? 'student'
-      : role.includes('professor') ? 'professor'
-      : role.includes('coordinator') ? 'coordinator'
+    const userRole = role.startsWith('student') ? 'student'
+      : role.startsWith('professor') ? 'professor'
+      : role.startsWith('coordinator') ? 'coordinator'
       : 'admin';
 
     const user = await User.create({
@@ -100,7 +101,7 @@ async function seedGroups(users, committees) {
 
   const groups = [];
 
-  // Group 1: Alice as leader, Bob as member
+  // Group 1: Alice as leader, Bob as member — advisor assigned (transfer target test)
   const group1 = await Group.create({
     groupId: generateId('grp'),
     groupName: 'Project Alpha Team',
@@ -108,6 +109,10 @@ async function seedGroups(users, committees) {
     status: 'active',
     committeeId: committees[0].committeeId,
     createdBy: 'seed-test-general',
+    professorId: users.professor.userId,
+    advisorId: users.professor.userId,
+    advisorStatus: 'assigned',
+    advisorAssignedAt: new Date(),
     members: [
       { userId: users.student1.userId, role: 'leader', status: 'accepted' },
       { userId: users.student2.userId, role: 'member', status: 'accepted' },
@@ -343,7 +348,7 @@ async function run() {
 
     // Clean up previous test data
     console.log('🧹 Cleaning up previous test data...');
-    const testEmails = Object.values(TEST_USERS).map(u => u.email);
+    const testEmails = Object.values(TEST_USERS).map((u) => u.email);
 
     await User.deleteMany({ email: { $in: testEmails } });
     await Group.deleteMany({ groupName: { $in: ['Project Alpha Team', 'Project Beta Team'] } });
