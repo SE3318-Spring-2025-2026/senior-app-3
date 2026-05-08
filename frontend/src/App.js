@@ -42,7 +42,7 @@ import ProfilePage from './pages/ProfilePage.jsx';
 import RootRoute from './components/RootRoute';
 const Unauthorized = () => (
   <div className="page error" data-testid="unauthorized-page">
-    403 Forbidden - Coordinator access required
+    403 Forbidden - You do not have permission to access this resource.
   </div>
 );
 const NotFound = () => <div className="page error">Page Not Found</div>;
@@ -171,11 +171,11 @@ function App() {
             />
             <Route
               path="/groups/:groupId/final-grades/approval"
-              element={<ProtectedRoute component={CoordinatorFinalGradeApprovalPanel} requiredRoles={['coordinator', 'admin']} />}
+              element={<ProtectedRoute component={CoordinatorFinalGradeApprovalPanel} requiredRoles={['coordinator']} />}
             />
             <Route
               path="/groups/:groupId/final-grades/publish"
-              element={<ProtectedRoute component={CoordinatorFinalGradePublishPanel} requiredRoles={['coordinator', 'admin']} />}
+              element={<ProtectedRoute component={CoordinatorFinalGradePublishPanel} requiredRoles={['coordinator']} />}
             />
             <Route
               path="/dashboard/submit-deliverable"

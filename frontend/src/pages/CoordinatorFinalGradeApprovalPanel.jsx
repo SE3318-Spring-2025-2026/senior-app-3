@@ -94,10 +94,7 @@ const CoordinatorFinalGradeApprovalPanel = () => {
       const code = err?.response?.data?.code;
       if (status === 422 && code === 'MISSING_CONTRIBUTION_RATIOS') {
         setError(
-          'No contribution ratios are recorded for this group yet. ' +
-            'Run a sprint recalculation (Coordinator → Sprint Dashboard) or seed ' +
-            'fixtures (npm run seed:test-general) first. The current request asked the ' +
-            "backend to allow missing ratios but it still couldn't fall back."
+          'Contribution ratios are missing for this group. Please configure them in the Sprint Dashboard.'
         );
       } else if (status === 422) {
         setError(

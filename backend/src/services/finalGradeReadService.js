@@ -68,7 +68,7 @@ const getPublishedGradesForGroup = async (groupId, requester) => {
     return grades.map(serializeFinalGrade);
   }
 
-  if (requester.role === 'professor' || requester.role === 'advisor') {
+  if (requester.role === 'professor') {
     const group = await Group.findOne({ groupId }).select('advisorId professorId').lean();
     if (!group) {
       throw new FinalGradeReadError('Group not found', 404, 'GROUP_NOT_FOUND');
@@ -76,8 +76,8 @@ const getPublishedGradesForGroup = async (groupId, requester) => {
 
     const requesterId = requester.userId;
     const isAssigned =
-      (requester.role === 'advisor' && group.advisorId === requesterId) ||
-      (requester.role === 'professor' && group.professorId === requesterId);
+      String(group.advisorId || '') === String(requesterId) ||
+      String(group.professorId || '') === String(requesterId);
 
     if (!isAssigned) {
       throw new FinalGradeReadError(PUBLISHED_READ_FORBIDDEN_MESSAGE, 403, 'FORBIDDEN_PUBLISHED_GRADE_READ');
