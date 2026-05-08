@@ -41,8 +41,11 @@ describe('Group CRUD, Member Management & Override Endpoints — Issue #55', () 
   let AuditLog;
   let Override;
   let ApprovalQueue;
+  let SyncErrorLog;
+  let SprintRecord;
   let createGroup;
   let getGroup;
+  let getAllGroups;
   let forwardApprovalResults;
   let coordinatorOverride;
   let createMemberRequest;
@@ -114,8 +117,10 @@ describe('Group CRUD, Member Management & Override Endpoints — Issue #55', () 
     AuditLog = require('../src/models/AuditLog');
     Override = require('../src/models/Override');
     ApprovalQueue = require('../src/models/ApprovalQueue');
+    SyncErrorLog = require('../src/models/SyncErrorLog');
+    SprintRecord = require('../src/models/SprintRecord');
 
-    ({ createGroup, getGroup, forwardApprovalResults, coordinatorOverride, createMemberRequest, decideMemberRequest } =
+    ({ createGroup, getGroup, getAllGroups, forwardApprovalResults, coordinatorOverride, createMemberRequest, decideMemberRequest } =
       require('../src/controllers/groups'));
     ({ addMember, getMembers, membershipDecision } = require('../src/controllers/groupMembers'));
   });
@@ -135,6 +140,8 @@ describe('Group CRUD, Member Management & Override Endpoints — Issue #55', () 
       AuditLog.deleteMany({}),
       Override.deleteMany({}),
       ApprovalQueue.deleteMany({}),
+      SyncErrorLog.deleteMany({}),
+      SprintRecord.deleteMany({}),
     ]);
   });
 
@@ -2426,6 +2433,80 @@ describe('Group CRUD, Member Management & Override Endpoints — Issue #55', () 
       expect(log).toBeDefined();
       expect(log.targetId).toBe(group.groupId);
       expect(log.details.decision).toBe('rejected');
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // GET /api/v1/groups — getAllGroups
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('GET /api/v1/groups — getAllGroups', () => {
+    it('returns 200 with groups list for coordinator role', async () => {
+      await makeGroup({ groupName: 'Alpha', status: 'active' });
+      await makeGroup({ groupName: 'Beta', status: 'pending_validation' });
+
+      const req = makeReq({}, {}, { role: 'coordinator' });
+      const res = makeRes();
+
+      await getAllGroups(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const body = res.json.mock.calls[0][0];
+      expect(body.total).toBe(2);
+      expect(Array.isArray(body.groups)).toBe(true);
+    });
+
+    it('returns 200 with groups list for admin role', async () => {
+      await makeGroup({ groupName: 'Gamma', status: 'active' });
+
+      const req = makeReq({}, {}, { role: 'admin' });
+      const res = makeRes();
+
+      await getAllGroups(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const body = res.json.mock.calls[0][0];
+      expect(body.total).toBe(1);
+      expect(body.groups[0].groupName).toBe('Gamma');
+    });
+
+    // 403 enforcement for unauthorized roles (student, professor, etc.) is handled
+    // exclusively by roleMiddleware(['coordinator', 'admin']) on the route, not in
+    // the controller. Those cases are covered by route-level smoke tests.
+
+    it('returns integration health fields per group', async () => {
+      await Group.create({
+        groupName: 'IntegrationGroup',
+        leaderId: 'usr_test',
+        status: 'active',
+        githubOrg: 'my-org',
+        githubRepoUrl: 'https://github.com/my-org/repo',
+        projectKey: 'PROJ',
+        jiraBoardUrl: 'https://jira.example.com/board/1',
+      });
+
+      const req = makeReq({}, {}, { role: 'admin' });
+      const res = makeRes();
+
+      await getAllGroups(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const group = res.json.mock.calls[0][0].groups[0];
+      expect(group.githubConnected).toBe(true);
+      expect(group.jiraConnected).toBe(true);
+      expect(Array.isArray(group.integrationErrors)).toBe(true);
+    });
+
+    it('returns empty groups array when no groups exist', async () => {
+      const req = makeReq({}, {}, { role: 'admin' });
+      const res = makeRes();
+
+      await getAllGroups(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      const body = res.json.mock.calls[0][0];
+      expect(body.total).toBe(0);
+      expect(body.groups).toEqual([]);
     });
   });
 });
