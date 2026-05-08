@@ -234,12 +234,12 @@ const CoordinatorFinalGradeApprovalPanel = () => {
     <div className="approval-page">
       <header className="approval-header">
         <div>
-          <p className="approval-kicker">Coordinator final grade approval</p>
-          <h1>Preview & Approve Grades</h1>
+          <p className="approval-kicker">Step 1 of 2 &mdash; Coordinator final grade approval</p>
+          <h1>Preview &amp; Approve Grades</h1>
           <p>Group {groupId}</p>
         </div>
         <Link className="approval-secondary-link" to={`/groups/${groupId}/final-grades/publish`}>
-          Publish wizard
+          Next: Publish Grades &#8594;
         </Link>
       </header>
 

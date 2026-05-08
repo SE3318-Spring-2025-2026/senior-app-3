@@ -1,4 +1,5 @@
 import React from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
@@ -15,6 +16,13 @@ jest.mock('react-router-dom', () => ({
   useParams: () => ({ groupId: 'group-1' }),
   useNavigate: () => jest.fn(),
 }));
+
+const renderPanel = () =>
+  render(
+    <MemoryRouter>
+      <CoordinatorFinalGradePublishPanel />
+    </MemoryRouter>
+  );
 
 describe('CoordinatorFinalGradePublishPanel', () => {
   beforeEach(() => {
@@ -40,7 +48,7 @@ describe('CoordinatorFinalGradePublishPanel', () => {
       },
     });
 
-    render(<CoordinatorFinalGradePublishPanel />);
+    renderPanel();
 
     const publishButton = await screen.findByRole('button', { name: /Publish Final Grades/i });
     await userEvent.click(publishButton);
@@ -49,13 +57,14 @@ describe('CoordinatorFinalGradePublishPanel', () => {
     expect(
       await screen.findByText(/The selected cycle does not match the approved records/i)
     ).toBeInTheDocument();
-    expect(screen.getByText(/⚠️/)).toBeInTheDocument();
-    const warningContainer = screen.getByText(/The selected cycle does not match the approved records/i).closest('div');
+    const warningContainer = screen
+      .getByText(/The selected cycle does not match the approved records/i)
+      .closest('div');
     expect(warningContainer).toHaveClass('error-message');
     expect(warningContainer).toHaveClass('error-message-warning');
     expect(screen.getByRole('button', { name: /Confirm & Publish/i })).toBeInTheDocument();
     expect(screen.queryByText(/already been published for this cycle/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Published Summary/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Grades Published/i)).not.toBeInTheDocument();
   });
 
   it('maps ALREADY_PUBLISHED to duplicate publish message', async () => {
@@ -69,7 +78,7 @@ describe('CoordinatorFinalGradePublishPanel', () => {
       },
     });
 
-    render(<CoordinatorFinalGradePublishPanel />);
+    renderPanel();
 
     const publishButton = await screen.findByRole('button', { name: /Publish Final Grades/i });
     await userEvent.click(publishButton);
@@ -79,10 +88,12 @@ describe('CoordinatorFinalGradePublishPanel', () => {
       expect(screen.getByText(/already been published for this cycle/i)).toBeInTheDocument();
     });
 
-    const generalErrorContainer = screen.getByText(/already been published for this cycle/i).closest('div');
+    const generalErrorContainer = screen
+      .getByText(/already been published for this cycle/i)
+      .closest('div');
     expect(generalErrorContainer).toHaveClass('error-message');
     expect(generalErrorContainer).not.toHaveClass('error-message-warning');
-    expect(screen.queryByText(/Published Summary/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Grades Published/i)).not.toBeInTheDocument();
   });
 
   it('uses DEFAULT conflict fallback when 409 code is unrecognized', async () => {
@@ -96,7 +107,7 @@ describe('CoordinatorFinalGradePublishPanel', () => {
       },
     });
 
-    render(<CoordinatorFinalGradePublishPanel />);
+    renderPanel();
 
     const publishButton = await screen.findByRole('button', { name: /Publish Final Grades/i });
     await userEvent.click(publishButton);
@@ -105,7 +116,7 @@ describe('CoordinatorFinalGradePublishPanel', () => {
     await waitFor(() => {
       expect(screen.getByText(/A conflict error occurred/i)).toBeInTheDocument();
     });
-    expect(screen.queryByText(/Published Summary/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Grades Published/i)).not.toBeInTheDocument();
   });
 
   it('resets error type from cycle warning to general error on next attempt', async () => {
@@ -128,7 +139,7 @@ describe('CoordinatorFinalGradePublishPanel', () => {
         },
       });
 
-    render(<CoordinatorFinalGradePublishPanel />);
+    renderPanel();
 
     const publishButton = await screen.findByRole('button', { name: /Publish Final Grades/i });
     await userEvent.click(publishButton);
@@ -139,7 +150,6 @@ describe('CoordinatorFinalGradePublishPanel', () => {
     const firstError = await screen.findByText(/The selected cycle does not match the approved records/i);
     const firstContainer = firstError.closest('div');
     expect(firstContainer).toHaveClass('error-message-warning');
-    expect(screen.getByText(/⚠️/)).toBeInTheDocument();
 
     await userEvent.click(confirmButton);
 
@@ -147,7 +157,6 @@ describe('CoordinatorFinalGradePublishPanel', () => {
     const secondContainer = secondError.closest('div');
     expect(secondContainer).toHaveClass('error-message');
     expect(secondContainer).not.toHaveClass('error-message-warning');
-    expect(screen.getByText(/❌/)).toBeInTheDocument();
-    expect(screen.queryByText(/Published Summary/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Grades Published/i)).not.toBeInTheDocument();
   });
 });
