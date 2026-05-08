@@ -163,7 +163,7 @@ describe('Issue #258 / Script #255 published final grade read APIs', () => {
 
     const advisorResponse = await request(app)
       .get(`/api/v1/groups/${groupId}/final-grades?status=published`)
-      .set('Authorization', `Bearer ${tokenFor(advisor)}`);
+      .set('Authorization', `Bearer ${generateAccessToken(advisor.userId, 'professor')}`);
 
     expect(professorResponse.status).toBe(200);
     expect(advisorResponse.status).toBe(200);
