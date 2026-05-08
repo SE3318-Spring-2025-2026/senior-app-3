@@ -31,7 +31,7 @@ const JuryAssignmentForm = () => {
 
   // ── Role guard (UI layer) ─────────────────────────────────────────────────
   useEffect(() => {
-    if (!user || user.role !== 'coordinator') {
+    if (!user || !['coordinator', 'admin'].includes(user.role)) {
       // Handled in render but good to have here
     }
   }, [user]);
@@ -135,11 +135,11 @@ const JuryAssignmentForm = () => {
   };
 
   // ── Render Guards ─────────────────────────────────────────────────────────
-  if (!user || user.role !== 'coordinator') {
+  if (!user || !['coordinator', 'admin'].includes(user.role)) {
     return (
       <div className="jury-page">
         <div className="jury-card">
-          <div className="jury-error">Access Denied — This page is restricted to Coordinators only.</div>
+          <div className="jury-error">Access Denied — This page is restricted to Coordinators and Admins only.</div>
           <div className="jury-actions">
             <button className="btn-secondary" onClick={() => navigate(-1)}>← Go Back</button>
           </div>
