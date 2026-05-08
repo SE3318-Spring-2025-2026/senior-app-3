@@ -69,6 +69,10 @@ function tokenStudent(userId = unique('stu')) {
   return { userId, token: generateAccessToken(userId, 'student') };
 }
 
+function tokenProfessor(userId = unique('prof')) {
+  return { userId, token: generateAccessToken(userId, 'professor') };
+}
+
 async function seedActiveDeliverableWindow() {
   const now = Date.now();
   return ScheduleWindow.create({
@@ -637,6 +641,116 @@ describe('Committee & deliverable integration (Process 4.0)', () => {
       expect(gDoc.committeePublishedAt).toBeFalsy();
 
       AuditLog.prototype.save.mockRestore();
+    });
+  });
+
+  describe('GET /api/v1/committees/my-jury', () => {
+    it('returns 200 with published committees where the user is a jury member', async () => {
+      const coord = tokenCoordinator();
+      const prof = tokenProfessor();
+
+      const created = await request(app)
+        .post(`${API}/committees`)
+        .set('Authorization', `Bearer ${coord.token}`)
+        .send({ committeeName: unique('JuryView'), description: 'jury test' });
+      const committeeId = created.body.committeeId;
+
+      await request(app)
+        .post(`${API}/committees/${committeeId}/advisors`)
+        .set('Authorization', `Bearer ${coord.token}`)
+        .send({ advisorIds: [unique('adv')] });
+
+      await request(app)
+        .post(`${API}/committees/${committeeId}/jury`)
+        .set('Authorization', `Bearer ${coord.token}`)
+        .send({ juryIds: [prof.userId] });
+
+      await request(app)
+        .post(`${API}/committees/${committeeId}/validate`)
+        .set('Authorization', `Bearer ${coord.token}`);
+
+      await request(app)
+        .post(`${API}/committees/${committeeId}/publish`)
+        .set('Authorization', `Bearer ${coord.token}`)
+        .send({ assignedGroupIds: [] });
+
+      const res = await request(app)
+        .get(`${API}/committees/my-jury`)
+        .set('Authorization', `Bearer ${prof.token}`);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body.committees)).toBe(true);
+      expect(res.body.committees).toHaveLength(1);
+      expect(res.body.committees[0].committeeId).toBe(committeeId);
+      expect(res.body.committees[0].status).toBe('published');
+      expect(res.body.committees[0].juryIds).toContain(prof.userId);
+      expect(res.body.total).toBe(1);
+    });
+
+    it('returns 200 with empty list when user is not assigned to any jury', async () => {
+      const prof = tokenProfessor();
+
+      const res = await request(app)
+        .get(`${API}/committees/my-jury`)
+        .set('Authorization', `Bearer ${prof.token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.committees).toEqual([]);
+      expect(res.body.total).toBe(0);
+    });
+
+    it('does not return draft or validated committees', async () => {
+      const coord = tokenCoordinator();
+      const prof = tokenProfessor();
+
+      const created = await request(app)
+        .post(`${API}/committees`)
+        .set('Authorization', `Bearer ${coord.token}`)
+        .send({ committeeName: unique('JuryDraft') });
+      const committeeId = created.body.committeeId;
+
+      await request(app)
+        .post(`${API}/committees/${committeeId}/advisors`)
+        .set('Authorization', `Bearer ${coord.token}`)
+        .send({ advisorIds: [unique('adv')] });
+
+      await request(app)
+        .post(`${API}/committees/${committeeId}/jury`)
+        .set('Authorization', `Bearer ${coord.token}`)
+        .send({ juryIds: [prof.userId] });
+
+      // Validate but do NOT publish — committee stays in validated state
+      await request(app)
+        .post(`${API}/committees/${committeeId}/validate`)
+        .set('Authorization', `Bearer ${coord.token}`);
+
+      const res = await request(app)
+        .get(`${API}/committees/my-jury`)
+        .set('Authorization', `Bearer ${prof.token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.committees).toEqual([]);
+      expect(res.body.total).toBe(0);
+    });
+
+    it('returns 403 when caller is a coordinator or student', async () => {
+      const coord = tokenCoordinator();
+      const student = tokenStudent();
+
+      const resCoord = await request(app)
+        .get(`${API}/committees/my-jury`)
+        .set('Authorization', `Bearer ${coord.token}`);
+      expect(resCoord.status).toBe(403);
+
+      const resStudent = await request(app)
+        .get(`${API}/committees/my-jury`)
+        .set('Authorization', `Bearer ${student.token}`);
+      expect(resStudent.status).toBe(403);
+    });
+
+    it('returns 401 when token is missing', async () => {
+      const res = await request(app).get(`${API}/committees/my-jury`);
+      expect(res.status).toBe(401);
     });
   });
 

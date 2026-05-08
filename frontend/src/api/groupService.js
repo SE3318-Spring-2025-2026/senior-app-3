@@ -196,22 +196,12 @@ export const getGroupCommitteeStatus = async (groupId) => {
 };
 
 /**
- * Get jury-assigned committees for the authenticated user
- * @returns {Promise<{committees: object[]}>}
- *
- * NOTE: Backend GET endpoint for jury committees is planned in Level 2.4.
- * TODO: Once backend implements committee retrieval endpoints, replace with:
- *   GET /committees?role=jury (or dedicated GET /jury/committees endpoint)
- *   Filter response to only published committees for non-coordinator users
+ * Get published committees where the authenticated user is assigned as a jury member.
+ * @returns {Promise<{committees: object[], total: number}>}
  */
 export const getJuryCommittees = async () => {
-  // TODO: Backend implementation required (Level 2.4 Issue #75 or related)
-  // Once backend provides endpoint for jury committee retrieval, uncomment:
-  // const response = await apiClient.get('/committees?role=jury&status=published');
-  // return response.data;
-  return {
-    committees: [], // Awaiting backend GET endpoint for jury committee retrieval
-  };
+  const response = await apiClient.get('/committees/my-jury');
+  return response.data;
 };
 
 /**

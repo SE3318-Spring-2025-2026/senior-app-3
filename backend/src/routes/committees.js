@@ -8,6 +8,7 @@ const {
   assignJuryHandler,
   validateCommitteeHandler,
   publishCommittee,
+  getMyJuryCommittees,
 } = require('../controllers/committees');
 const { authMiddleware, roleMiddleware } = require('../middleware/auth');
 
@@ -17,6 +18,7 @@ const { authMiddleware, roleMiddleware } = require('../middleware/auth');
  */
 router.post('/', authMiddleware, roleMiddleware(['coordinator']), createCommittee);
 router.get('/', authMiddleware, roleMiddleware(['coordinator', 'admin']), listCommittees);
+router.get('/my-jury', authMiddleware, roleMiddleware(['professor']), getMyJuryCommittees);
 router.get('/:committeeId', authMiddleware, roleMiddleware(['coordinator', 'admin']), getCommitteeById);
 
 /**
