@@ -175,8 +175,8 @@ const previewFinalGradesHandler = async (req, res) => {
       const group = await Group.findOne({ groupId }).select('advisorId professorId').lean();
       const requesterId = req.user.userId;
       const isAssigned =
-        (req.user.role === 'advisor' && group?.advisorId === requesterId) ||
-        (req.user.role === 'professor' && group?.professorId === requesterId);
+        String(group?.advisorId || '') === String(requesterId) ||
+        String(group?.professorId || '') === String(requesterId);
 
       if (!isAssigned) {
         return res.status(403).json({
@@ -600,8 +600,8 @@ const getGradeReviewHandler = async (req, res) => {
     if (!isCoordinator(req)) {
       const group = await Group.findOne({ groupId }).select('advisorId professorId').lean();
       const isAssigned =
-        (requester.role === 'advisor' && group?.advisorId === requester.userId) ||
-        (requester.role === 'professor' && group?.professorId === requester.userId);
+        String(group?.advisorId || '') === String(requester.userId) ||
+        String(group?.professorId || '') === String(requester.userId);
       if (!isAssigned) {
         return res.status(403).json({ message: PREVIEW_GROUP_ACCESS_DENIED_MESSAGE, code: 'FORBIDDEN' });
       }

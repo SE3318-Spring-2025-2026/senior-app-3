@@ -18,7 +18,7 @@ const { authMiddleware, roleMiddleware } = require('../middleware/auth');
  */
 router.post('/', authMiddleware, roleMiddleware(['coordinator', 'admin']), createCommittee);
 router.get('/', authMiddleware, roleMiddleware(['coordinator', 'admin']), listCommittees);
-router.get('/my-jury', authMiddleware, roleMiddleware(['professor']), getMyJuryCommittees);
+router.get('/my-jury', authMiddleware, roleMiddleware(['professor', 'committee_member', 'admin']), getMyJuryCommittees);
 router.get('/:committeeId', authMiddleware, roleMiddleware(['coordinator', 'admin']), getCommitteeById);
 
 /**
