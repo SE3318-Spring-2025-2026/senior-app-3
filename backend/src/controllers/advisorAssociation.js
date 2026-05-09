@@ -496,11 +496,12 @@ const releaseAdvisor = async (req, res) => {
 const transferAdvisor = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { targetProfessorId } = req.body;
-    if (!targetProfessorId) {
+    const { newProfessorId, targetProfessorId } = req.body;
+    const resolvedProfessorId = newProfessorId || targetProfessorId;
+    if (!resolvedProfessorId) {
       return res.status(400).json({
         code: 'INVALID_INPUT',
-        message: 'targetProfessorId is required',
+        message: 'newProfessorId is required',
       });
     }
 
@@ -513,14 +514,14 @@ const transferAdvisor = async (req, res) => {
       return res.status(409).json({ code: 'CONFLICT', message: 'Group has no assigned advisor to transfer' });
     }
 
-    const target = await User.findOne({ userId: targetProfessorId, role: 'professor' });
+    const target = await User.findOne({ userId: resolvedProfessorId, role: 'professor' });
     if (!target) {
       return res.status(404).json({ code: 'NOT_FOUND', message: 'Target professor not found' });
     }
 
     const conflict = await Group.findOne({
       groupId: { $ne: groupId },
-      professorId: targetProfessorId,
+      professorId: resolvedProfessorId,
       advisorStatus: 'assigned',
     });
     if (conflict) {
@@ -531,16 +532,17 @@ const transferAdvisor = async (req, res) => {
     }
 
     const oldProfessorId = group.professorId;
-    group.professorId = targetProfessorId;
-    group.advisorId = targetProfessorId;
+    group.professorId = resolvedProfessorId;
+    group.advisorId = resolvedProfessorId;
     group.advisorStatus = 'transferred';
+    group.advisorUpdatedAt = new Date();
     await group.save();
 
-    await notificationService.dispatchAdvisorTransferNotification({
+    notificationService.dispatchAdvisorTransferNotification({
       groupId,
       oldProfessorId,
-      newProfessorId: targetProfessorId,
-    });
+      newProfessorId: resolvedProfessorId,
+    }).catch((notifErr) => console.warn('transferAdvisor: notification dispatch failed (non-fatal):', notifErr.message));
 
     await createAuditLog({
       action: 'advisor_transferred',
@@ -550,13 +552,19 @@ const transferAdvisor = async (req, res) => {
       payload: {
         groupId,
         oldProfessorId,
-        newProfessorId: targetProfessorId,
+        newProfessorId: resolvedProfessorId,
       },
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
     });
 
-    return res.status(200).json({ ok: true });
+    return res.status(200).json({
+      ok: true,
+      groupId: group.groupId,
+      professorId: group.professorId,
+      status: group.advisorStatus,
+      updatedAt: group.advisorUpdatedAt,
+    });
   } catch (err) {
     console.error('transferAdvisor error:', err);
     return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred.' });

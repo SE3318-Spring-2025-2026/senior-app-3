@@ -644,7 +644,44 @@ const options = {
           summary: 'Coordinator transfers advisor to another professor',
           security: [{ bearerAuth: [] }],
           parameters: [{ name: 'groupId', in: 'path', required: true, schema: { type: 'string' } }],
-          responses: { 200: { description: 'Advisor transferred' } },
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['newProfessorId'],
+                  properties: {
+                    newProfessorId: { type: 'string', description: 'User ID of the professor to transfer to' },
+                    reason: { type: 'string', description: 'Optional reason for the transfer' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: 'Advisor transferred',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      ok: { type: 'boolean' },
+                      groupId: { type: 'string' },
+                      professorId: { type: 'string' },
+                      status: { type: 'string' },
+                      updatedAt: { type: 'string', format: 'date-time' },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: 'Invalid input' },
+            404: { description: 'Group or professor not found' },
+            409: { description: 'Conflict — no advisor to transfer or target professor busy' },
+            422: { description: 'Advisor operation window is closed' },
+          },
         },
       },
 
