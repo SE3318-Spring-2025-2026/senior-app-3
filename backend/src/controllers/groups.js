@@ -237,10 +237,10 @@ const createGroup = async (req, res) => {
       });
     }
 
-    if (leader.accountStatus !== 'active') {
+    if (leader.accountStatus === 'suspended') {
       return res.status(400).json({
         code: 'LEADER_ACCOUNT_INACTIVE',
-        message: 'The leader account must be active before creating a group.',
+        message: 'Your account has been suspended and cannot be used to create a group.',
       });
     }
 
@@ -672,7 +672,7 @@ const VALID_GROUP_STATUSES = new Set(['pending_validation', 'active', 'inactive'
 const coordinatorOverride = async (req, res) => {
   try {
     // --- Role validation: Only coordinators can perform overrides ---
-    if (req.user.role !== 'coordinator') {
+    if (!['coordinator', 'admin'].includes(req.user.role)) {
       return res.status(403).json({
         code: 'FORBIDDEN',
         message: 'This action requires coordinator role',

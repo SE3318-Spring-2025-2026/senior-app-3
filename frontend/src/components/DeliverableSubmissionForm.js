@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { getScheduleWindow } from '../api/groupService';
 import { getGroupDeliverables, submitDeliverableStaging } from '../api/deliverableService';
 
@@ -182,6 +183,15 @@ const DeliverableSubmissionForm = ({
               >
                 Re-submit as {typeKey.replace(/_/g, ' ')}
               </button>
+            )}
+            {(data.deliverableId || data.id) && (
+              <Link
+                to={`/dashboard/reviews/${data.deliverableId || data.id}`}
+                className="add-member-btn"
+                style={{ display: 'inline-block', textAlign: 'center', textDecoration: 'none' }}
+              >
+                View / Add Comment
+              </Link>
             )}
           </div>
         ))}

@@ -111,7 +111,7 @@ const updateCommentHandler = async (req, res) => {
   }
 
   const isAuthor = comment.authorId === userId;
-  const isCoordinator = role === 'coordinator';
+  const isCoordinator = ['coordinator', 'admin'].includes(role);
 
   // Only comment author can edit content
   if (content !== undefined && !isAuthor) {

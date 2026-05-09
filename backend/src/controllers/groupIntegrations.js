@@ -122,7 +122,7 @@ const configureGithub = async (req, res) => {
       return res.status(400).json({ code: 'INVALID_VISIBILITY', message: 'visibility must be one of: private, public, internal' });
     }
 
-    if (req?.user?.role !== 'coordinator') {
+    if (!['coordinator', 'admin'].includes(req?.user?.role)) {
       return denyNonCoordinatorAccess(req, res, 'github', groupId);
     }
 
@@ -424,7 +424,7 @@ const configureJira = async (req, res) => {
       return res.status(400).json({ code: 'MISSING_PROJECT_KEY', message: 'project_key is required' });
     }
 
-    if (req?.user?.role !== 'coordinator') {
+    if (!['coordinator', 'admin'].includes(req?.user?.role)) {
       return denyNonCoordinatorAccess(req, res, 'jira', groupId);
     }
 

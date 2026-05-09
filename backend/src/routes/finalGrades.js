@@ -138,7 +138,7 @@ router.get(
 router.get(
   '/:groupId/final-grades/summary',
   authMiddleware,
-  roleMiddleware(['coordinator']),
+  roleMiddleware(['coordinator', 'admin']),
   getGroupApprovalSummaryHandler
 );
 

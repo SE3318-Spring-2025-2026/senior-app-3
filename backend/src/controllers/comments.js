@@ -337,7 +337,7 @@ exports.resolveComment = async (req, res, next) => {
     const { commentId } = req.params;
 
     // Only coordinators can resolve comments
-    if (role !== 'coordinator') {
+    if (!['coordinator', 'admin'].includes(role)) {
       return res.status(403).json({ message: 'Only coordinators can resolve comments' });
     }
 
