@@ -54,6 +54,7 @@ const approveAdvisorRequest = async (groupId, requestId, professorId, approverId
     // Update Group
     const now = new Date();
     group.advisorId = professorId;
+    group.professorId = professorId;
     group.advisorStatus = 'assigned';
     group.advisorUpdatedAt = now;
     group.advisorRequest.status = 'approved';

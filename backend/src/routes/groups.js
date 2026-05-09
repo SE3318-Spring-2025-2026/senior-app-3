@@ -126,14 +126,14 @@ router.post(
 // INTEGRATIONS & OVERRIDES (Process 2.6 - 2.8)
 // ============================================================================
 
-router.post('/:groupId/github', authMiddleware, roleMiddleware(['coordinator']), configureGithub);
+router.post('/:groupId/github', authMiddleware, roleMiddleware(['coordinator', 'admin']), configureGithub);
 router.get('/:groupId/github', authMiddleware, coordinatorAdminOrGroupMember, getGithub);
-router.post('/:groupId/jira', authMiddleware, roleMiddleware(['coordinator']), configureJira);
+router.post('/:groupId/jira', authMiddleware, roleMiddleware(['coordinator', 'admin']), configureJira);
 router.get('/:groupId/jira', authMiddleware, coordinatorAdminOrGroupMember, getJira);
 router.post(
   '/:groupId/sprints/:sprintId/jira-sync',
   serviceOrBearerAuth,
-  roleMiddleware(['coordinator']),
+  roleMiddleware(['coordinator', 'admin']),
   checkJiraSyncRateLimit,
   triggerJiraSync
 );
@@ -229,7 +229,7 @@ router.post(
 router.patch(
   '/:groupId/override',
   authMiddleware,
-  roleMiddleware(['coordinator']),
+  roleMiddleware(['coordinator', 'admin']),
   coordinatorOverride
 );
 
@@ -260,7 +260,7 @@ router.post(
 router.delete(
   '/:groupId/advisor',
   authMiddleware,
-  roleMiddleware(['student', 'coordinator']),
+  roleMiddleware(['student', 'coordinator', 'admin']),
   checkAdvisorOperationWindow(OPERATION_TYPES.ADVISOR_RELEASE),
   releaseAdvisor
 );
@@ -271,7 +271,7 @@ router.delete(
 router.post(
   '/:groupId/advisor/transfer',
   authMiddleware,
-  roleMiddleware(['coordinator']), 
+  roleMiddleware(['coordinator', 'admin']),
   checkAdvisorOperationWindow(OPERATION_TYPES.ADVISOR_TRANSFER),
   transferAdvisor
 );

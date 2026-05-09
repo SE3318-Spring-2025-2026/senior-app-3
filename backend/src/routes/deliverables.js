@@ -133,7 +133,7 @@ router.post('/:deliverableId/notify', notifyDeliverableHandler);
  */
 router.post(
   '/:deliverableId/comments',
-  roleMiddleware(['committee_member', 'coordinator']),
+  roleMiddleware(['committee_member', 'coordinator', 'professor']),
   addComment
 );
 
@@ -151,7 +151,7 @@ router.get('/:deliverableId/comments', getComments);
  */
 router.patch(
   '/:deliverableId/comments/:commentId',
-  roleMiddleware(['committee_member', 'coordinator', 'student']),
+  roleMiddleware(['committee_member', 'coordinator', 'professor', 'student']),
   updateCommentHandler
 );
 
@@ -162,7 +162,7 @@ router.patch(
  */
 router.post(
   '/:deliverableId/comments/:commentId/reply',
-  roleMiddleware(['committee_member', 'coordinator', 'student']),
+  roleMiddleware(['committee_member', 'coordinator', 'professor', 'student']),
   replyToCommentHandler
 );
 

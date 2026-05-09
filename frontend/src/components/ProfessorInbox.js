@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import './ProfessorInbox.css';
 import { getMyAdvisorRequests, decideOnAdvisorRequest, checkAdvisorWindow } from '../api/advisorService';
 import PageTitle from './PageTitle';
@@ -271,6 +272,14 @@ const ProfessorInbox = () => {
                         <p>
                           <strong>Reason:</strong> {request.reason}
                         </p>
+                      )}
+                      {request.status === 'approved' && request.groupId && (
+                        <Link
+                          to={`/groups/${request.groupId}`}
+                          className="btn btn-view-group"
+                        >
+                          View Group Submissions
+                        </Link>
                       )}
                     </div>
                   )}

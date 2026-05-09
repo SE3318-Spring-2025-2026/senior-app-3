@@ -20,6 +20,11 @@ const ProtectedRoute = ({ component: Component, requiredRoles = [] }) => {
     return <Navigate to="/auth/login" replace />;
   }
 
+  // Redirect unverified users to the email verification step
+  if (!user?.emailVerified) {
+    return <Navigate to="/onboarding?step=verify-email" replace />;
+  }
+
   // Check if user has required role
   if (requiredRoles.length > 0 && !requiredRoles.includes(user?.role)) {
     return <Navigate to="/unauthorized" replace />;

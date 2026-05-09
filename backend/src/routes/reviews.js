@@ -16,7 +16,7 @@ router.use(deliverableAuthMiddleware);
  */
 router.post(
   '/assign',
-  roleMiddleware(['coordinator']),
+  roleMiddleware(['coordinator', 'admin']),
   reviewController.assignReview
 );
 
@@ -27,7 +27,7 @@ router.post(
  */
 router.get(
   '/status',
-  roleMiddleware(['coordinator']),
+  roleMiddleware(['coordinator', 'admin']),
   reviewController.getReviewStatus
 );
 
