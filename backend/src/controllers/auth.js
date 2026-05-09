@@ -696,6 +696,86 @@ const githubOAuthCallback = async (req, res) => {
 };
 
 /**
+ * DEV-ONLY: Mock GitHub OAuth login — bypasses real GitHub API.
+ * GET /api/v1/auth/github/oauth/mock-login?githubId=<id>
+ * Finds the user by githubId and redirects to the frontend callback URL with
+ * a real JWT pair, exactly like the production flow would.
+ * Returns 404 in production.
+ */
+const mockGithubLogin = async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ message: 'Not found' });
+  }
+
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const callbackBase = `${frontendUrl}/auth/github/callback`;
+  const redirectError = (code) =>
+    res.redirect(`${callbackBase}?error=${encodeURIComponent(code)}`);
+
+  try {
+    const { githubId } = req.query;
+    if (!githubId) {
+      return redirectError('MISSING_PARAMS');
+    }
+
+    const user = await User.findOne({ githubId });
+    if (!user) {
+      return redirectError('GITHUB_NOT_LINKED');
+    }
+
+    if (user.lockedUntil && user.lockedUntil > new Date()) {
+      return redirectError('ACCOUNT_LOCKED');
+    }
+
+    if (user.accountStatus === 'suspended') {
+      return redirectError('ACCOUNT_SUSPENDED');
+    }
+
+    user.loginAttempts = 0;
+    user.lockedUntil = null;
+    user.lastLogin = new Date();
+    await user.save();
+
+    const tokens = generateTokenPair(user.userId, user.role);
+
+    let groupId = null;
+    if (user.role === 'student') {
+      groupId = await resolveStudentAffiliatedGroupId(user.userId, {
+        statusIn: ['active', 'pending_validation'],
+      });
+    }
+
+    const refreshTokenDoc = new RefreshToken({
+      userId: user.userId,
+      token: tokens.refreshToken,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      userAgent: req.headers['user-agent'],
+      ipAddress: req.ip,
+      lastUsedAt: new Date(),
+    });
+    await refreshTokenDoc.save();
+
+    const query = new URLSearchParams({
+      status: 'logged_in',
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      userId: user.userId,
+      email: user.email,
+      role: user.role,
+      emailVerified: String(user.emailVerified),
+      accountStatus: user.accountStatus,
+      requiresPasswordChange: String(user.requiresPasswordChange || false),
+      ...(groupId ? { groupId } : {}),
+    });
+
+    return res.redirect(`${callbackBase}?${query.toString()}`);
+  } catch (err) {
+    console.error('[mockGithubLogin] error:', err);
+    return redirectError('SERVER_ERROR');
+  }
+};
+
+/**
  * Change password and revoke all refresh tokens for the user
  */
 const changePassword = async (req, res) => {
@@ -1273,6 +1353,7 @@ module.exports = {
   initiateGithubOAuth,
   initiateGithubLoginOAuth,
   githubOAuthCallback,
+  mockGithubLogin,
   requestPasswordReset,
   validatePasswordResetToken,
   confirmPasswordReset,

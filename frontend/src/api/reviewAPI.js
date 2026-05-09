@@ -143,6 +143,30 @@ export const getCommitteeCandidates = async () => {
 };
 
 /**
+ * GET /api/v1/deliverables
+ * List all deliverables (professors, coordinators, admins only — no groupId required)
+ * @param {Object} options
+ * @param {string} [options.status]
+ * @param {string} [options.deliverableType]
+ * @param {number} [options.page]
+ * @param {number} [options.limit]
+ * @returns {Promise<{deliverables: Array, total: number, page: number, limit: number, totalPages: number}>}
+ */
+export const listAllDeliverables = async (options = {}) => {
+  const params = new URLSearchParams({
+    page: options.page || 1,
+    limit: options.limit || 50,
+    ...(options.status && { status: options.status }),
+  });
+  const response = await apiClient.get(`/deliverables?${params.toString()}`);
+  const data = response.data;
+  return {
+    ...data,
+    totalPages: Math.ceil((data.total || 0) / (data.limit || 50)),
+  };
+};
+
+/**
  * GET /api/v1/deliverables/:deliverableId/download
  * Download the stored file for a deliverable
  * @param {string} deliverableId

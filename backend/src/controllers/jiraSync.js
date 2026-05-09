@@ -1,6 +1,7 @@
 'use strict';
 
 const JiraSyncJob = require('../models/JiraSyncJob');
+const SprintIssue = require('../models/SprintIssue');
 const SprintRecord = require('../models/SprintRecord');
 const { jiraSyncWorker, JiraSyncError, getJiraConfig, getPublishedSprintConfig } = require('../services/jiraSyncService');
 const { createAuditLog } = require('../services/auditService');
@@ -219,4 +220,71 @@ const getJiraSyncLogs = async (req, res) => {
   }
 };
 
-module.exports = { triggerJiraSync, getJiraSyncStatus, getJiraSyncLogs };
+/**
+ * DEV-ONLY: Mock Jira sync — creates fake SprintIssue records and a completed
+ * JiraSyncJob without calling the real Jira API.
+ * POST /groups/:groupId/sprints/:sprintId/jira-sync/mock
+ * Returns 404 in production.
+ */
+const mockJiraSync = async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ message: 'Not found' });
+  }
+
+  const { groupId, sprintId } = req.params;
+  const actorId = req.user?.userId || 'system';
+
+  try {
+    const MOCK_ISSUES = [
+      { key: 'MOCK-101', summary: 'Implement authentication module',  points: 5, status: 'Done',        assignee: 'Alice Student'   },
+      { key: 'MOCK-102', summary: 'Setup MongoDB schemas',             points: 3, status: 'Done',        assignee: 'Bob Student'     },
+      { key: 'MOCK-103', summary: 'Build REST API endpoints',          points: 8, status: 'In Progress', assignee: 'Alice Student'   },
+      { key: 'MOCK-104', summary: 'Write unit and integration tests',  points: 5, status: 'In Progress', assignee: 'Charlie Student' },
+      { key: 'MOCK-105', summary: 'Deploy to staging environment',     points: 3, status: 'To Do',       assignee: 'Bob Student'     },
+    ];
+
+    // Upsert each mock issue
+    for (const issue of MOCK_ISSUES) {
+      await SprintIssue.findOneAndUpdate(
+        { groupId, sprintId, issueKey: issue.key },
+        {
+          groupId,
+          sprintId,
+          issueKey:            issue.key,
+          storyPoints:         issue.points,
+          status:              issue.status,
+          assigneeDisplayName: issue.assignee,
+          rawIssue:            { key: issue.key, fields: { summary: issue.summary } },
+          syncedAt:            new Date(),
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+    }
+
+    // Create a completed JiraSyncJob record
+    const now = new Date();
+    const job = await JiraSyncJob.create({
+      groupId,
+      sprintId,
+      source:          'jira',
+      status:          'COMPLETED',
+      issuesProcessed: MOCK_ISSUES.length,
+      issuesUpserted:  MOCK_ISSUES.length,
+      startedAt:       now,
+      completedAt:     now,
+      triggeredBy:     actorId,
+      correlationId:   `mock_${Date.now()}`,
+    });
+
+    return res.status(200).json({
+      ...mapJobResponse(job),
+      mock: true,
+      issuesCreated: MOCK_ISSUES.length,
+    });
+  } catch (err) {
+    console.error('[mockJiraSync] error:', err);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', message: err.message });
+  }
+};
+
+module.exports = { triggerJiraSync, getJiraSyncStatus, getJiraSyncLogs, mockJiraSync };

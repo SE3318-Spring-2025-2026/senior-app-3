@@ -616,4 +616,43 @@ const getJira = async (req, res) => {
   }
 };
 
-module.exports = { configureGithub, getGithub, configureJira, getJira };
+/**
+ * DEV-ONLY: Mock Jira configuration — bypasses real Jira API validation.
+ * POST /groups/:groupId/jira/mock
+ * Writes fake Jira credentials directly to the group document.
+ * Returns 404 in production.
+ */
+const mockConfigureJira = async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ message: 'Not found' });
+  }
+
+  try {
+    const { groupId } = req.params;
+    const group = await getGroupOrThrow(groupId);
+
+    await overwriteJiraCredentials({
+      group,
+      baseUrl: 'https://mock.atlassian.net',
+      email: 'jira@mock.dev',
+      apiToken: 'mock-jira-api-token-dev-only',
+      projectKey: 'MOCK',
+      projectData: { id: '10001', name: 'Mock Project' },
+      actorId: req.user?.userId || 'system',
+      req,
+    });
+
+    return res.status(201).json({
+      project_id: group.jiraProjectId,
+      project_key: group.projectKey,
+      binding: 'confirmed',
+      board_url: group.jiraBoardUrl,
+    });
+  } catch (err) {
+    if (tryHandleKnownError(err, res)) return;
+    console.error('[mockConfigureJira] error:', err);
+    return res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
+  }
+};
+
+module.exports = { configureGithub, getGithub, configureJira, getJira, mockConfigureJira };

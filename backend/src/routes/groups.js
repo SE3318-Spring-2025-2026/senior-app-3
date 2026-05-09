@@ -30,10 +30,10 @@ const {
   getApprovals 
 } = require('../controllers/groupMembers');
 
-const { configureGithub, getGithub, configureJira, getJira } = require('../controllers/groupIntegrations');
+const { configureGithub, getGithub, configureJira, getJira, mockConfigureJira } = require('../controllers/groupIntegrations');
 const { transitionStatus, getStatus } = require('../controllers/groupStatusTransition');
 const { triggerGitHubSync, getSyncJobStatus, getLatestSyncJob, getSyncJobLogs } = require('../controllers/githubSync');
-const { triggerJiraSync, getJiraSyncStatus, getJiraSyncLogs } = require('../controllers/jiraSync');
+const { triggerJiraSync, getJiraSyncStatus, getJiraSyncLogs, mockJiraSync } = require('../controllers/jiraSync');
 const {
   reconcileD4toD6,
 } = require('../controllers/sprintTracking');
@@ -137,6 +137,11 @@ router.post(
   checkJiraSyncRateLimit,
   triggerJiraSync
 );
+// Dev-only: mock Jira endpoints — bypass real API calls
+if (process.env.NODE_ENV !== 'production') {
+  router.post('/:groupId/jira/mock', authMiddleware, mockConfigureJira);
+  router.post('/:groupId/sprints/:sprintId/jira-sync/mock', authMiddleware, mockJiraSync);
+}
 
 // POST /api/v1/groups/:groupId/sprints — Coordinator bootstrap empty sprint
 // (used when no Jira/GitHub sync exists yet, so the sprint dropdown stays

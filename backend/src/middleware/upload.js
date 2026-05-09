@@ -10,6 +10,7 @@ const MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024; // 1 GB
 const ACCEPTED_MIMETYPES = new Set([
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/plain',
   'text/markdown',
   'application/zip',
 ]);

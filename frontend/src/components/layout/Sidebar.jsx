@@ -80,6 +80,16 @@ const Sidebar = ({ isCollapsed, onToggle }) => {
           ), requiredRoles: ['professor']
         },
         {
+          label: 'Deliverables',
+          path: '/professor/deliverables',
+          icon: (
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414A1 1 0 0119 9.414V19a2 2 0 01-2 2z" />
+            </svg>
+          ),
+          requiredRoles: ['professor', 'coordinator', 'admin'],
+        },
+        {
           label: 'Grade Review',
           path: reviewGroupId
             ? `/groups/${reviewGroupId}/final-grades/review`
