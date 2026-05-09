@@ -83,7 +83,7 @@ class GradePublishError extends Error {
  * @returns {Promise<Object>} { valid: true, grades: [...], groupName: String }
  * @throws {GradePublishError} If validation fails
  */
-const validatePublishEligibility = async (groupId) => {
+const validatePublishEligibility = async (groupId, publishCycle) => {
   // ISSUE #255: Verify group exists
   const group = await Group.findOne({ groupId });
   if (!group) {
@@ -95,8 +95,8 @@ const validatePublishEligibility = async (groupId) => {
   }
 
   // ISSUE #255: Use FinalGrade model helper to check publish eligibility
-  const eligibility = await FinalGrade.checkPublishEligibility(groupId);
-  
+  const eligibility = await FinalGrade.checkPublishEligibility(groupId, publishCycle);
+
   // ISSUE #255: If cannot publish, throw error with appropriate status code
   if (!eligibility.canPublish) {
     // ISSUE #255: Already published = 409 Conflict (idempotency guard)
@@ -126,10 +126,9 @@ const validatePublishEligibility = async (groupId) => {
   }
 
   // ISSUE #255: Fetch full grade documents for publishing
-  const approvedGrades = await FinalGrade.find({
-    groupId,
-    status: FINAL_GRADE_STATUS.APPROVED
-  });
+  const approvedGradesQuery = { groupId, status: FINAL_GRADE_STATUS.APPROVED };
+  if (publishCycle) approvedGradesQuery.publishCycle = publishCycle;
+  const approvedGrades = await FinalGrade.find(approvedGradesQuery);
 
   return {
     valid: true,
@@ -480,7 +479,7 @@ const publishFinalGrades = async (
 
   try {
     // ISSUE #255: Step 1 - Validate eligibility (throws 404/409/422 as needed)
-    const eligibilityCheck = await validatePublishEligibility(groupId);
+    const eligibilityCheck = await validatePublishEligibility(groupId, options.publishCycle);
 
     console.log(
       `[Issue #255] Eligibility check passed. Publishing ${eligibilityCheck.grades.length} grades`

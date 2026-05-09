@@ -560,9 +560,11 @@ finalGradeSchema.statics.getSummary = async function(groupId) {
  *     throw new PublishError(check.reason, 409);
  *   }
  */
-finalGradeSchema.statics.checkPublishEligibility = async function(groupId) {
-  // ISSUE #255: Fetch all grade records for this group
-  const allGrades = await this.find({ groupId });
+finalGradeSchema.statics.checkPublishEligibility = async function(groupId, publishCycle) {
+  // ISSUE #255: Fetch grade records for this group (and cycle when provided)
+  const query = { groupId };
+  if (publishCycle) query.publishCycle = publishCycle;
+  const allGrades = await this.find(query);
   
   // ISSUE #255: Reject if no grades exist (404 - no prior approval)
   if (allGrades.length === 0) {

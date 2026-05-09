@@ -292,7 +292,7 @@ async function resolveContributionRatiosForPreview(groupId, input = {}) {
     .sort({ recalculatedAt: -1, lastUpdatedAt: -1, updatedAt: -1 })
     .lean();
 
-  if (records.length === 0) {
+  if (records.length === 0 && !allowMissingRatios) {
     throw new FinalGradeRatioResolverError(
       404,
       'PREVIEW_PREREQUISITES_MISSING',

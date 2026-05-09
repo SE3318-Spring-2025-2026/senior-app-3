@@ -161,7 +161,7 @@ const previewFinalGradesHandler = async (req, res) => {
     const { groupId } = req.params;
 
     // RBAC Check for preview roles
-    const allowedRoles = ['coordinator', 'professor', 'advisor'];
+    const allowedRoles = ['coordinator', 'professor', 'advisor', 'admin'];
     if (!req.user || !allowedRoles.includes(req.user.role)) {
       return res.status(403).json({
         error: PREVIEW_FORBIDDEN_MESSAGE,
