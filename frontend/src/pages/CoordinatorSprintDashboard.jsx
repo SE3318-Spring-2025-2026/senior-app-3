@@ -223,7 +223,7 @@ const CoordinatorSprintDashboard = () => {
   };
 
   if (!isAuthenticated) return <Navigate to="/auth/login" replace />;
-  if (user?.role !== 'coordinator') return <Navigate to="/unauthorized" replace />;
+  if (!['coordinator', 'admin'].includes(user?.role)) return <Navigate to="/unauthorized" replace />;
 
   return (
     <div className="p-6 min-h-screen">

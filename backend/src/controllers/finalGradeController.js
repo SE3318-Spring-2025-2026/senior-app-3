@@ -23,7 +23,7 @@ const PUBLISH_FORBIDDEN_MESSAGE =
   'Forbidden - only the Coordinator role or authorized system backend may publish final grades';
 const SYSTEM_ACTOR_ID = 'SYSTEM';
 
-const isCoordinator = (req) => req?.user?.role === 'coordinator';
+const isCoordinator = (req) => ['coordinator', 'admin'].includes(req?.user?.role);
 const hasValidSystemToken = (req) =>
   typeof req?.headers?.['x-system-auth'] === 'string' &&
   req.headers['x-system-auth'] === process.env.INTERNAL_SYSTEM_TOKEN;
@@ -161,7 +161,7 @@ const previewFinalGradesHandler = async (req, res) => {
     const { groupId } = req.params;
 
     // RBAC Check for preview roles
-    const allowedRoles = ['coordinator', 'professor', 'advisor'];
+    const allowedRoles = ['coordinator', 'professor', 'advisor', 'admin'];
     if (!req.user || !allowedRoles.includes(req.user.role)) {
       return res.status(403).json({
         error: PREVIEW_FORBIDDEN_MESSAGE,
