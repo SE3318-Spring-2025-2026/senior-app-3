@@ -112,13 +112,13 @@ function App() {
             />
             <Route
               path="/coordinator/sprint-dashboard"
-              element={<ProtectedRoute component={CoordinatorSprintDashboard} requiredRoles={['coordinator']} />}
+              element={<ProtectedRoute component={CoordinatorSprintDashboard} requiredRoles={['coordinator', 'admin']} />}
             />
 
             {/* Committee Routes from main */}
             <Route
               path="/coordinator/committees/new"
-              element={<ProtectedRoute component={CommitteeCreationForm} requiredRoles={['coordinator']} />}
+              element={<ProtectedRoute component={CommitteeCreationForm} requiredRoles={['coordinator', 'admin']} />}
             />
             <Route
               path="/coordinator/committees/:committeeId/jury"
@@ -171,11 +171,11 @@ function App() {
             />
             <Route
               path="/groups/:groupId/final-grades/approval"
-              element={<ProtectedRoute component={CoordinatorFinalGradeApprovalPanel} requiredRoles={['coordinator']} />}
+              element={<ProtectedRoute component={CoordinatorFinalGradeApprovalPanel} requiredRoles={['coordinator', 'admin']} />}
             />
             <Route
               path="/groups/:groupId/final-grades/publish"
-              element={<ProtectedRoute component={CoordinatorFinalGradePublishPanel} requiredRoles={['coordinator']} />}
+              element={<ProtectedRoute component={CoordinatorFinalGradePublishPanel} requiredRoles={['coordinator', 'admin']} />}
             />
             <Route
               path="/dashboard/submit-deliverable"
