@@ -25,6 +25,7 @@ const {
   initiateGithubOAuth,
   initiateGithubLoginOAuth,
   githubOAuthCallback,
+  mockGithubLogin,
   requestPasswordReset,
   validatePasswordResetToken,
   confirmPasswordReset,
@@ -41,6 +42,10 @@ router.post('/register', registerStudent);
 router.post('/refresh', refreshAccessToken);
 router.get('/github/oauth/callback', githubOAuthCallback);
 router.post('/github/oauth/login', initiateGithubLoginOAuth);
+// Dev-only: mock GitHub login — skips real GitHub OAuth, uses pre-seeded githubId
+if (process.env.NODE_ENV !== 'production') {
+  router.get('/github/oauth/mock-login', mockGithubLogin);
+}
 router.post('/password-reset/request', requestPasswordReset);
 router.post('/password-reset/validate-token', validatePasswordResetToken);
 router.post('/password-reset/confirm', confirmPasswordReset);

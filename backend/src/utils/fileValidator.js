@@ -69,6 +69,18 @@ const startsWith = (buf, signature) =>
 const validateFormat = (filePath, mimeType, _deliverableType) => {
   const ext = (filePath.split('.').pop() || '').toLowerCase();
 
+  // ── Plain text ────────────────────────────────────────────────────────────
+  // No reliable magic bytes; accept by extension + text/plain MIME.
+  if (ext === 'txt') {
+    if (mimeType !== 'text/plain') {
+      return {
+        valid: false,
+        error: `Text file must have MIME type text/plain, got '${mimeType}'`,
+      };
+    }
+    return { valid: true, format: 'txt' };
+  }
+
   // ── Markdown ──────────────────────────────────────────────────────────────
   // No reliable magic bytes; accept by extension + text/plain MIME.
   if (ext === 'md') {
@@ -122,7 +134,7 @@ const validateFormat = (filePath, mimeType, _deliverableType) => {
   // ── Unknown extension ─────────────────────────────────────────────────────
   return {
     valid: false,
-    error: `Unsupported file extension '.${ext}'. Accepted: .pdf, .docx, .md, .zip`,
+    error: `Unsupported file extension '.${ext}'. Accepted: .pdf, .docx, .md, .txt, .zip`,
   };
 };
 

@@ -500,9 +500,8 @@ const listDeliverablesHandler = async (req, res) => {
   if (!groupId) {
     if (role === 'student') {
       groupId = userGroupId;
-    } else {
-      return res.status(400).json({ code: 'INVALID_REQUEST', message: 'groupId query param is required' });
     }
+    // professors, coordinators, and admins may omit groupId to list all deliverables
   }
 
   // Students can only query groups they belong to
@@ -519,7 +518,8 @@ const listDeliverablesHandler = async (req, res) => {
   const skip = (page - 1) * limit;
 
   // Build filter
-  const filter = { groupId };
+  const filter = {};
+  if (groupId) filter.groupId = groupId;
   if (sprintId) filter.sprintId = sprintId;
   if (status) filter.status = status;
 
@@ -527,7 +527,7 @@ const listDeliverablesHandler = async (req, res) => {
   try {
     [deliverables, total] = await Promise.all([
       Deliverable.find(filter)
-        .select('deliverableId deliverableType sprintId status submittedAt version')
+        .select('deliverableId deliverableType groupId sprintId status submittedAt version')
         .sort({ submittedAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -540,13 +540,14 @@ const listDeliverablesHandler = async (req, res) => {
   }
 
   return res.status(200).json({
-    groupId,
+    ...(groupId && { groupId }),
     total,
     page,
     limit,
     deliverables: deliverables.map((d) => ({
       deliverableId: d.deliverableId,
       deliverableType: d.deliverableType,
+      groupId: d.groupId,
       sprintId: d.sprintId ?? null,
       status: d.status,
       submittedAt: d.submittedAt,
@@ -939,6 +940,7 @@ const downloadDeliverableHandler = async (req, res) => {
     docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     doc: 'application/msword',
     md: 'text/markdown',
+    txt: 'text/plain',
     zip: 'application/zip',
   };
   res.setHeader('Content-Type', mimeMap[deliverable.format] || 'application/octet-stream');

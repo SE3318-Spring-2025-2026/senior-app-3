@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { configureJira } from '../api/groupService';
+import apiClient from '../api/apiClient';
 import './JiraSetupForm.css';
+
+const IS_DEV = process.env.NODE_ENV === 'development';
 
 /**
  * JIRA Integration Setup Form Component
@@ -22,6 +25,26 @@ const JiraSetupForm = ({ groupId, onSuccess, onError, isLeader }) => {
   const [errorMsg, setErrorMsg] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [tokenVisible, setTokenVisible] = useState(false);
+
+  const handleMockConfigure = async () => {
+    setLoading(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const response = await apiClient.post(`/groups/${groupId}/jira/mock`);
+      const data = response.data;
+      setSuccessMsg(
+        `[DEV] Mock JIRA configured. Project: ${data.project_key} (ID: ${data.project_id})`
+      );
+      if (onSuccess) onSuccess(data);
+      setTimeout(() => setSuccessMsg(''), 5000);
+    } catch (err) {
+      setErrorMsg(err.response?.data?.message || '[DEV] Mock configure failed');
+      if (onError) onError(err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -115,6 +138,44 @@ const JiraSetupForm = ({ groupId, onSuccess, onError, isLeader }) => {
       {errorMsg && (
         <div className="alert alert-error">
           {errorMsg}
+        </div>
+      )}
+
+      {IS_DEV && (
+        <div style={{
+          marginBottom: '12px',
+          padding: '10px 14px',
+          background: '#fffbeb',
+          border: '1px dashed #f59e0b',
+          borderRadius: '6px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+        }}>
+          <span style={{ fontSize: '12px', fontWeight: '700', color: '#92400e', textTransform: 'uppercase' }}>
+            ⚡ Dev
+          </span>
+          <button
+            type="button"
+            onClick={handleMockConfigure}
+            disabled={loading}
+            style={{
+              padding: '5px 12px',
+              background: '#1f2937',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              fontSize: '12px',
+              fontWeight: '500',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              opacity: loading ? 0.6 : 1,
+            }}
+          >
+            Mock Configure Jira
+          </button>
+          <span style={{ fontSize: '11px', color: '#b45309' }}>
+            Skips real Jira API — uses mock credentials
+          </span>
         </div>
       )}
 

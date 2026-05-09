@@ -37,6 +37,7 @@ import FinalGradeReviewPanel from './pages/FinalGradeReviewPanel.jsx';
 import CoordinatorFinalGradeApprovalPanel from './pages/CoordinatorFinalGradeApprovalPanel.jsx';
 import CoordinatorFinalGradePublishPanel from './pages/CoordinatorFinalGradePublishPanel.jsx';
 import ProfessorGradeReviewEntry from './pages/ProfessorGradeReviewEntry.jsx';
+import ProfessorDeliverablesPage from './pages/ProfessorDeliverablesPage.jsx';
 import CoordinatorAdvisorInbox from './pages/CoordinatorAdvisorInbox.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
 import RootRoute from './components/RootRoute';
@@ -91,6 +92,10 @@ function App() {
             <Route
               path="/professor/grade-review"
               element={<ProtectedRoute component={ProfessorGradeReviewEntry} requiredRoles={['professor', 'advisor']} />}
+            />
+            <Route
+              path="/professor/deliverables"
+              element={<ProtectedRoute component={ProfessorDeliverablesPage} requiredRoles={['professor', 'coordinator', 'admin']} />}
             />
             <Route
               path="/coordinator/advisor-requests"

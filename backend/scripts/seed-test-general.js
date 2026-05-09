@@ -20,18 +20,19 @@ const SprintConfig      = require('../src/models/SprintConfig');
 // Utilities
 const { hashPassword }        = require('../src/utils/password');
 const { generateAccessToken } = require('../src/utils/jwt');
+const { encrypt }             = require('../src/utils/cryptoUtils');
 
 const MONGO_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/senior-app';
 
 // Test user credentials
 const TEST_USERS = {
-  student1: { email: 'alice.student@example.edu.tr', password: 'Test@1234' },
-  student2: { email: 'bob.student@example.edu.tr', password: 'Test@1234' },
-  student3: { email: 'charlie.student@example.edu.tr', password: 'Test@1234' },
-  professor: { email: 'prof.advisor@example.edu.tr', password: 'Test@1234' },
-  professor2: { email: 'prof.transfer@example.edu.tr', password: 'Test@1234' },
-  coordinator: { email: 'coord.admin@example.edu.tr', password: 'Test@1234' },
-  admin: { email: 'system.admin@example.edu.tr', password: 'Test@1234' },
+  student1:    { email: 'alice.student@example.edu.tr',  password: 'Test@1234', githubId: '10000001', githubUsername: 'alice-student'    },
+  student2:    { email: 'bob.student@example.edu.tr',    password: 'Test@1234', githubId: '10000002', githubUsername: 'bob-student'      },
+  student3:    { email: 'charlie.student@example.edu.tr',password: 'Test@1234', githubId: '10000003', githubUsername: 'charlie-student'  },
+  professor:   { email: 'prof.advisor@example.edu.tr',   password: 'Test@1234', githubId: '10000004', githubUsername: 'prof-advisor'     },
+  professor2:  { email: 'prof.transfer@example.edu.tr',  password: 'Test@1234', githubId: '10000005', githubUsername: 'prof-transfer'    },
+  coordinator: { email: 'coord.admin@example.edu.tr',    password: 'Test@1234', githubId: '10000006', githubUsername: 'coord-admin'      },
+  admin:       { email: 'system.admin@example.edu.tr',   password: 'Test@1234', githubId: '10000007', githubUsername: 'system-admin'     },
 };
 
 // Helper to generate IDs
@@ -57,6 +58,8 @@ async function seedUsers() {
       role: userRole,
       emailVerified: true,
       accountStatus: 'active',
+      githubId: creds.githubId,
+      githubUsername: creds.githubUsername,
     });
 
     users[role] = user;
@@ -101,6 +104,9 @@ async function seedGroups(users, committees) {
 
   const groups = [];
 
+  const MOCK_JIRA_HOST = 'https://mock.atlassian.net';
+  const MOCK_JIRA_KEY  = 'MOCK';
+
   // Group 1: Alice as leader, Bob as member — advisor assigned (transfer target test)
   const group1 = await Group.create({
     groupId: generateId('grp'),
@@ -117,6 +123,16 @@ async function seedGroups(users, committees) {
       { userId: users.student1.userId, role: 'leader', status: 'accepted' },
       { userId: users.student2.userId, role: 'member', status: 'accepted' },
     ],
+    // Pre-configured Jira integration (mock)
+    jiraUrl:          MOCK_JIRA_HOST,
+    jiraUsername:     'jira@mock.dev',
+    jiraToken:        encrypt('mock-jira-api-token-dev-only'),
+    projectKey:       MOCK_JIRA_KEY,
+    jiraProjectId:    '10001',
+    jiraProject:      'Mock Project Alpha',
+    jiraBoardUrl:     `${MOCK_JIRA_HOST}/jira/software/projects/${MOCK_JIRA_KEY}/boards`,
+    jiraLastSynced:   new Date(),
+    jiraStoryPointOnly: true,
   });
   groups.push(group1);
   console.log(`  ✓ Created group: ${group1.groupName}`);
@@ -132,6 +148,16 @@ async function seedGroups(users, committees) {
     members: [
       { userId: users.student3.userId, role: 'leader', status: 'accepted' },
     ],
+    // Pre-configured Jira integration (mock)
+    jiraUrl:          MOCK_JIRA_HOST,
+    jiraUsername:     'jira@mock.dev',
+    jiraToken:        encrypt('mock-jira-api-token-dev-only'),
+    projectKey:       MOCK_JIRA_KEY,
+    jiraProjectId:    '10002',
+    jiraProject:      'Mock Project Beta',
+    jiraBoardUrl:     `${MOCK_JIRA_HOST}/jira/software/projects/${MOCK_JIRA_KEY}/boards`,
+    jiraLastSynced:   new Date(),
+    jiraStoryPointOnly: true,
   });
   groups.push(group2);
   console.log(`  ✓ Created group: ${group2.groupName}`);
@@ -349,8 +375,9 @@ async function run() {
     // Clean up previous test data
     console.log('🧹 Cleaning up previous test data...');
     const testEmails = Object.values(TEST_USERS).map((u) => u.email);
+    const testGithubIds = Object.values(TEST_USERS).map((u) => u.githubId);
 
-    await User.deleteMany({ email: { $in: testEmails } });
+    await User.deleteMany({ $or: [{ email: { $in: testEmails } }, { githubId: { $in: testGithubIds } }] });
     await Group.deleteMany({ groupName: { $in: ['Project Alpha Team', 'Project Beta Team'] } });
     await Committee.deleteMany({ createdBy: 'seed-test-general' });
     await ScheduleWindow.deleteMany({ createdBy: 'seed-test-general' });
@@ -417,14 +444,14 @@ async function run() {
     console.log(sep);
     for (const [role, user] of Object.entries(users)) {
       const creds = TEST_USERS[role];
-      console.log(`  ${role.toUpperCase().padEnd(12)} | userId: ${user.userId.padEnd(16)} | email: ${creds.email}  pw: ${creds.password}`);
+      console.log(`  ${role.toUpperCase().padEnd(12)} | userId: ${user.userId.padEnd(16)} | email: ${creds.email}  pw: ${creds.password}  github: ${creds.githubId} (${creds.githubUsername})`);
     }
 
     // Groups
     console.log(`\n🏢 GROUPS`);
     console.log(sep);
     for (const g of groups) {
-      console.log(`  ${g.groupName.padEnd(22)} | groupId: ${g.groupId}`);
+      console.log(`  ${g.groupName.padEnd(22)} | groupId: ${g.groupId}  | jira: ${g.projectKey} @ ${g.jiraUrl}`);
     }
 
     // Deliverables + Reviews
