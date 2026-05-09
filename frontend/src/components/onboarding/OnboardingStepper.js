@@ -556,7 +556,7 @@ const OnboardingStepper = () => {
   const renderStep = () => {
     switch (currentStep) {
       case 1:
-        return <Step1 onNext={nextStep} onBack={() => navigate('/auth/method-selection')} />;
+        return <Step1 onNext={nextStep} onBack={() => { reset(); navigate('/auth/method-selection'); }} />;
       case 2:
         return <Step2 onNext={nextStep} onBack={previousStep} />;
       case 3:
@@ -580,7 +580,10 @@ const OnboardingStepper = () => {
               <div
                 key={step.id}
                 className={`step-indicator ${status} ${clickable ? 'clickable' : ''}`}
-                onClick={() => clickable && setCurrentStep(step.id)}
+                onClick={() => {
+                  if (!clickable) return;
+                  if (step.id === 1) { reset(); } else { setCurrentStep(step.id); }
+                }}
               >
                 <div className="step-circle">
                   {status === 'completed' ? '✓' : step.id}
