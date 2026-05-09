@@ -237,10 +237,10 @@ const createGroup = async (req, res) => {
       });
     }
 
-    if (leader.accountStatus !== 'active') {
+    if (leader.accountStatus === 'suspended') {
       return res.status(400).json({
         code: 'LEADER_ACCOUNT_INACTIVE',
-        message: 'The leader account must be active before creating a group.',
+        message: 'Your account has been suspended and cannot be used to create a group.',
       });
     }
 
